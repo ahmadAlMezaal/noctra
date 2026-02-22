@@ -114,11 +114,17 @@ linear_gql() {
   local query="$1"
   local variables="${2:-{}}"
 
+  # jq -Rs . safely encodes the query string as a JSON string literal.
+  # $variables is already valid JSON produced by a prior jq call.
+  local query_json payload
+  query_json=$(printf '%s' "$query" | jq -Rs .)
+  payload=$(printf '{"query":%s,"variables":%s}' "$query_json" "$variables")
+
   curl -s \
     -X POST \
     -H "Content-Type: application/json" \
     -H "Authorization: ${LINEAR_API_KEY}" \
-    --data "$(jq -n --arg q "$query" --argjson v "$variables" '{"query":$q,"variables":$v}')" \
+    --data "$payload" \
     "https://api.linear.app/graphql"
 }
 
