@@ -192,24 +192,36 @@ linear_set_state() {
   local issue_id="$1"
   local state_id="$2"
 
-  linear_gql \
+  local response success
+  response=$(linear_gql \
     'mutation($id: String!, $stateId: String!) {
       issueUpdate(id: $id, input: { stateId: $stateId }) { success }
     }' \
-    "$(jq -n --arg id "$issue_id" --arg s "$state_id" '{"id":$id,"stateId":$s}')" \
-    > /dev/null
+    "$(jq -n --arg id "$issue_id" --arg s "$state_id" '{"id":$id,"stateId":$s}')")
+
+  success=$(echo "$response" | jq -r '.data.issueUpdate.success // false' 2>/dev/null || echo "false")
+  if [ "$success" != "true" ]; then
+    echo "⚠️  linear_set_state failed: $(echo "$response" | jq -c . 2>/dev/null || echo "$response")" >&2
+    return 1
+  fi
 }
 
 linear_comment() {
   local issue_id="$1"
   local body="$2"
 
-  linear_gql \
+  local response success
+  response=$(linear_gql \
     'mutation($issueId: String!, $body: String!) {
       commentCreate(input: { issueId: $issueId, body: $body }) { success }
     }' \
-    "$(jq -n --arg id "$issue_id" --arg b "$body" '{"issueId":$id,"body":$b}')" \
-    > /dev/null
+    "$(jq -n --arg id "$issue_id" --arg b "$body" '{"issueId":$id,"body":$b}')")
+
+  success=$(echo "$response" | jq -r '.data.commentCreate.success // false' 2>/dev/null || echo "false")
+  if [ "$success" != "true" ]; then
+    echo "⚠️  linear_comment failed: $(echo "$response" | jq -c . 2>/dev/null || echo "$response")" >&2
+    return 1
+  fi
 }
 
 # ─── Gemini Review Gate ──────────────────────────────────────────────────────
