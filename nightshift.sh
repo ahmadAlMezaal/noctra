@@ -294,7 +294,7 @@ create_worktree() {
   # Remove stale branch if exists
   git branch -D "$branch_name" 2>/dev/null || true
 
-  git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" 2>/dev/null
+  git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1
 
   echo "$worktree_path"
 }
