@@ -284,15 +284,15 @@ create_worktree() {
   mkdir -p "$WORKTREE_BASE"
 
   cd "$REPO_PATH"
-  git fetch origin "$MAIN_BRANCH" --quiet 2>/dev/null || true
+  git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
   # Remove stale worktree if exists
   if [ -d "$worktree_path" ]; then
-    git worktree remove "$worktree_path" --force 2>/dev/null || rm -rf "$worktree_path"
+    git worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
   fi
 
   # Remove stale branch if exists
-  git branch -D "$branch_name" 2>/dev/null || true
+  git branch -D "$branch_name" >/dev/null 2>&1 || true
 
   git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1
 
