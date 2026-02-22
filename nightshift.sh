@@ -127,15 +127,16 @@ resolve_state_ids() {
 
   local response nodes
   response=$(linear_gql \
-    'query($key: String!) { team(key: $key) { states { nodes { id name } } } }' \
-    "$(jq -n --arg k "$LINEAR_TEAM_KEY" '{"key":$k}')")
+    '{ teams { nodes { key states { nodes { id name } } } } }')
 
-  nodes=$(echo "$response" | jq -r '.data.team.states.nodes // empty' 2>/dev/null || true)
+  nodes=$(echo "$response" | jq -r \
+    --arg k "$LINEAR_TEAM_KEY" \
+    '.data.teams.nodes[] | select(.key == $k) | .states.nodes // empty' 2>/dev/null || true)
 
   if [ -z "$nodes" ] || [ "$nodes" = "null" ]; then
     echo "❌ Failed to fetch Linear workflow states." >&2
-    echo "   Check LINEAR_API_KEY and LINEAR_TEAM_KEY." >&2
-    echo "   Response: $(echo "$response" | jq -c . 2>/dev/null || echo "$response")" >&2
+    echo "   Check LINEAR_API_KEY and LINEAR_TEAM_KEY (yours: '${LINEAR_TEAM_KEY}')." >&2
+    echo "   Available teams: $(echo "$response" | jq -r '.data.teams.nodes[].key' 2>/dev/null | paste -sd ', ')" >&2
     exit 1
   fi
 
