@@ -166,16 +166,28 @@ resolve_state_ids() {
 }
 
 fetch_trigger_issues() {
+  # Filter by state name (same approach confirmed working via manual curl test)
+  local variables
+  variables=$(jq -n --arg s "$TRIGGER_STATE" '{"stateName":$s}')
+
   local response
   response=$(linear_gql \
-    'query($stateId: ID!) {
-      issues(filter: { state: { id: { eq: $stateId } } }, orderBy: updatedAt, first: 20) {
-        nodes { id identifier title description url }
+    'query($stateName: String!) {
+      teams {
+        nodes {
+          issues(
+            filter: { state: { name: { eq: $stateName } } }
+            orderBy: updatedAt
+            first: 20
+          ) {
+            nodes { id identifier title description url }
+          }
+        }
       }
     }' \
-    "$(jq -n --arg s "$STATE_ID_TRIGGER" '{"stateId":$s}')")
+    "$variables")
 
-  echo "$response" | jq -c '.data.issues.nodes[]?' 2>/dev/null || true
+  echo "$response" | jq -c '.data.teams.nodes[].issues.nodes[]?' 2>/dev/null || true
 }
 
 linear_set_state() {
