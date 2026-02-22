@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/opt/homebrew/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # nightshift.sh — Autonomous Linear → Pull Request agent
 # "Move tickets to Next. Go to sleep. Wake up to PRs."
