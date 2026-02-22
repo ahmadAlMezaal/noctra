@@ -641,8 +641,9 @@ Moved to **${IN_REVIEW_STATE}**. Ready for your review!" 2>/dev/null || true
 # ─── Process Management ──────────────────────────────────────────────────────
 
 cleanup_finished_pids() {
+  [ "${#ACTIVE_PIDS[@]}" -eq 0 ] && return
   local new_pids=()
-  for pid in "${ACTIVE_PIDS[@]:-}"; do
+  for pid in "${ACTIVE_PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       new_pids+=("$pid")
     else
@@ -658,8 +659,9 @@ cleanup_finished_pids() {
 
 is_ticket_active() {
   local check_id="$1"
-  for pid in "${!PID_TO_IDENTIFIER[@]:-}"; do
-    if [ "${PID_TO_IDENTIFIER[$pid]:-}" = "$check_id" ] && kill -0 "$pid" 2>/dev/null; then
+  [ "${#PID_TO_IDENTIFIER[@]}" -eq 0 ] && return 1
+  for pid in "${!PID_TO_IDENTIFIER[@]}"; do
+    if [ "${PID_TO_IDENTIFIER[$pid]}" = "$check_id" ] && kill -0 "$pid" 2>/dev/null; then
       return 0
     fi
   done
