@@ -720,7 +720,20 @@ main() {
     local active="${#ACTIVE_PIDS[@]}"
     local slots=$(( MAX_CONCURRENT - active ))
 
-    if [ "$slots" -gt 0 ]; then
+    # Fetch tickets and capture output so we can log it
+    local issues_raw=""
+    issues_raw=$(fetch_trigger_issues 2>/dev/null || true)
+
+    # Count non-empty lines (each line is one JSON ticket object)
+    local found=0
+    if [ -n "$issues_raw" ]; then
+      found=$(echo "$issues_raw" | grep -c '"identifier"' 2>/dev/null || true)
+      found="${found:-0}"
+    fi
+
+    log "🔍 Poll — \"${TRIGGER_STATE}\": ${found} ticket(s) | active: ${active}/${MAX_CONCURRENT}"
+
+    if [ "$slots" -gt 0 ] && [ "$found" -gt 0 ]; then
       local dispatched=0
 
       while IFS= read -r issue_json; do
@@ -732,6 +745,7 @@ main() {
 
         # Skip tickets already being processed
         if is_ticket_active "$identifier"; then
+          log "  ⏭  $identifier already in progress — skipping"
           continue
         fi
 
@@ -747,7 +761,7 @@ main() {
         ACTIVE_PIDS+=("$pid")
         PID_TO_IDENTIFIER[$pid]="$identifier"
         dispatched=$(( dispatched + 1 ))
-      done < <(fetch_trigger_issues)
+      done <<< "$issues_raw"
     fi
 
     sleep "$POLL_INTERVAL"
