@@ -166,26 +166,24 @@ resolve_state_ids() {
 }
 
 fetch_trigger_issues() {
-  # Filter by state name (same approach confirmed working via manual curl test)
-  local variables
-  variables=$(jq -n --arg s "$TRIGGER_STATE" '{"stateName":$s}')
+  # Build the payload using the exact same approach as the confirmed-working manual curl.
+  # Inline the state name directly — no GraphQL variables, no escaping layers.
+  local payload response
+  payload=$(jq -n --arg state "$TRIGGER_STATE" \
+    '{"query": ("{ teams { nodes { issues(filter: { state: { name: { eq: \"" + $state + "\" } } }, orderBy: updatedAt, first: 20) { nodes { id identifier title description url } } } } }")}')
 
-  local response
-  response=$(linear_gql \
-    'query($stateName: String!) {
-      teams {
-        nodes {
-          issues(
-            filter: { state: { name: { eq: $stateName } } }
-            orderBy: updatedAt
-            first: 20
-          ) {
-            nodes { id identifier title description url }
-          }
-        }
-      }
-    }' \
-    "$variables")
+  response=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ${LINEAR_API_KEY}" \
+    --data "$payload" \
+    "https://api.linear.app/graphql")
+
+  # Log raw response if nothing found, to aid debugging
+  local count
+  count=$(echo "$response" | jq '[.data.teams.nodes[].issues.nodes[]?] | length' 2>/dev/null || echo "0")
+  if [ "${count}" = "0" ]; then
+    log "  ↳ Raw response: $(echo "$response" | jq -c . 2>/dev/null || echo "$response")"
+  fi
 
   echo "$response" | jq -c '.data.teams.nodes[].issues.nodes[]?' 2>/dev/null || true
 }
