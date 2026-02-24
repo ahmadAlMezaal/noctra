@@ -96,7 +96,7 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `MAIN_BRANCH` | `main` | Base branch for new PRs |
 | `MAX_CONCURRENT` | `3` | Maximum tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
-| `USE_AGENT_TEAMS` | `true` | Enable Claude Code Agent Teams (multi-agent parallelism) |
+| `USE_AGENT_TEAMS` | `false` | Enable Claude Code Agent Teams (multi-agent parallelism) |
 | `GEMINI_API_KEY` | *(empty)* | Gemini API key — leave empty to skip the review gate |
 | `GEMINI_MODEL` | `gemini-2.5-pro` | Gemini model to use for code review |
 | `MAX_REVIEW_RETRIES` | `1` | Fix passes Claude gets after Gemini flags issues |
@@ -107,7 +107,20 @@ State names are **case-sensitive** and must match your Linear board exactly.
 
 ## Modes
 
-### Agent Teams + Gemini review *(recommended)*
+### Single agent *(default)*
+
+One Claude session per ticket, no team coordination. Fastest, cheapest, and works on any platform including Linux/Raspberry Pi.
+
+**Best for:** simple bug fixes, small isolated changes, getting started.
+
+```env
+USE_AGENT_TEAMS=false
+GEMINI_API_KEY=   # leave empty
+```
+
+---
+
+### Agent Teams + Gemini review
 
 Claude implements the ticket with a coordinated team of agents. Gemini independently reviews the diff before the PR is created. Claude gets a fix pass if issues are found.
 
@@ -126,17 +139,6 @@ Claude implements with a team but skips the external review step.
 
 ```env
 USE_AGENT_TEAMS=true
-GEMINI_API_KEY=   # leave empty
-```
-
-### Single agent
-
-One Claude session per ticket, no team coordination, no Gemini review.
-
-**Best for:** simple bug fixes, small isolated changes, fastest and cheapest runs.
-
-```env
-USE_AGENT_TEAMS=false
 GEMINI_API_KEY=   # leave empty
 ```
 
@@ -267,7 +269,7 @@ Claude will output `BLOCKED: <reason>` and stop. Nightshift detects this, posts 
 
 Claude Code Agent Teams is an experimental feature where a lead Claude agent spawns and coordinates teammate agents that work in parallel. The lead agent plans the approach, delegates subtasks (core implementation, tests, review), and synthesizes the results. It can significantly speed up complex tickets.
 
-Enable with `USE_AGENT_TEAMS=true` in `.env`. Requires a recent version of the `claude` CLI.
+Enable with `USE_AGENT_TEAMS=true` in `.env` (disabled by default). Requires a recent version of the `claude` CLI.
 
 ### Why Gemini for review and not another Claude instance?
 

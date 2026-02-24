@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/bash
+#!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # nightshift.sh — Autonomous Linear → Pull Request agent
 # "Move tickets to Next. Go to sleep. Wake up to PRs."
@@ -44,7 +44,7 @@ REPO_PATH="${REPO_PATH:-}"
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
-USE_AGENT_TEAMS="${USE_AGENT_TEAMS:-true}"
+USE_AGENT_TEAMS="${USE_AGENT_TEAMS:-false}"
 GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-pro}"
 MAX_REVIEW_RETRIES="${MAX_REVIEW_RETRIES:-1}"
