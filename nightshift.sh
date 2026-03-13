@@ -566,7 +566,7 @@ EOF
   # ── Build PR Body ──────────────────────────────────────────────────────────
   # Extract the last ~1200 chars of Claude output as a summary
   local summary
-  summary=$(tail -c 1500 "$log_file" 2>/dev/null | head -c 1200 || true)
+  summary=$(tail -n 40 "$log_file" 2>/dev/null || true)
 
   local review_section=""
   if [ -n "${GEMINI_API_KEY:-}" ]; then
@@ -600,9 +600,7 @@ ${review_output}
 
 ## What was implemented
 
-\`\`\`
 ${summary}
-\`\`\`
 ${review_section}
 ---
 
