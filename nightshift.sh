@@ -3,7 +3,9 @@
 # nightshift.sh — Autonomous Linear → Pull Request agent
 # "Move tickets to Next. Go to sleep. Wake up to PRs."
 #
-# Usage:  ./nightshift.sh
+# Usage:  ./nightshift.sh              # start the poll loop
+#         ./nightshift.sh cleanup      # interactive cleanup of stale resources
+#         ./nightshift.sh cleanup --force  # non-interactive cleanup
 # Config: .env (copy from .env.example)
 # Logs:   .agent-logs/<TICKET>.log
 # ─────────────────────────────────────────────────────────────────────────────
@@ -324,6 +326,168 @@ cleanup_worktree() {
 
   cd "$REPO_PATH"
   git worktree remove "$worktree_path" --force 2>/dev/null || true
+}
+
+# ─── Cleanup ────────────────────────────────────────────────────────────────
+
+# Lightweight cleanup run silently on every startup
+startup_cleanup() {
+  log "Running startup cleanup..."
+  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
+  git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
+  rm -rf "$WORKTREE_BASE"/*/ 2>/dev/null || true
+  log "✅ Startup cleanup done"
+}
+
+# Full cleanup command: worktrees, branches, remote refs, old logs
+run_cleanup() {
+  local force="${1:-false}"
+  local worktrees_removed=0
+  local merged_deleted=0
+  local unmerged_deleted=0
+  local logs_deleted=0
+
+  echo ""
+  echo "🧹 Nightshift Cleanup"
+  echo ""
+
+  # ── Validate REPO_PATH ────────────────────────────────────────────────────
+  if [ -z "$REPO_PATH" ]; then
+    echo "❌ REPO_PATH is required — set it in .env" >&2
+    exit 1
+  elif [ ! -d "$REPO_PATH/.git" ]; then
+    echo "❌ REPO_PATH ($REPO_PATH) is not a git repository" >&2
+    exit 1
+  fi
+
+  # ── Stale worktrees ───────────────────────────────────────────────────────
+  if [ -d "$WORKTREE_BASE" ]; then
+    local worktree_dirs=()
+    while IFS= read -r -d '' dir; do
+      worktree_dirs+=("$dir")
+    done < <(find "$WORKTREE_BASE" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+
+    if [ "${#worktree_dirs[@]}" -gt 0 ]; then
+      echo "Worktrees to remove (${#worktree_dirs[@]}):"
+      for dir in "${worktree_dirs[@]}"; do
+        echo "  - $(basename "$dir")"
+      done
+
+      if [ "$force" = true ] || confirm "Remove these worktrees?"; then
+        for dir in "${worktree_dirs[@]}"; do
+          git -C "$REPO_PATH" worktree remove "$dir" --force 2>/dev/null || rm -rf "$dir"
+          worktrees_removed=$((worktrees_removed + 1))
+        done
+      fi
+      echo ""
+    fi
+  fi
+
+  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
+
+  # ── Merged local branches ─────────────────────────────────────────────────
+  local merged=""
+  merged=$(git -C "$REPO_PATH" branch --merged "$MAIN_BRANCH" 2>/dev/null \
+    | grep -vE "^\*|main|staging|master" \
+    | sed 's/^[[:space:]]*//' || true)
+
+  if [ -n "$merged" ]; then
+    echo "Merged branches to delete ($(echo "$merged" | wc -l | tr -d ' ')):"
+    echo "$merged" | while IFS= read -r b; do echo "  - $b"; done
+
+    if [ "$force" = true ] || confirm "Delete these merged branches?"; then
+      while IFS= read -r branch; do
+        [ -z "$branch" ] && continue
+        git -C "$REPO_PATH" branch -d "$branch" 2>/dev/null && merged_deleted=$((merged_deleted + 1))
+      done <<< "$merged"
+    fi
+    echo ""
+  fi
+
+  # ── Unmerged nightshift branches ──────────────────────────────────────────
+  local unmerged=""
+  unmerged=$(git -C "$REPO_PATH" branch --no-merged "$MAIN_BRANCH" 2>/dev/null \
+    | grep -E "nightshift/" \
+    | sed 's/^[[:space:]]*//' || true)
+
+  if [ -n "$unmerged" ]; then
+    echo "⚠️  Unmerged Nightshift branches (from failed runs):"
+    echo "$unmerged" | while IFS= read -r b; do echo "  - $b"; done
+
+    # Check for open PRs before deleting
+    local safe_to_delete=()
+    local has_open_pr=()
+    while IFS= read -r branch; do
+      [ -z "$branch" ] && continue
+      local pr_count
+      pr_count=$(gh pr list --repo "$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null)" \
+        --head "$branch" --state open --json number 2>/dev/null \
+        | jq 'length' 2>/dev/null || echo "0")
+      if [ "$pr_count" -gt 0 ]; then
+        has_open_pr+=("$branch")
+      else
+        safe_to_delete+=("$branch")
+      fi
+    done <<< "$unmerged"
+
+    if [ "${#has_open_pr[@]}" -gt 0 ]; then
+      echo ""
+      echo "  Skipping (have open PRs):"
+      for b in "${has_open_pr[@]}"; do echo "    - $b"; done
+    fi
+
+    if [ "${#safe_to_delete[@]}" -gt 0 ]; then
+      echo ""
+      if [ "$force" = true ] || confirm "Force-delete ${#safe_to_delete[@]} unmerged branch(es) without open PRs?"; then
+        for branch in "${safe_to_delete[@]}"; do
+          git -C "$REPO_PATH" branch -D "$branch" 2>/dev/null && unmerged_deleted=$((unmerged_deleted + 1))
+        done
+      fi
+    fi
+    echo ""
+  fi
+
+  # ── Prune remote tracking refs ────────────────────────────────────────────
+  echo "Pruning stale remote tracking refs..."
+  git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
+  echo ""
+
+  # ── Old agent logs (>7 days) ──────────────────────────────────────────────
+  if [ -d "$LOG_DIR" ]; then
+    local old_logs=()
+    while IFS= read -r -d '' f; do
+      old_logs+=("$f")
+    done < <(find "$LOG_DIR" -name "*.log" -mtime +7 -print0 2>/dev/null)
+
+    if [ "${#old_logs[@]}" -gt 0 ]; then
+      echo "Agent logs older than 7 days (${#old_logs[@]}):"
+      for f in "${old_logs[@]}"; do echo "  - $(basename "$f")"; done
+
+      if [ "$force" = true ] || confirm "Delete these old log files?"; then
+        for f in "${old_logs[@]}"; do
+          rm -f "$f" && logs_deleted=$((logs_deleted + 1))
+        done
+      fi
+      echo ""
+    fi
+  fi
+
+  # ── Summary ───────────────────────────────────────────────────────────────
+  echo "🧹 Cleanup complete:"
+  echo "  - Removed $worktrees_removed worktree(s)"
+  echo "  - Deleted $merged_deleted merged branch(es)"
+  echo "  - Force-deleted $unmerged_deleted unmerged branch(es)"
+  echo "  - Pruned remote tracking refs"
+  echo "  - Cleared $logs_deleted agent log(s) older than 7 days"
+  echo ""
+}
+
+confirm() {
+  local prompt="$1"
+  echo -n "$prompt [y/N] "
+  local answer
+  read -r answer
+  [[ "$answer" =~ ^[Yy]$ ]]
 }
 
 # ─── Claude Invocation ───────────────────────────────────────────────────────
@@ -793,6 +957,7 @@ print_banner() {
 main() {
   validate_config
   mkdir -p "$LOG_DIR" "$WORKTREE_BASE"
+  startup_cleanup
   resolve_state_ids
   print_banner
 
@@ -873,4 +1038,14 @@ main() {
   done
 }
 
-main "$@"
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
+
+if [[ "${1:-}" == "cleanup" ]]; then
+  if [[ "${2:-}" == "--force" ]]; then
+    run_cleanup true
+  else
+    run_cleanup false
+  fi
+else
+  main "$@"
+fi
