@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── Require Bash 4+ (for associative arrays) ────────────────────────────────
@@ -49,6 +49,11 @@ GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-pro}"
 MAX_REVIEW_RETRIES="${MAX_REVIEW_RETRIES:-1}"
 
+# Safety guards
+MAX_DISPATCHES="${MAX_DISPATCHES:-10}"
+MAX_RETRIES="${MAX_RETRIES:-3}"
+AGENT_TIMEOUT_MINUTES="${AGENT_TIMEOUT_MINUTES:-45}"
+
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
 WORKTREE_BASE="$SCRIPT_DIR/.worktrees"
@@ -57,7 +62,9 @@ WORKTREE_BASE="$SCRIPT_DIR/.worktrees"
 
 declare -a ACTIVE_PIDS=()
 declare -A PID_TO_IDENTIFIER=()
+declare -A FAILED_ATTEMPTS=()
 SHUTTING_DOWN=false
+TOTAL_DISPATCHES=0
 
 # Resolved Linear state IDs (populated at startup)
 STATE_ID_TRIGGER=""
@@ -324,15 +331,17 @@ cleanup_worktree() {
 run_claude() {
   local prompt="$1"
   local log_file="$2"
+  local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
 
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
-    CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
-      --dangerously-skip-permissions \
-      --print \
-      --output-format text \
-      -p "$prompt" >> "$log_file" 2>&1
+    timeout "${timeout_minutes}m" bash -c \
+      'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
+        --dangerously-skip-permissions \
+        --print \
+        --output-format text \
+        -p "$1" >> "$2" 2>&1' _ "$prompt" "$log_file"
   else
-    claude \
+    timeout "${timeout_minutes}m" claude \
       --dangerously-skip-permissions \
       --print \
       --output-format text \
@@ -411,7 +420,7 @@ process_ticket() {
   url=$(echo "$issue_json"         | jq -r '.url')
 
   local log_file="$LOG_DIR/${identifier}.log"
-  : > "$log_file"  # create / truncate
+  echo "--- Attempt $(date -Iseconds) ---" >> "$log_file"
 
   tlog "$identifier" "Starting: $title"
   tlog "$identifier" "Log: $log_file"
@@ -445,8 +454,55 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   local prompt
   prompt=$(build_prompt "$identifier" "$title" "$description")
 
-  tlog "$identifier" "Running Claude (agent-teams=${USE_AGENT_TEAMS})..."
-  run_claude "$prompt" "$log_file" || true
+  tlog "$identifier" "Running Claude (agent-teams=${USE_AGENT_TEAMS}, timeout=${AGENT_TIMEOUT_MINUTES}m)..."
+  local exit_code=0
+  run_claude "$prompt" "$log_file" || exit_code=$?
+
+  # ── Check for timeout ───────────────────────────────────────────────────────
+  if [ "$exit_code" -eq 124 ]; then
+    tlog "$identifier" "⏰ Timed out after ${AGENT_TIMEOUT_MINUTES} minutes"
+    FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
+    linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
+    linear_comment "$issue_id" "⏰ **Nightshift: Agent timed out**
+
+Claude timed out after ${AGENT_TIMEOUT_MINUTES} minutes working on this ticket.
+
+The ticket may be too complex for a single session. Consider breaking it into smaller tasks.
+
+Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
+    return 1
+  fi
+
+  # ── Check for rate/usage limit ──────────────────────────────────────────────
+  if grep -qi "rate.limit\|usage.limit\|exceeded.*limit\|too many requests" "$log_file" 2>/dev/null; then
+    tlog "$identifier" "🛑 Usage/rate limit detected in agent output — triggering shutdown"
+    FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
+    linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
+    linear_comment "$issue_id" "🛑 **Nightshift: Rate limit detected**
+
+Claude hit a usage or rate limit while working on this ticket.
+
+Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid further limit hits." 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
+    SHUTTING_DOWN=true
+    return 1
+  fi
+
+  # ── Check for non-zero exit ─────────────────────────────────────────────────
+  if [ "$exit_code" -ne 0 ]; then
+    FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
+    local attempts="${FAILED_ATTEMPTS["$identifier"]}"
+    tlog "$identifier" "❌ Claude exited with error (exit $exit_code, attempt $attempts/$MAX_RETRIES)"
+    linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
+    linear_comment "$issue_id" "❌ **Nightshift: Agent failed** (attempt ${attempts}/${MAX_RETRIES})
+
+Claude exited with code \`${exit_code}\`. Will retry on next poll cycle (up to ${MAX_RETRIES} attempts).
+
+Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
+    return 1
+  fi
 
   # ── Check for BLOCKED ──────────────────────────────────────────────────────
   local claude_output blocked_line
@@ -531,7 +587,11 @@ ${review_output}
 - Run tests after fixing to make sure nothing broke."
 
         tlog "$identifier" "Asking Claude to fix review issues..."
-        run_claude "$fix_prompt" "$log_file" || true
+        local fix_exit=0
+        run_claude "$fix_prompt" "$log_file" || fix_exit=$?
+        if [ "$fix_exit" -ne 0 ]; then
+          tlog "$identifier" "⚠️  Fix attempt exited with code $fix_exit"
+        fi
         git add -A
       fi
 
@@ -720,6 +780,9 @@ print_banner() {
   printf "   Review:         %s\n" "$review_mode"
   printf "   Max concurrent: %s\n" "$MAX_CONCURRENT"
   printf "   Poll interval:  %ss\n" "$POLL_INTERVAL"
+  printf "   Agent timeout:  %sm\n" "$AGENT_TIMEOUT_MINUTES"
+  printf "   Max retries:    %s per ticket\n" "$MAX_RETRIES"
+  printf "   Max dispatches: %s per session\n" "$MAX_DISPATCHES"
   echo ""
   echo "Waiting for tickets... (Ctrl+C to stop)"
   echo ""
@@ -755,6 +818,12 @@ main() {
 
     log "🔍 Poll — \"${TRIGGER_STATE}\": ${found} ticket(s) | active: ${active}/${MAX_CONCURRENT}"
 
+    # ── Check session dispatch cap ─────────────────────────────────────────
+    if [ "$TOTAL_DISPATCHES" -ge "$MAX_DISPATCHES" ]; then
+      log "🛑 Reached max $MAX_DISPATCHES dispatches this session — shutting down"
+      break
+    fi
+
     if [ "$slots" -gt 0 ] && [ "$found" -gt 0 ]; then
       local dispatched=0
 
@@ -762,12 +831,25 @@ main() {
         [ -z "$issue_json" ] && continue
         [ "$dispatched" -ge "$slots" ] && break
 
+        # Re-check dispatch cap inside loop
+        if [ "$TOTAL_DISPATCHES" -ge "$MAX_DISPATCHES" ]; then
+          log "🛑 Reached max $MAX_DISPATCHES dispatches this session — stopping new dispatches"
+          break
+        fi
+
         local identifier
         identifier=$(echo "$issue_json" | jq -r '.identifier')
 
         # Skip tickets already being processed
         if is_ticket_active "$identifier"; then
           log "  ⏭  $identifier already in progress — skipping"
+          continue
+        fi
+
+        # Skip tickets that have exceeded retry limit
+        local attempts="${FAILED_ATTEMPTS["$identifier"]:-0}"
+        if [ "$attempts" -ge "$MAX_RETRIES" ]; then
+          log "  ❌ $identifier failed $attempts times — skipping until restart"
           continue
         fi
 
@@ -783,6 +865,7 @@ main() {
         ACTIVE_PIDS+=("$pid")
         PID_TO_IDENTIFIER[$pid]="$identifier"
         dispatched=$(( dispatched + 1 ))
+        TOTAL_DISPATCHES=$(( TOTAL_DISPATCHES + 1 ))
       done <<< "$issues_raw"
     fi
 
