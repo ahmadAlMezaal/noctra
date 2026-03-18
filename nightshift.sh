@@ -132,10 +132,13 @@ notify() {
   [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return
 
   local message="$1"
-  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    -d chat_id="${TELEGRAM_CHAT_ID}" \
-    -d text="$message" \
-    -d parse_mode="Markdown" > /dev/null 2>&1 || true
+  # Run in a background subshell to be non-blocking
+  (
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+      --data-urlencode "text=${message}" \
+      --data-urlencode "parse_mode=Markdown" > /dev/null 2>&1
+  ) &
 }
 
 format_duration() {
