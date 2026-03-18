@@ -335,7 +335,6 @@ startup_cleanup() {
   log "Running startup cleanup..."
   git -C "$REPO_PATH" worktree prune 2>/dev/null || true
   git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
-  rm -rf "$WORKTREE_BASE"/*/ 2>/dev/null || true
   log "✅ Startup cleanup done"
 }
 
@@ -386,20 +385,19 @@ run_cleanup() {
   git -C "$REPO_PATH" worktree prune 2>/dev/null || true
 
   # ── Merged local branches ─────────────────────────────────────────────────
-  local merged=""
-  merged=$(git -C "$REPO_PATH" branch --merged "$MAIN_BRANCH" 2>/dev/null \
+  local merged_branches=()
+  mapfile -t merged_branches < <(git -C "$REPO_PATH" branch --merged "$MAIN_BRANCH" 2>/dev/null \
     | grep -vE "^\*|main|staging|master" \
     | sed 's/^[[:space:]]*//' || true)
 
-  if [ -n "$merged" ]; then
-    echo "Merged branches to delete ($(echo "$merged" | wc -l | tr -d ' ')):"
-    echo "$merged" | while IFS= read -r b; do echo "  - $b"; done
+  if [ "${#merged_branches[@]}" -gt 0 ]; then
+    echo "Merged branches to delete (${#merged_branches[@]}):"
+    printf "  - %s\n" "${merged_branches[@]}"
 
     if [ "$force" = true ] || confirm "Delete these merged branches?"; then
-      while IFS= read -r branch; do
-        [ -z "$branch" ] && continue
+      for branch in "${merged_branches[@]}"; do
         git -C "$REPO_PATH" branch -d "$branch" 2>/dev/null && merged_deleted=$((merged_deleted + 1))
-      done <<< "$merged"
+      done
     fi
     echo ""
   fi
