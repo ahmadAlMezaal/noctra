@@ -853,9 +853,10 @@ EOF
   tlog "$identifier" "Pushed: $branch_name"
 
   # ── Build PR Body ──────────────────────────────────────────────────────────
-  # Extract the last ~1200 chars of Claude output as a summary
+  # Extract Claude's final summary — last block after the last attempt marker
   local summary
-  summary=$(tail -n 40 "$log_file" 2>/dev/null || true)
+  summary=$(awk '/^--- Attempt /{buf=""; next} {buf = buf $0 "\n"} END{printf "%s", buf}' "$log_file" 2>/dev/null \
+    | tail -n 40 || true)
 
   local review_section=""
   if [ -n "${GEMINI_API_KEY:-}" ]; then
