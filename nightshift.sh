@@ -56,6 +56,11 @@ MAX_DISPATCHES="${MAX_DISPATCHES:-10}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 AGENT_TIMEOUT_MINUTES="${AGENT_TIMEOUT_MINUTES:-45}"
 
+# Telegram notifications
+TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
 WORKTREE_BASE="$SCRIPT_DIR/.worktrees"
@@ -67,6 +72,9 @@ declare -A PID_TO_IDENTIFIER=()
 declare -A FAILED_ATTEMPTS=()
 SHUTTING_DOWN=false
 TOTAL_DISPATCHES=0
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+SESSION_START=$SECONDS
 
 # Resolved Linear state IDs (populated at startup)
 STATE_ID_TRIGGER=""
@@ -115,6 +123,33 @@ tlog() {
   local identifier="$1"
   shift
   echo "[$(date '+%H:%M:%S')] [$identifier] $*"
+}
+
+# ─── Telegram Notifications ──────────────────────────────────────────────────
+
+notify() {
+  [[ "${TELEGRAM_ENABLED:-false}" != "true" ]] && return
+  [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return
+
+  local message="$1"
+  # Run in a background subshell to be non-blocking
+  (
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+      --data-urlencode "text=${message}" \
+      --data-urlencode "parse_mode=Markdown" > /dev/null 2>&1
+  ) &
+}
+
+format_duration() {
+  local total_seconds=$1
+  local hours=$((total_seconds / 3600))
+  local minutes=$(( (total_seconds % 3600) / 60 ))
+  if [ "$hours" -gt 0 ]; then
+    echo "${hours}h ${minutes}m"
+  else
+    echo "${minutes}m"
+  fi
 }
 
 # ─── Linear GraphQL API ──────────────────────────────────────────────────────
@@ -624,6 +659,7 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   if [ "$exit_code" -eq 124 ]; then
     tlog "$identifier" "⏰ Timed out after ${AGENT_TIMEOUT_MINUTES} minutes"
     FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "⏰ **Nightshift: Agent timed out**
 
@@ -632,6 +668,8 @@ Claude timed out after ${AGENT_TIMEOUT_MINUTES} minutes working on this ticket.
 The ticket may be too complex for a single session. Consider breaking it into smaller tasks.
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
+    notify "⏰ *${identifier}* — ${title}
+Timed out after ${AGENT_TIMEOUT_MINUTES}m. Moving back to ${TRIGGER_STATE}."
     cleanup_worktree "$identifier" 2>/dev/null || true
     return 1
   fi
@@ -640,12 +678,16 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   if grep -qi "rate.limit\|usage.limit\|exceeded.*limit\|too many requests" "$log_file" 2>/dev/null; then
     tlog "$identifier" "🛑 Usage/rate limit detected in agent output — triggering shutdown"
     FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "🛑 **Nightshift: Rate limit detected**
 
 Claude hit a usage or rate limit while working on this ticket.
 
 Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid further limit hits." 2>/dev/null || true
+    notify "🛑 *Usage limit detected*
+Nightshift stopped after ${TOTAL_DISPATCHES} dispatches.
+✅ ${SUCCESS_COUNT} PRs created | ❌ ${FAIL_COUNT} failed"
     cleanup_worktree "$identifier" 2>/dev/null || true
     SHUTTING_DOWN=true
     return 1
@@ -655,6 +697,7 @@ Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid 
   if [ "$exit_code" -ne 0 ]; then
     FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
     local attempts="${FAILED_ATTEMPTS["$identifier"]}"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     tlog "$identifier" "❌ Claude exited with error (exit $exit_code, attempt $attempts/$MAX_RETRIES)"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "❌ **Nightshift: Agent failed** (attempt ${attempts}/${MAX_RETRIES})
@@ -662,6 +705,8 @@ Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid 
 Claude exited with code \`${exit_code}\`. Will retry on next poll cycle (up to ${MAX_RETRIES} attempts).
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
+    notify "❌ *${identifier}* — ${title}
+Failed (attempt ${attempts}/${MAX_RETRIES}, exit code ${exit_code})"
     cleanup_worktree "$identifier" 2>/dev/null || true
     return 1
   fi
@@ -681,6 +726,8 @@ Claude got blocked on this ticket:
 > ${blocked_line}
 
 Please clarify in the ticket comments, then move back to **${TRIGGER_STATE}** to retry." 2>/dev/null || true
+    notify "⚠️ *${identifier}* — Blocked
+${blocked_line}"
     cleanup_worktree "$identifier" 2>/dev/null || true
     tlog "$identifier" "Moved back to '$TRIGGER_STATE'"
     return 0
@@ -855,6 +902,9 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   fi
 
   tlog "$identifier" "✅ PR created: $pr_url"
+  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+  notify "✅ *${identifier}* — ${title}
+PR ready: ${pr_url}"
 
   # ── Move to In Review & Comment ────────────────────────────────────────────
   linear_set_state "$issue_id" "$STATE_ID_IN_REVIEW" 2>/dev/null || true
@@ -920,6 +970,12 @@ handle_shutdown() {
     sleep 5
   done
 
+  local duration
+  duration=$(format_duration $(( SECONDS - SESSION_START )))
+  notify "🌅 *Nightshift session complete*
+✅ ${SUCCESS_COUNT} PRs created
+❌ ${FAIL_COUNT} failed
+⏱ Session duration: ${duration}"
   log "👋 All done. Good morning."
   exit 0
 }
@@ -929,9 +985,10 @@ trap handle_shutdown SIGINT SIGTERM
 # ─── Startup Banner ──────────────────────────────────────────────────────────
 
 print_banner() {
-  local agent_mode review_mode
+  local agent_mode review_mode notify_mode
   agent_mode="$( [ "${USE_AGENT_TEAMS}" = "true" ] && echo "Agent Teams" || echo "Single agent")"
   review_mode="$( [ -n "${GEMINI_API_KEY:-}" ] && echo "Gemini (${GEMINI_MODEL})" || echo "Disabled")"
+  notify_mode="$( [ "${TELEGRAM_ENABLED}" = "true" ] && echo "Telegram" || echo "Disabled")"
 
   echo ""
   printf "🌙 Nightshift v%s\n" "$VERSION"
@@ -945,6 +1002,7 @@ print_banner() {
   printf "   Agent timeout:  %sm\n" "$AGENT_TIMEOUT_MINUTES"
   printf "   Max retries:    %s per ticket\n" "$MAX_RETRIES"
   printf "   Max dispatches: %s per session\n" "$MAX_DISPATCHES"
+  printf "   Notifications:  %s\n" "$notify_mode"
   echo ""
   echo "Waiting for tickets... (Ctrl+C to stop)"
   echo ""
@@ -958,6 +1016,8 @@ main() {
   startup_cleanup
   resolve_state_ids
   print_banner
+  notify "🌙 *Nightshift started*
+Watching \"${TRIGGER_STATE}\" column for ${LINEAR_TEAM_KEY} tickets"
 
   while true; do
     if [ "$SHUTTING_DOWN" = true ]; then
@@ -984,6 +1044,11 @@ main() {
     # ── Check session dispatch cap ─────────────────────────────────────────
     if [ "$TOTAL_DISPATCHES" -ge "$MAX_DISPATCHES" ]; then
       log "🛑 Reached max $MAX_DISPATCHES dispatches this session — shutting down"
+      local duration
+      duration=$(format_duration $(( SECONDS - SESSION_START )))
+      notify "🛑 *Dispatch cap reached* (${MAX_DISPATCHES})
+✅ ${SUCCESS_COUNT} PRs created | ❌ ${FAIL_COUNT} failed
+⏱ ${duration}"
       break
     fi
 
