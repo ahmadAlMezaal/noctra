@@ -339,17 +339,33 @@ create_worktree() {
 
   mkdir -p "$WORKTREE_BASE"
 
-  git -C "$REPO_PATH" fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+  # All git commands run from inside the target repo via subshell cd,
+  # matching the manual workflow: cd $REPO_PATH && git worktree add ...
+  (
+    cd "$REPO_PATH" || exit 1
+    git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
-  # Remove stale worktree if exists
-  if [ -d "$worktree_path" ]; then
-    git -C "$REPO_PATH" worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
+    # Remove stale worktree if exists
+    if [ -d "$worktree_path" ]; then
+      git worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
+    fi
+
+    # Remove stale branch if exists
+    git branch -D "$branch_name" >/dev/null 2>&1 || true
+
+    local wt_stderr wt_exit
+    wt_stderr=$(git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" 2>&1)
+    wt_exit=$?
+
+    if [ "$wt_exit" -ne 0 ]; then
+      echo "git worktree add failed (exit $wt_exit): $wt_stderr" >&2
+      exit 1
+    fi
+  )
+
+  if [ $? -ne 0 ]; then
+    return 1
   fi
-
-  # Remove stale branch if exists
-  git -C "$REPO_PATH" branch -D "$branch_name" >/dev/null 2>&1 || true
-
-  git -C "$REPO_PATH" worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1
 
   # Verify worktree was actually created
   if [ ! -d "$worktree_path" ]; then
@@ -364,7 +380,7 @@ cleanup_worktree() {
   local identifier="$1"
   local worktree_path="$WORKTREE_BASE/$identifier"
 
-  git -C "$REPO_PATH" worktree remove "$worktree_path" --force 2>/dev/null || true
+  ( cd "$REPO_PATH" && git worktree remove "$worktree_path" --force 2>/dev/null ) || true
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
