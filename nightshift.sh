@@ -63,7 +63,7 @@ TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
-WORKTREE_BASE="$SCRIPT_DIR/.worktrees"
+WORKTREE_BASE="$HOME/.nightshift-worktrees"
 
 # ─── Global State ────────────────────────────────────────────────────────────
 

@@ -214,7 +214,7 @@ cd /path/to/repo && git branch -D nightshift/eng-42 2>/dev/null || true
 cd /path/to/your/repo && git worktree list
 
 # Remove a specific stale worktree
-git worktree remove /path/to/nightshift/.worktrees/ENG-42 --force
+git worktree remove ~/.nightshift-worktrees/ENG-42 --force
 
 # Remove all nightshift worktrees at once
 git worktree list \
