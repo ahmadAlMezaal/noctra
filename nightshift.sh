@@ -546,17 +546,27 @@ confirm() {
 # ─── Claude Invocation ───────────────────────────────────────────────────────
 
 run_claude() {
-  local prompt="$1"
-  local log_file="$2"
+  local workdir="$1"
+  local prompt="$2"
+  local log_file="$3"
   local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
+
+  # Ensure we are inside the worktree before invoking Claude
+  cd "$workdir" || { echo "FATAL: cannot cd to workdir: $workdir" >> "$log_file"; return 1; }
+
+  {
+    echo "DEBUG: pwd before claude = $(pwd)"
+    echo "DEBUG: worktree_path = $workdir"
+    ls "$workdir/apps" 2>/dev/null || echo "DEBUG: no apps/ in worktree"
+  } >> "$log_file"
 
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
     timeout "${timeout_minutes}m" bash -c \
-      'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
+      'cd "$0" || exit 1; CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
         --dangerously-skip-permissions \
         --print \
         --output-format text \
-        -p "$1" >> "$2" 2>&1' _ "$prompt" "$log_file"
+        -p "$1" >> "$2" 2>&1' "$workdir" "$prompt" "$log_file"
   else
     timeout "${timeout_minutes}m" claude \
       --dangerously-skip-permissions \
@@ -665,7 +675,7 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   fi
 
   tlog "$identifier" "Worktree: $worktree_path"
-  cd "$worktree_path"
+  cd "$worktree_path" || { tlog "$identifier" "❌ Cannot cd to worktree: $worktree_path"; return 1; }
 
   # ── Run Claude ─────────────────────────────────────────────────────────────
   local prompt
@@ -673,7 +683,7 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
 
   tlog "$identifier" "Running Claude (agent-teams=${USE_AGENT_TEAMS}, timeout=${AGENT_TIMEOUT_MINUTES}m)..."
   local exit_code=0
-  run_claude "$prompt" "$log_file" || exit_code=$?
+  run_claude "$worktree_path" "$prompt" "$log_file" || exit_code=$?
 
   # ── Check for timeout ───────────────────────────────────────────────────────
   if [ "$exit_code" -eq 124 ]; then
@@ -817,7 +827,7 @@ ${review_output}
 
         tlog "$identifier" "Asking Claude to fix review issues..."
         local fix_exit=0
-        run_claude "$fix_prompt" "$log_file" || fix_exit=$?
+        run_claude "$worktree_path" "$fix_prompt" "$log_file" || fix_exit=$?
         if [ "$fix_exit" -ne 0 ]; then
           tlog "$identifier" "⚠️  Fix attempt exited with code $fix_exit"
         fi
