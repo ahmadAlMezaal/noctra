@@ -339,18 +339,23 @@ create_worktree() {
 
   mkdir -p "$WORKTREE_BASE"
 
-  cd "$REPO_PATH"
-  git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+  git -C "$REPO_PATH" fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
   # Remove stale worktree if exists
   if [ -d "$worktree_path" ]; then
-    git worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
+    git -C "$REPO_PATH" worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
   fi
 
   # Remove stale branch if exists
-  git branch -D "$branch_name" >/dev/null 2>&1 || true
+  git -C "$REPO_PATH" branch -D "$branch_name" >/dev/null 2>&1 || true
 
-  git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1
+  git -C "$REPO_PATH" worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1
+
+  # Verify worktree was actually created
+  if [ ! -d "$worktree_path" ]; then
+    echo "Worktree directory does not exist after creation: $worktree_path" >&2
+    return 1
+  fi
 
   echo "$worktree_path"
 }
@@ -359,8 +364,7 @@ cleanup_worktree() {
   local identifier="$1"
   local worktree_path="$WORKTREE_BASE/$identifier"
 
-  cd "$REPO_PATH"
-  git worktree remove "$worktree_path" --force 2>/dev/null || true
+  git -C "$REPO_PATH" worktree remove "$worktree_path" --force 2>/dev/null || true
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
