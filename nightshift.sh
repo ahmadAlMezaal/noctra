@@ -600,14 +600,9 @@ process_ticket() {
   tlog "$identifier" "Starting: $title"
   tlog "$identifier" "Log: $log_file"
 
-  # ── Move to In Progress ────────────────────────────────────────────────────
-  if linear_set_state "$issue_id" "$STATE_ID_IN_PROGRESS" 2>/dev/null; then
-    tlog "$identifier" "Moved to '$IN_PROGRESS_STATE'"
-  else
-    tlog "$identifier" "⚠️  Could not update state to '$IN_PROGRESS_STATE' — continuing anyway"
-  fi
-
   # ── Create Branch ──────────────────────────────────────────────────────────
+  # Note: Linear's GitHub integration auto-moves tickets to "In Progress"
+  # when a branch with the ticket ID is created, so no manual state update needed.
   local branch_name
   if ! branch_name=$(create_branch "$identifier"); then
     tlog "$identifier" "❌ Branch creation failed"
