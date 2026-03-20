@@ -207,20 +207,19 @@ cd /path/to/repo && git branch -D nightshift/eng-42 2>/dev/null || true
 
 **Symptom:** Nightshift exits unexpectedly. A ticket is stuck in "In Progress" with no PR.
 
-**Clean up stale worktrees:**
+**Clean up stale branches:**
 
 ```bash
-# List all worktrees
-cd /path/to/your/repo && git worktree list
+# Check if a nightshift branch was left behind
+cd /path/to/your/repo
+git branch | grep nightshift/
 
-# Remove a specific stale worktree
-git worktree remove ~/.nightshift-worktrees/ENG-42 --force
+# Delete a stale nightshift branch
+git checkout main
+git branch -D nightshift/eng-42
 
-# Remove all nightshift worktrees at once
-git worktree list \
-  | grep nightshift \
-  | awk '{print $1}' \
-  | xargs -I{} git worktree remove {} --force 2>/dev/null || true
+# Return to main
+git checkout main && git pull origin main
 ```
 
 **Reset the ticket state:**

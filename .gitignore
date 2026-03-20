@@ -4,8 +4,5 @@
 # Agent logs — runtime output
 .agent-logs/
 
-# Worktrees — temporary git worktrees created during processing
-.worktrees/
-
 # macOS
 .DS_Store

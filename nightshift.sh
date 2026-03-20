@@ -63,7 +63,6 @@ TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
-WORKTREE_BASE="$HOME/.nightshift-worktrees"
 
 # ─── Global State ────────────────────────────────────────────────────────────
 
@@ -329,58 +328,38 @@ Then provide your review comments."
   fi
 }
 
-# ─── Worktree Management ─────────────────────────────────────────────────────
+# ─── Branch Management ────────────────────────────────────────────────────────
 
-create_worktree() {
+create_branch() {
   local identifier="$1"
   local branch_name
   branch_name="nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')"
-  local worktree_path="$WORKTREE_BASE/$identifier"
 
-  mkdir -p "$WORKTREE_BASE"
+  cd "$REPO_PATH" || { echo "Cannot cd to REPO_PATH: $REPO_PATH" >&2; return 1; }
 
-  # All git commands run from inside the target repo via subshell cd,
-  # matching the manual workflow: cd $REPO_PATH && git worktree add ...
-  (
-    cd "$REPO_PATH" || exit 1
-    git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+  git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
-    # Remove stale worktree if exists
-    if [ -d "$worktree_path" ]; then
-      git worktree remove "$worktree_path" --force >/dev/null 2>&1 || rm -rf "$worktree_path"
-    fi
+  # Remove stale local branch if exists
+  git branch -D "$branch_name" >/dev/null 2>&1 || true
 
-    # Remove stale branch if exists
-    git branch -D "$branch_name" >/dev/null 2>&1 || true
+  # Start from latest main
+  git checkout "$MAIN_BRANCH" --quiet 2>/dev/null || true
+  git reset --hard "origin/$MAIN_BRANCH" --quiet 2>/dev/null || true
 
-    local wt_stderr wt_exit
-    wt_stderr=$(git worktree add "$worktree_path" -b "$branch_name" "origin/$MAIN_BRANCH" 2>&1)
-    wt_exit=$?
-
-    if [ "$wt_exit" -ne 0 ]; then
-      echo "git worktree add failed (exit $wt_exit): $wt_stderr" >&2
-      exit 1
-    fi
-  )
-
-  if [ $? -ne 0 ]; then
+  # Create and switch to the feature branch
+  if ! git checkout -b "$branch_name" "origin/$MAIN_BRANCH" 2>&1; then
+    echo "git checkout -b failed for branch: $branch_name" >&2
     return 1
   fi
 
-  # Verify worktree was actually created
-  if [ ! -d "$worktree_path" ]; then
-    echo "Worktree directory does not exist after creation: $worktree_path" >&2
-    return 1
-  fi
-
-  echo "$worktree_path"
+  echo "$branch_name"
 }
 
-cleanup_worktree() {
+cleanup_branch() {
   local identifier="$1"
-  local worktree_path="$WORKTREE_BASE/$identifier"
-
-  ( cd "$REPO_PATH" && git worktree remove "$worktree_path" --force 2>/dev/null ) || true
+  # Return to main branch after processing
+  cd "$REPO_PATH" 2>/dev/null || true
+  git checkout "$MAIN_BRANCH" --quiet 2>/dev/null || true
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -388,15 +367,13 @@ cleanup_worktree() {
 # Lightweight cleanup run silently on every startup
 startup_cleanup() {
   log "Running startup cleanup..."
-  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
   git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
   log "✅ Startup cleanup done"
 }
 
-# Full cleanup command: worktrees, branches, remote refs, old logs
+# Full cleanup command: branches, remote refs, old logs
 run_cleanup() {
   local force="${1:-false}"
-  local worktrees_removed=0
   local merged_deleted=0
   local unmerged_deleted=0
   local logs_deleted=0
@@ -413,31 +390,6 @@ run_cleanup() {
     echo "❌ REPO_PATH ($REPO_PATH) is not a git repository" >&2
     exit 1
   fi
-
-  # ── Stale worktrees ───────────────────────────────────────────────────────
-  if [ -d "$WORKTREE_BASE" ]; then
-    local worktree_dirs=()
-    while IFS= read -r -d '' dir; do
-      worktree_dirs+=("$dir")
-    done < <(find "$WORKTREE_BASE" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
-
-    if [ "${#worktree_dirs[@]}" -gt 0 ]; then
-      echo "Worktrees to remove (${#worktree_dirs[@]}):"
-      for dir in "${worktree_dirs[@]}"; do
-        echo "  - $(basename "$dir")"
-      done
-
-      if [ "$force" = true ] || confirm "Remove these worktrees?"; then
-        for dir in "${worktree_dirs[@]}"; do
-          git -C "$REPO_PATH" worktree remove "$dir" --force 2>/dev/null || rm -rf "$dir"
-          worktrees_removed=$((worktrees_removed + 1))
-        done
-      fi
-      echo ""
-    fi
-  fi
-
-  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
 
   # ── Merged local branches ─────────────────────────────────────────────────
   local merged_branches=()
@@ -527,7 +479,6 @@ run_cleanup() {
 
   # ── Summary ───────────────────────────────────────────────────────────────
   echo "🧹 Cleanup complete:"
-  echo "  - Removed $worktrees_removed worktree(s)"
   echo "  - Deleted $merged_deleted merged branch(es)"
   echo "  - Force-deleted $unmerged_deleted unmerged branch(es)"
   echo "  - Pruned remote tracking refs"
@@ -546,18 +497,16 @@ confirm() {
 # ─── Claude Invocation ───────────────────────────────────────────────────────
 
 run_claude() {
-  local workdir="$1"
-  local prompt="$2"
-  local log_file="$3"
+  local prompt="$1"
+  local log_file="$2"
   local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
 
-  # Ensure we are inside the worktree before invoking Claude
-  cd "$workdir" || { echo "FATAL: cannot cd to workdir: $workdir" >> "$log_file"; return 1; }
+  # Ensure we are inside the target repo before invoking Claude
+  cd "$REPO_PATH" || { echo "FATAL: cannot cd to REPO_PATH: $REPO_PATH" >> "$log_file"; return 1; }
 
   {
     echo "DEBUG: pwd before claude = $(pwd)"
-    echo "DEBUG: worktree_path = $workdir"
-    ls "$workdir/apps" 2>/dev/null || echo "DEBUG: no apps/ in worktree"
+    echo "DEBUG: branch = $(git branch --show-current 2>/dev/null)"
   } >> "$log_file"
 
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
@@ -566,7 +515,7 @@ run_claude() {
         --dangerously-skip-permissions \
         --print \
         --output-format text \
-        -p "$1" >> "$2" 2>&1' "$workdir" "$prompt" "$log_file"
+        -p "$1" >> "$2" 2>&1' "$REPO_PATH" "$prompt" "$log_file"
   else
     timeout "${timeout_minutes}m" claude \
       --dangerously-skip-permissions \
@@ -659,14 +608,14 @@ process_ticket() {
     tlog "$identifier" "⚠️  Could not update state to '$IN_PROGRESS_STATE' — continuing anyway"
   fi
 
-  # ── Create Worktree ────────────────────────────────────────────────────────
-  local worktree_path
-  if ! worktree_path=$(create_worktree "$identifier" 2>&1); then
-    tlog "$identifier" "❌ Worktree creation failed: $worktree_path"
+  # ── Create Branch ──────────────────────────────────────────────────────────
+  local branch_name
+  if ! branch_name=$(create_branch "$identifier" 2>&1); then
+    tlog "$identifier" "❌ Branch creation failed: $branch_name"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "❌ **Nightshift: Setup failed**
 
-Could not create an isolated git worktree. This may be a branch naming conflict.
+Could not create branch. This may be a branch naming conflict.
 
 Check that branch \`nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')\` does not already exist on the remote.
 
@@ -674,8 +623,8 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     return 1
   fi
 
-  tlog "$identifier" "Worktree: $worktree_path"
-  cd "$worktree_path" || { tlog "$identifier" "❌ Cannot cd to worktree: $worktree_path"; return 1; }
+  tlog "$identifier" "Branch: $branch_name (in $REPO_PATH)"
+  cd "$REPO_PATH" || { tlog "$identifier" "❌ Cannot cd to REPO_PATH: $REPO_PATH"; return 1; }
 
   # ── Run Claude ─────────────────────────────────────────────────────────────
   local prompt
@@ -683,7 +632,7 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
 
   tlog "$identifier" "Running Claude (agent-teams=${USE_AGENT_TEAMS}, timeout=${AGENT_TIMEOUT_MINUTES}m)..."
   local exit_code=0
-  run_claude "$worktree_path" "$prompt" "$log_file" || exit_code=$?
+  run_claude "$prompt" "$log_file" || exit_code=$?
 
   # ── Check for timeout ───────────────────────────────────────────────────────
   if [ "$exit_code" -eq 124 ]; then
@@ -700,7 +649,7 @@ The ticket may be too complex for a single session. Consider breaking it into sm
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "⏰ *${identifier}* — ${title}
 Timed out after ${AGENT_TIMEOUT_MINUTES}m. Moving back to ${TRIGGER_STATE}."
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -718,7 +667,7 @@ Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid 
     notify "🛑 *Usage limit detected*
 Nightshift stopped after ${TOTAL_DISPATCHES} dispatches.
 ✅ ${SUCCESS_COUNT} PRs created | ❌ ${FAIL_COUNT} failed"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     SHUTTING_DOWN=true
     return 1
   fi
@@ -737,7 +686,7 @@ Claude exited with code \`${exit_code}\`. Will retry on next poll cycle (up to $
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "❌ *${identifier}* — ${title}
 Failed (attempt ${attempts}/${MAX_RETRIES}, exit code ${exit_code})"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -758,13 +707,13 @@ Claude got blocked on this ticket:
 Please clarify in the ticket comments, then move back to **${TRIGGER_STATE}** to retry." 2>/dev/null || true
     notify "⚠️ *${identifier}* — Blocked
 ${blocked_line}"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     tlog "$identifier" "Moved back to '$TRIGGER_STATE'"
     return 0
   fi
 
   # ── Check for Changes ──────────────────────────────────────────────────────
-  cd "$worktree_path"
+  cd "$REPO_PATH"
   local has_changes
   has_changes=$(git status --porcelain 2>/dev/null || true)
 
@@ -776,7 +725,7 @@ ${blocked_line}"
 Claude completed the session without modifying any files. This usually means the ticket description is too vague or needs more context.
 
 Add more detail to the ticket description and move back to **${TRIGGER_STATE}** to retry. See the [Writing Good Tickets guide](https://github.com/your-org/nightshift/blob/main/docs/WRITING-GOOD-TICKETS.md) for tips." 2>/dev/null || true
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     return 0
   fi
 
@@ -827,7 +776,7 @@ ${review_output}
 
         tlog "$identifier" "Asking Claude to fix review issues..."
         local fix_exit=0
-        run_claude "$worktree_path" "$fix_prompt" "$log_file" || fix_exit=$?
+        run_claude "$fix_prompt" "$log_file" || fix_exit=$?
         if [ "$fix_exit" -ne 0 ]; then
           tlog "$identifier" "⚠️  Fix attempt exited with code $fix_exit"
         fi
@@ -843,9 +792,7 @@ ${review_output}
   fi
 
   # ── Commit & Push ──────────────────────────────────────────────────────────
-  cd "$worktree_path"
-  local branch_name
-  branch_name=$(git branch --show-current)
+  cd "$REPO_PATH"
 
   local impl_mode=""
   [ "${USE_AGENT_TEAMS}" = "true" ] && impl_mode=" (Agent Teams)"
@@ -928,7 +875,7 @@ ${pr_url}
 \`\`\`
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_branch "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -948,7 +895,7 @@ Moved to **${IN_REVIEW_STATE}**. Ready for your review!" 2>/dev/null || true
   tlog "$identifier" "✅ Done — moved to '$IN_REVIEW_STATE'"
 
   # ── Cleanup ────────────────────────────────────────────────────────────────
-  cleanup_worktree "$identifier" 2>/dev/null || true
+  cleanup_branch "$identifier" 2>/dev/null || true
 }
 
 # ─── Process Management ──────────────────────────────────────────────────────
@@ -1043,7 +990,7 @@ print_banner() {
 
 main() {
   validate_config
-  mkdir -p "$LOG_DIR" "$WORKTREE_BASE"
+  mkdir -p "$LOG_DIR"
   startup_cleanup
   resolve_state_ids
   print_banner
