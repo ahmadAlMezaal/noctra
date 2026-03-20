@@ -831,6 +831,7 @@ EOF
   # Extract Claude's final summary — last block after the last attempt marker
   local summary
   summary=$(awk '/^--- Attempt /{buf=""; next} {buf = buf $0 "\n"} END{printf "%s", buf}' "$log_file" 2>/dev/null \
+    | grep -v '^DEBUG: ' \
     | tail -n 40 || true)
 
   local review_section=""
