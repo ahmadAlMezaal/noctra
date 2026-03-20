@@ -40,7 +40,6 @@ fi
 LINEAR_API_KEY="${LINEAR_API_KEY:-}"
 LINEAR_TEAM_KEY="${LINEAR_TEAM_KEY:-ENG}"
 TRIGGER_STATE="${TRIGGER_STATE:-Next}"
-IN_PROGRESS_STATE="${IN_PROGRESS_STATE:-In Progress}"
 IN_REVIEW_STATE="${IN_REVIEW_STATE:-In Review}"
 REPO_PATH="${REPO_PATH:-}"
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
@@ -63,6 +62,7 @@ TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
+WORKTREE_BASE="$HOME/.nightshift-worktrees"
 
 # ─── Global State ────────────────────────────────────────────────────────────
 
@@ -77,7 +77,6 @@ SESSION_START=$SECONDS
 
 # Resolved Linear state IDs (populated at startup)
 STATE_ID_TRIGGER=""
-STATE_ID_IN_PROGRESS=""
 STATE_ID_IN_REVIEW=""
 
 # ─── Validation ──────────────────────────────────────────────────────────────
@@ -190,22 +189,20 @@ resolve_state_ids() {
   fi
 
   STATE_ID_TRIGGER=$(echo "$nodes" | jq -r ".[] | select(.name == \"${TRIGGER_STATE}\") | .id")
-  STATE_ID_IN_PROGRESS=$(echo "$nodes" | jq -r ".[] | select(.name == \"${IN_PROGRESS_STATE}\") | .id")
   STATE_ID_IN_REVIEW=$(echo "$nodes" | jq -r ".[] | select(.name == \"${IN_REVIEW_STATE}\") | .id")
 
   local missing=0
-  [ -z "$STATE_ID_TRIGGER" ]     && { echo "❌ State not found: \"${TRIGGER_STATE}\"" >&2;     missing=$((missing + 1)); }
-  [ -z "$STATE_ID_IN_PROGRESS" ] && { echo "❌ State not found: \"${IN_PROGRESS_STATE}\"" >&2; missing=$((missing + 1)); }
-  [ -z "$STATE_ID_IN_REVIEW" ]   && { echo "❌ State not found: \"${IN_REVIEW_STATE}\"" >&2;   missing=$((missing + 1)); }
+  [ -z "$STATE_ID_TRIGGER" ]   && { echo "❌ State not found: \"${TRIGGER_STATE}\"" >&2;   missing=$((missing + 1)); }
+  [ -z "$STATE_ID_IN_REVIEW" ] && { echo "❌ State not found: \"${IN_REVIEW_STATE}\"" >&2; missing=$((missing + 1)); }
 
   if [ "$missing" -gt 0 ]; then
     echo "" >&2
     echo "   Available states: $(echo "$nodes" | jq -r '.[].name' | paste -sd ', ')" >&2
-    echo "   Update TRIGGER_STATE / IN_PROGRESS_STATE / IN_REVIEW_STATE in .env" >&2
+    echo "   Update TRIGGER_STATE / IN_REVIEW_STATE in .env" >&2
     exit 1
   fi
 
-  log "✅ States resolved: \"$TRIGGER_STATE\" | \"$IN_PROGRESS_STATE\" | \"$IN_REVIEW_STATE\""
+  log "✅ States resolved: \"$TRIGGER_STATE\" | \"$IN_REVIEW_STATE\""
 }
 
 fetch_trigger_issues() {
@@ -328,38 +325,43 @@ Then provide your review comments."
   fi
 }
 
-# ─── Branch Management ────────────────────────────────────────────────────────
+# ─── Worktree Management ──────────────────────────────────────────────────────
 
-create_branch() {
+create_worktree() {
   local identifier="$1"
   local branch_name
   branch_name="nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')"
+  local worktree_path="$WORKTREE_BASE/$identifier"
 
-  cd "$REPO_PATH" || { echo "Cannot cd to REPO_PATH: $REPO_PATH" >&2; return 1; }
+  (
+    cd "$REPO_PATH" || { echo "Cannot cd to REPO_PATH: $REPO_PATH" >&2; return 1; }
 
-  git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+    git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
-  # Remove stale local branch if exists
-  git branch -D "$branch_name" >/dev/null 2>&1 || true
+    # Remove stale local branch if exists
+    git branch -D "$branch_name" >/dev/null 2>&1 || true
 
-  # Start from latest main
-  git checkout "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
-  git reset --hard "origin/$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+    # Remove stale worktree if exists
+    git worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
 
-  # Create and switch to the feature branch (suppress git output)
-  if ! git checkout -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
-    echo "git checkout -b failed for branch: $branch_name" >&2
-    return 1
-  fi
+    # Create worktree with a new branch from latest main
+    if ! git worktree add -b "$branch_name" "$worktree_path" "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
+      echo "git worktree add failed for: $worktree_path" >&2
+      return 1
+    fi
+  ) || return 1
 
-  echo "$branch_name"
+  echo "$worktree_path"
 }
 
-cleanup_branch() {
+cleanup_worktree() {
   local identifier="$1"
-  # Return to main branch after processing
-  cd "$REPO_PATH" 2>/dev/null || true
-  git checkout "$MAIN_BRANCH" --quiet 2>/dev/null || true
+  local worktree_path="$WORKTREE_BASE/$identifier"
+
+  (
+    cd "$REPO_PATH" 2>/dev/null || return 0
+    git worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+  )
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -368,6 +370,7 @@ cleanup_branch() {
 startup_cleanup() {
   log "Running startup cleanup..."
   git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
+  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
   log "✅ Startup cleanup done"
 }
 
@@ -452,6 +455,27 @@ run_cleanup() {
     echo ""
   fi
 
+  # ── Stale worktrees ───────────────────────────────────────────────────────
+  if [ -d "$WORKTREE_BASE" ]; then
+    local worktree_dirs=()
+    while IFS= read -r -d '' d; do
+      worktree_dirs+=("$d")
+    done < <(find "$WORKTREE_BASE" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+
+    if [ "${#worktree_dirs[@]}" -gt 0 ]; then
+      echo "Stale worktrees (${#worktree_dirs[@]}):"
+      for d in "${worktree_dirs[@]}"; do echo "  - $(basename "$d")"; done
+
+      if [ "$force" = true ] || confirm "Remove these worktrees?"; then
+        for d in "${worktree_dirs[@]}"; do
+          git -C "$REPO_PATH" worktree remove --force "$d" 2>/dev/null || rm -rf "$d"
+        done
+      fi
+      echo ""
+    fi
+    git -C "$REPO_PATH" worktree prune 2>/dev/null || true
+  fi
+
   # ── Prune remote tracking refs ────────────────────────────────────────────
   echo "Pruning stale remote tracking refs..."
   git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
@@ -497,11 +521,12 @@ confirm() {
 # ─── Claude Invocation ───────────────────────────────────────────────────────
 
 run_claude() {
-  local prompt="$1"
-  local log_file="$2"
+  local workdir="$1"
+  local prompt="$2"
+  local log_file="$3"
   local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
 
-  cd "$REPO_PATH" || { echo "FATAL: cannot cd to REPO_PATH: $REPO_PATH" >> "$log_file"; return 1; }
+  cd "$workdir" || { echo "FATAL: cannot cd to workdir: $workdir" >> "$log_file"; return 1; }
 
   {
     echo "DEBUG: pwd = $(pwd)"
@@ -510,11 +535,11 @@ run_claude() {
 
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
     timeout "${timeout_minutes}m" bash -c \
-      'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
+      'cd "$0" || exit 1; CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
         --dangerously-skip-permissions \
         --print \
         --output-format text \
-        -p "$1" >> "$2" 2>&1' _ "$prompt" "$log_file"
+        -p "$1" >> "$2" 2>&1' "$workdir" "$prompt" "$log_file"
   else
     timeout "${timeout_minutes}m" claude \
       --dangerously-skip-permissions \
@@ -600,25 +625,25 @@ process_ticket() {
   tlog "$identifier" "Starting: $title"
   tlog "$identifier" "Log: $log_file"
 
-  # ── Create Branch ──────────────────────────────────────────────────────────
+  # ── Create Worktree ────────────────────────────────────────────────────────
   # Note: Linear's GitHub integration auto-moves tickets to "In Progress"
   # when a branch with the ticket ID is created, so no manual state update needed.
-  local branch_name
-  if ! branch_name=$(create_branch "$identifier"); then
-    tlog "$identifier" "❌ Branch creation failed"
+  local worktree_path branch_name
+  branch_name="nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')"
+  if ! worktree_path=$(create_worktree "$identifier"); then
+    tlog "$identifier" "❌ Worktree creation failed"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "❌ **Nightshift: Setup failed**
 
-Could not create branch. This may be a branch naming conflict.
+Could not create worktree. This may be a branch naming conflict.
 
-Check that branch \`nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')\` does not already exist on the remote.
+Check that branch \`${branch_name}\` does not already exist on the remote.
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     return 1
   fi
 
-  tlog "$identifier" "Branch: $branch_name (in $REPO_PATH)"
-  cd "$REPO_PATH" || { tlog "$identifier" "❌ Cannot cd to REPO_PATH: $REPO_PATH"; return 1; }
+  tlog "$identifier" "Worktree: $worktree_path (branch: $branch_name)"
 
   # ── Run Claude ─────────────────────────────────────────────────────────────
   local prompt
@@ -631,7 +656,7 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   [ -f "$log_file" ] && log_offset=$(wc -c < "$log_file")
 
   local exit_code=0
-  run_claude "$prompt" "$log_file" || exit_code=$?
+  run_claude "$worktree_path" "$prompt" "$log_file" || exit_code=$?
 
   # ── Check for timeout ───────────────────────────────────────────────────────
   if [ "$exit_code" -eq 124 ]; then
@@ -648,7 +673,7 @@ The ticket may be too complex for a single session. Consider breaking it into sm
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "⏰ *${identifier}* — ${title}
 Timed out after ${AGENT_TIMEOUT_MINUTES}m. Moving back to ${TRIGGER_STATE}."
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -670,7 +695,7 @@ Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid 
     notify "🛑 *Usage limit detected*
 Nightshift stopped after ${TOTAL_DISPATCHES} dispatches.
 ✅ ${SUCCESS_COUNT} PRs created | ❌ ${FAIL_COUNT} failed"
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     SHUTTING_DOWN=true
     return 1
   fi
@@ -689,7 +714,7 @@ Claude exited with code \`${exit_code}\`. Will retry on next poll cycle (up to $
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "❌ *${identifier}* — ${title}
 Failed (attempt ${attempts}/${MAX_RETRIES}, exit code ${exit_code})"
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -709,13 +734,13 @@ Claude got blocked on this ticket:
 Please clarify in the ticket comments, then move back to **${TRIGGER_STATE}** to retry." 2>/dev/null || true
     notify "⚠️ *${identifier}* — Blocked
 ${blocked_line}"
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     tlog "$identifier" "Moved back to '$TRIGGER_STATE'"
     return 0
   fi
 
   # ── Check for Changes ──────────────────────────────────────────────────────
-  cd "$REPO_PATH"
+  cd "$worktree_path"
   local has_changes
   has_changes=$(git status --porcelain 2>/dev/null || true)
 
@@ -727,7 +752,7 @@ ${blocked_line}"
 Claude completed the session without modifying any files. This usually means the ticket description is too vague or needs more context.
 
 Add more detail to the ticket description and move back to **${TRIGGER_STATE}** to retry. See the [Writing Good Tickets guide](https://github.com/your-org/nightshift/blob/main/docs/WRITING-GOOD-TICKETS.md) for tips." 2>/dev/null || true
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     return 0
   fi
 
@@ -778,7 +803,7 @@ ${review_output}
 
         tlog "$identifier" "Asking Claude to fix review issues..."
         local fix_exit=0
-        run_claude "$fix_prompt" "$log_file" || fix_exit=$?
+        run_claude "$worktree_path" "$fix_prompt" "$log_file" || fix_exit=$?
         if [ "$fix_exit" -ne 0 ]; then
           tlog "$identifier" "⚠️  Fix attempt exited with code $fix_exit"
         fi
@@ -794,7 +819,7 @@ ${review_output}
   fi
 
   # ── Commit & Push ──────────────────────────────────────────────────────────
-  cd "$REPO_PATH"
+  cd "$worktree_path"
 
   local impl_mode=""
   [ "${USE_AGENT_TEAMS}" = "true" ] && impl_mode=" (Agent Teams)"
@@ -878,7 +903,7 @@ ${pr_url}
 \`\`\`
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
-    cleanup_branch "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" 2>/dev/null || true
     return 1
   fi
 
@@ -898,7 +923,7 @@ Moved to **${IN_REVIEW_STATE}**. Ready for your review!" 2>/dev/null || true
   tlog "$identifier" "✅ Done — moved to '$IN_REVIEW_STATE'"
 
   # ── Cleanup ────────────────────────────────────────────────────────────────
-  cleanup_branch "$identifier" 2>/dev/null || true
+  cleanup_worktree "$identifier" 2>/dev/null || true
 }
 
 # ─── Process Management ──────────────────────────────────────────────────────
@@ -974,6 +999,7 @@ print_banner() {
   echo ""
   printf "🌙 Nightshift v%s\n" "$VERSION"
   printf "   Repo:           %s\n" "$REPO_PATH"
+  printf "   Worktrees:      %s\n" "$WORKTREE_BASE"
   printf "   Team:           %s\n" "$LINEAR_TEAM_KEY"
   printf "   Watching:       \"%s\" column\n" "$TRIGGER_STATE"
   printf "   Mode:           %s\n" "$agent_mode"
@@ -993,7 +1019,7 @@ print_banner() {
 
 main() {
   validate_config
-  mkdir -p "$LOG_DIR"
+  mkdir -p "$LOG_DIR" "$WORKTREE_BASE"
   startup_cleanup
   resolve_state_ids
   print_banner
@@ -1081,6 +1107,9 @@ Watching \"${TRIGGER_STATE}\" column for ${LINEAR_TEAM_KEY} tickets"
     sleep "$POLL_INTERVAL"
   done
 }
+
+# ─── Test Guard ────────────────────────────────────────────────────────────────
+[[ "${NIGHTSHIFT_TESTING:-}" == "true" ]] && return 0 2>/dev/null
 
 # ─── Entrypoint ───────────────────────────────────────────────────────────────
 

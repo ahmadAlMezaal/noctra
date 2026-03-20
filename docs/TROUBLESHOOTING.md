@@ -25,7 +25,7 @@ Common mismatches:
 - `"In review"` vs `"In Review"` (capitalization)
 - Custom state names that differ from the defaults
 
-Fix: update `TRIGGER_STATE` / `IN_PROGRESS_STATE` / `IN_REVIEW_STATE` in `.env` to match exactly.
+Fix: update `TRIGGER_STATE` / `IN_REVIEW_STATE` in `.env` to match exactly.
 
 **Check 2: Team key mismatch**
 
@@ -193,12 +193,14 @@ Claude made its best guess about what was needed. Without specific file paths, e
 
 **Fix:** Improve the ticket. See [WRITING-GOOD-TICKETS.md](WRITING-GOOD-TICKETS.md).
 
-Close the PR, delete the branch, and re-queue the ticket with more context:
+Close the PR, delete the branch/worktree, and re-queue the ticket with more context:
 
 ```bash
-# Delete the branch
+# Remove worktree if it exists
+cd /path/to/repo && git worktree remove --force ~/.nightshift-worktrees/ENG-42 2>/dev/null || true
+# Delete the remote and local branch
 git push origin --delete nightshift/eng-42
-cd /path/to/repo && git branch -D nightshift/eng-42 2>/dev/null || true
+git branch -D nightshift/eng-42 2>/dev/null || true
 ```
 
 ---
@@ -207,19 +209,21 @@ cd /path/to/repo && git branch -D nightshift/eng-42 2>/dev/null || true
 
 **Symptom:** Nightshift exits unexpectedly. A ticket is stuck in "In Progress" with no PR.
 
-**Clean up stale branches:**
+**Clean up stale worktrees and branches:**
 
 ```bash
-# Check if a nightshift branch was left behind
+# Check for leftover worktrees
+ls ~/.nightshift-worktrees/
+
+# Remove a stale worktree
 cd /path/to/your/repo
-git branch | grep nightshift/
+git worktree remove --force ~/.nightshift-worktrees/ENG-42
 
-# Delete a stale nightshift branch
-git checkout main
-git branch -D nightshift/eng-42
+# Prune worktree metadata
+git worktree prune
 
-# Return to main
-git checkout main && git pull origin main
+# Delete a stale local branch if needed
+git branch -D nightshift/eng-42 2>/dev/null
 ```
 
 **Reset the ticket state:**
