@@ -641,6 +641,11 @@ Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
   prompt=$(build_prompt "$identifier" "$title" "$description")
 
   tlog "$identifier" "Running Claude (agent-teams=${USE_AGENT_TEAMS}, timeout=${AGENT_TIMEOUT_MINUTES}m)..."
+
+  # Record log size before Claude runs — so post-run checks only look at NEW output
+  local log_offset=0
+  [ -f "$log_file" ] && log_offset=$(wc -c < "$log_file")
+
   local exit_code=0
   run_claude "$prompt" "$log_file" || exit_code=$?
 
@@ -663,8 +668,12 @@ Timed out after ${AGENT_TIMEOUT_MINUTES}m. Moving back to ${TRIGGER_STATE}."
     return 1
   fi
 
+  # ── Extract only THIS attempt's output (skip previous attempts in the log) ──
+  local current_output
+  current_output=$(tail -c +"$((log_offset + 1))" "$log_file" 2>/dev/null || true)
+
   # ── Check for rate/usage limit ──────────────────────────────────────────────
-  if grep -qi "rate.limit\|usage.limit\|exceeded.*limit\|too many requests" "$log_file" 2>/dev/null; then
+  if echo "$current_output" | grep -qi "rate.limit\|usage.limit\|exceeded.*limit\|too many requests" 2>/dev/null; then
     tlog "$identifier" "🛑 Usage/rate limit detected in agent output — triggering shutdown"
     FAILED_ATTEMPTS["$identifier"]=$(( ${FAILED_ATTEMPTS["$identifier"]:-0} + 1 ))
     FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -701,9 +710,8 @@ Failed (attempt ${attempts}/${MAX_RETRIES}, exit code ${exit_code})"
   fi
 
   # ── Check for BLOCKED ──────────────────────────────────────────────────────
-  local claude_output blocked_line
-  claude_output=$(cat "$log_file" 2>/dev/null || true)
-  blocked_line=$(echo "$claude_output" | grep -i "^BLOCKED:" | head -1 || true)
+  local blocked_line
+  blocked_line=$(echo "$current_output" | grep -i "^BLOCKED:" | head -1 || true)
 
   if [ -n "$blocked_line" ]; then
     tlog "$identifier" "⚠️  Blocked: $blocked_line"
