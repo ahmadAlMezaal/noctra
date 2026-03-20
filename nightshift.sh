@@ -501,37 +501,26 @@ run_claude() {
   local log_file="$2"
   local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
 
-  # Force working directory to target repo and export PWD so child processes
-  # (including Claude Code) see the correct project root
   cd "$REPO_PATH" || { echo "FATAL: cannot cd to REPO_PATH: $REPO_PATH" >> "$log_file"; return 1; }
-  export PWD="$REPO_PATH"
 
   {
     echo "DEBUG: pwd = $(pwd)"
-    echo "DEBUG: PWD env = $PWD"
-    echo "DEBUG: git toplevel = $(git rev-parse --show-toplevel 2>/dev/null)"
     echo "DEBUG: branch = $(git branch --show-current 2>/dev/null)"
-    echo "DEBUG: .git type = $(file "$REPO_PATH/.git" 2>/dev/null)"
   } >> "$log_file"
 
-  # Use a subshell with cd + exec to guarantee Claude's cwd and PWD
-  # are the target repo — not the nightshift script directory.
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
     timeout "${timeout_minutes}m" bash -c \
-      'cd "$1" && export PWD="$1" && exec env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
+      'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
         --dangerously-skip-permissions \
         --print \
-        --no-session-persistence \
         --output-format text \
-        -p "$2"' _ "$REPO_PATH" "$prompt" >> "$log_file" 2>&1
+        -p "$1" >> "$2" 2>&1' _ "$prompt" "$log_file"
   else
-    timeout "${timeout_minutes}m" bash -c \
-      'cd "$1" && export PWD="$1" && exec claude \
-        --dangerously-skip-permissions \
-        --print \
-        --no-session-persistence \
-        --output-format text \
-        -p "$2"' _ "$REPO_PATH" "$prompt" >> "$log_file" 2>&1
+    timeout "${timeout_minutes}m" claude \
+      --dangerously-skip-permissions \
+      --print \
+      --output-format text \
+      -p "$prompt" >> "$log_file" 2>&1
   fi
 }
 
