@@ -343,11 +343,11 @@ create_branch() {
   git branch -D "$branch_name" >/dev/null 2>&1 || true
 
   # Start from latest main
-  git checkout "$MAIN_BRANCH" --quiet 2>/dev/null || true
-  git reset --hard "origin/$MAIN_BRANCH" --quiet 2>/dev/null || true
+  git checkout "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+  git reset --hard "origin/$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
 
-  # Create and switch to the feature branch
-  if ! git checkout -b "$branch_name" "origin/$MAIN_BRANCH" 2>&1; then
+  # Create and switch to the feature branch (suppress git output)
+  if ! git checkout -b "$branch_name" "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
     echo "git checkout -b failed for branch: $branch_name" >&2
     return 1
   fi
@@ -501,27 +501,37 @@ run_claude() {
   local log_file="$2"
   local timeout_minutes="${AGENT_TIMEOUT_MINUTES}"
 
-  # Ensure we are inside the target repo before invoking Claude
+  # Force working directory to target repo and export PWD so child processes
+  # (including Claude Code) see the correct project root
   cd "$REPO_PATH" || { echo "FATAL: cannot cd to REPO_PATH: $REPO_PATH" >> "$log_file"; return 1; }
+  export PWD="$REPO_PATH"
 
   {
-    echo "DEBUG: pwd before claude = $(pwd)"
+    echo "DEBUG: pwd = $(pwd)"
+    echo "DEBUG: PWD env = $PWD"
+    echo "DEBUG: git toplevel = $(git rev-parse --show-toplevel 2>/dev/null)"
     echo "DEBUG: branch = $(git branch --show-current 2>/dev/null)"
+    echo "DEBUG: .git type = $(file "$REPO_PATH/.git" 2>/dev/null)"
   } >> "$log_file"
 
+  # Use a subshell with cd + exec to guarantee Claude's cwd and PWD
+  # are the target repo — not the nightshift script directory.
   if [ "${USE_AGENT_TEAMS}" = "true" ]; then
     timeout "${timeout_minutes}m" bash -c \
-      'cd "$0" || exit 1; CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
+      'cd "$1" && export PWD="$1" && exec env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude \
         --dangerously-skip-permissions \
         --print \
+        --no-session-persistence \
         --output-format text \
-        -p "$1" >> "$2" 2>&1' "$REPO_PATH" "$prompt" "$log_file"
+        -p "$2"' _ "$REPO_PATH" "$prompt" >> "$log_file" 2>&1
   else
-    timeout "${timeout_minutes}m" claude \
-      --dangerously-skip-permissions \
-      --print \
-      --output-format text \
-      -p "$prompt" >> "$log_file" 2>&1
+    timeout "${timeout_minutes}m" bash -c \
+      'cd "$1" && export PWD="$1" && exec claude \
+        --dangerously-skip-permissions \
+        --print \
+        --no-session-persistence \
+        --output-format text \
+        -p "$2"' _ "$REPO_PATH" "$prompt" >> "$log_file" 2>&1
   fi
 }
 
@@ -610,8 +620,8 @@ process_ticket() {
 
   # ── Create Branch ──────────────────────────────────────────────────────────
   local branch_name
-  if ! branch_name=$(create_branch "$identifier" 2>&1); then
-    tlog "$identifier" "❌ Branch creation failed: $branch_name"
+  if ! branch_name=$(create_branch "$identifier"); then
+    tlog "$identifier" "❌ Branch creation failed"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "❌ **Nightshift: Setup failed**
 
