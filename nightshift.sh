@@ -327,10 +327,14 @@ Then provide your review comments."
 
 # ─── Worktree Management ──────────────────────────────────────────────────────
 
+branch_name_for() {
+  echo "nightshift/$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+}
+
 create_worktree() {
   local identifier="$1"
   local branch_name
-  branch_name="nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')"
+  branch_name=$(branch_name_for "$identifier")
   local worktree_path="$WORKTREE_BASE/$identifier"
 
   (
@@ -358,10 +362,11 @@ cleanup_worktree() {
   local identifier="$1"
   local worktree_path="$WORKTREE_BASE/$identifier"
 
-  (
-    cd "$REPO_PATH" 2>/dev/null || return 0
-    git worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
-  )
+  if [ -z "$identifier" ]; then
+    return
+  fi
+
+  git -C "$REPO_PATH" worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -629,7 +634,7 @@ process_ticket() {
   # Note: Linear's GitHub integration auto-moves tickets to "In Progress"
   # when a branch with the ticket ID is created, so no manual state update needed.
   local worktree_path branch_name
-  branch_name="nightshift/$(echo "$identifier" | tr '[:upper:]' '[:lower:]')"
+  branch_name=$(branch_name_for "$identifier")
   if ! worktree_path=$(create_worktree "$identifier"); then
     tlog "$identifier" "❌ Worktree creation failed"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true

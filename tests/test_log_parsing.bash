@@ -10,8 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test_helper.bash"
 echo "=== Log Parsing Tests ==="
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-TMPLOG=$(mktemp)
-trap 'rm -f "$TMPLOG"' EXIT
+TMPLOG=$(make_test_tmpfile)
 
 # ── Test: BLOCKED in old output is NOT detected ──────────────────────────────
 echo "--- BLOCKED detection with log_offset ---"

@@ -68,6 +68,33 @@ assert_not_contains() {
   fi
 }
 
+# ── Temp Dir Helpers ──────────────────────────────────────────────────────────
+
+TEST_TMPFILES=()
+
+make_test_tmpdir() {
+  local d
+  d=$(mktemp -d)
+  TEST_TMPFILES+=("$d")
+  echo "$d"
+}
+
+make_test_tmpfile() {
+  local f
+  f=$(mktemp)
+  TEST_TMPFILES+=("$f")
+  echo "$f"
+}
+
+cleanup_test_tmp() {
+  for f in "${TEST_TMPFILES[@]}"; do
+    rm -rf "$f" 2>/dev/null || true
+  done
+  TEST_TMPFILES=()
+}
+
+trap cleanup_test_tmp EXIT
+
 print_test_summary() {
   echo ""
   echo "Results: $TESTS_PASSED/$TESTS_TOTAL passed, $TESTS_FAILED failed"

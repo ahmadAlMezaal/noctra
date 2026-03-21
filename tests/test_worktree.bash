@@ -7,9 +7,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/test_helper.bash"
 echo "=== Worktree Tests ==="
 
 # ── Setup: create a temporary bare-ish repo to act as REPO_PATH ──────────────
-TEST_REPO=$(mktemp -d)
-WORKTREE_BASE=$(mktemp -d)
-trap 'rm -rf "$TEST_REPO" "$WORKTREE_BASE"' EXIT
+TEST_REPO=$(make_test_tmpdir)
+WORKTREE_BASE=$(make_test_tmpdir)
 
 # Initialize a repo with at least one commit
 git -C "$TEST_REPO" init -b main --quiet

@@ -7,8 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test_helper.bash"
 echo "=== PR Summary Tests ==="
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-TMPLOG=$(mktemp)
-trap 'rm -f "$TMPLOG"' EXIT
+TMPLOG=$(make_test_tmpfile)
 
 # ── Test: DEBUG lines are stripped ────────────────────────────────────────────
 echo "--- DEBUG line stripping ---"
