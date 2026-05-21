@@ -6,27 +6,40 @@ Autonomous Linear-to-PR agent. Polls Linear for tickets in a trigger state, disp
 
 ```
 main loop (poll) → fetch_trigger_issues → process_ticket (background subshell per ticket)
-  → create_worktree → run_claude → check output → commit/push → gh pr create → linear update
+  → resolve_repo → create_worktree → run_claude → check output → commit/push → gh pr create → linear update
 ```
 
 Worktrees are created at `~/.nightshift-worktrees/<IDENTIFIER>` so multiple tickets can run concurrently without sharing a working directory.
+
+## Multi-repo
+
+The target repo is chosen **per-ticket** from the ticket's Linear **project**, not from a single global path. `repos.json` (gitignored) maps a project name → `{ url, main_branch }`. `resolve_repo` looks the project up, clones the repo on demand into `~/.nightshift-repos/<slug>`, and returns the local path + main branch, which are threaded through `create_worktree`, `cleanup_worktree`, and `gh pr create`.
+
+If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH` from `.env` (if set), otherwise it skips the ticket with a Linear comment. Single-repo `.env`-only setups keep working unchanged.
+
+`./nightshift.sh setup` is an interactive wizard that generates `.env` and `repos.json` — no hand-editing required. `repos.example.json` is the checked-in template.
 
 ## Key Functions
 
 | Function | Purpose |
 |----------|---------|
-| `create_worktree` | Creates git worktree + branch from latest main |
-| `cleanup_worktree` | Removes worktree via `git worktree remove --force` |
+| `resolve_repo` | Maps a ticket's Linear project → local repo path + main branch; clones on demand |
+| `registry_lookup` | Reads `repos.json`; returns the URL + main branch for a project |
+| `repo_slug` | Slugifies a project name into a clone directory name |
+| `create_worktree` | Creates git worktree + branch from latest main (takes repo path + main branch) |
+| `cleanup_worktree` | Removes worktree via `git worktree remove --force` (takes repo path) |
 | `run_claude` | Invokes `claude --print` with timeout; takes `workdir` as first param |
-| `process_ticket` | Full lifecycle: worktree → claude → review → commit → PR → Linear update |
+| `process_ticket` | Full lifecycle: resolve repo → worktree → claude → review → commit → PR → Linear update |
 | `build_prompt` | Generates the prompt from ticket metadata |
 | `gemini_review` | Optional second-model review gate |
-| `fetch_trigger_issues` | Queries Linear GraphQL for tickets in trigger state |
+| `fetch_trigger_issues` | Queries Linear GraphQL for tickets in trigger state (incl. project name) |
+| `run_setup` | Interactive wizard — generates `.env` + `repos.json` |
 
 ## Configuration
 
-Copy `.env.example` to `.env`. All config is documented there. Key variables:
-- `REPO_PATH` — absolute path to the target repo
+Run `./nightshift.sh setup`, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json`. Key variables:
+- `repos.json` — maps Linear project name → repo URL + optional `main_branch`
+- `REPO_PATH` — optional fallback repo for tickets whose project is not in `repos.json`
 - `LINEAR_API_KEY`, `LINEAR_TEAM_KEY` — Linear access
 - `MAX_CONCURRENT` — number of parallel tickets (each gets its own worktree)
 

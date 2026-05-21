@@ -1,0 +1,12 @@
+{
+  "_comment": "Maps a Linear project name (exact match) to a git repo. Copy this file to repos.json, or run ./nightshift.sh setup. Nightshift clones each repo on demand into ~/.nightshift-repos. 'main_branch' is optional and falls back to MAIN_BRANCH in .env.",
+  "repos": {
+    "Auth Service": {
+      "url": "git@github.com:your-org/auth-service.git",
+      "main_branch": "main"
+    },
+    "Web App": {
+      "url": "https://github.com/your-org/web-app.git"
+    }
+  }
+}

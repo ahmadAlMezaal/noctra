@@ -1,6 +1,9 @@
 # Environment — contains secrets
 .env
 
+# Repo registry — local, machine-specific config
+repos.json
+
 # Agent logs — runtime output
 .agent-logs/
 

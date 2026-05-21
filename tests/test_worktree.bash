@@ -14,6 +14,8 @@ WORKTREE_BASE=$(make_test_tmpdir)
 git -C "$TEST_REPO" init -b main --quiet
 git -C "$TEST_REPO" config user.email "test@test.com"
 git -C "$TEST_REPO" config user.name "Test"
+# Throwaway fixture repo — keep commits hermetic regardless of host git config
+git -C "$TEST_REPO" config commit.gpgsign false
 echo "init" > "$TEST_REPO/README.md"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -m "init" --quiet
@@ -29,7 +31,7 @@ MAIN_BRANCH="main"
 # ── Test: create_worktree returns a clean path ───────────────────────────────
 echo "--- create_worktree output ---"
 
-result=$(create_worktree "ENG-100")
+result=$(create_worktree "ENG-100" "$REPO_PATH" "$MAIN_BRANCH")
 assert_contains "$result" "$WORKTREE_BASE/ENG-100" "worktree path should contain identifier"
 assert_not_contains "$result" "Preparing" "output should not contain git noise"
 
@@ -50,7 +52,7 @@ assert_equals "nightshift/eng-100" "$branch_in_worktree" "worktree should be on 
 # ── Test: cleanup_worktree removes the worktree ─────────────────────────────
 echo "--- cleanup_worktree ---"
 
-cleanup_worktree "ENG-100"
+cleanup_worktree "ENG-100" "$REPO_PATH"
 if [ -d "$WORKTREE_BASE/ENG-100" ]; then
   cleanup_worked="no"
 else
@@ -63,7 +65,7 @@ echo "--- create_worktree with bad repo ---"
 
 REPO_PATH="/nonexistent/path"
 result=""
-if result=$(create_worktree "ENG-999" 2>/dev/null); then
+if result=$(create_worktree "ENG-999" "$REPO_PATH" "$MAIN_BRANCH" 2>/dev/null); then
   bad_repo_handled="no"
 else
   bad_repo_handled="yes"

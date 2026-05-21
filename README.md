@@ -64,26 +64,48 @@ gh auth login
 git clone https://github.com/your-org/nightshift.git
 cd nightshift
 
-# 2. Copy the config template
-cp .env.example .env
+# 2. Run the interactive setup wizard
+#    Prompts for Linear, optional Gemini/Telegram, and your repos —
+#    then generates .env and repos.json for you.
+./nightshift.sh setup
 
-# 3. Edit .env with your values
-open .env   # or: nano .env, vim .env
-
-# 4. Make the script executable (already done if you cloned)
-chmod +x nightshift.sh
-
-# 5. Run
+# 3. Run
 ./nightshift.sh
 ```
 
 That's it. Move tickets to your trigger state (default: "Next") and watch them become PRs.
 
+Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
+
+---
+
+## Repositories
+
+Nightshift picks the target repo **per-ticket**, from the ticket's Linear **project** — so you never have to edit config to switch projects.
+
+`repos.json` maps each Linear project name to a git repo:
+
+```json
+{
+  "repos": {
+    "Auth Service": { "url": "git@github.com:your-org/auth-service.git", "main_branch": "main" },
+    "Web App":      { "url": "https://github.com/your-org/web-app.git" }
+  }
+}
+```
+
+When a ticket comes in, Nightshift reads its project, finds the matching repo, and **clones it on demand** into `~/.nightshift-repos/` (nothing needs to be cloned up front). `main_branch` is optional and falls back to `MAIN_BRANCH` in `.env`.
+
+- **Register a repo once**, reference it forever — no per-session `.env` edits.
+- `repos.json` is gitignored (machine-specific). The wizard generates it; `repos.example.json` is the template.
+- **Auth:** the host running Nightshift needs git access to each repo — an SSH key, or `gh auth login` for HTTPS URLs. The setup wizard checks access (`git ls-remote`) before saving a repo, and Nightshift re-checks before cloning.
+- **Fallback:** a ticket whose project has no `repos.json` entry uses `REPO_PATH` from `.env` if set; otherwise it's skipped with a Linear comment. Single-repo `.env`-only setups keep working unchanged.
+
 ---
 
 ## Configuration
 
-All config lives in `.env`. Copy `.env.example` to get started.
+Run `./nightshift.sh setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -92,8 +114,8 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `TRIGGER_STATE` | `Next` | Linear column to watch for new work |
 | `IN_PROGRESS_STATE` | `In Progress` | State set when Nightshift picks up a ticket |
 | `IN_REVIEW_STATE` | `In Review` | State set after PR is created |
-| `REPO_PATH` | *(required)* | Absolute path to your git repository |
-| `MAIN_BRANCH` | `main` | Base branch for new PRs |
+| `REPO_PATH` | *(empty)* | Optional fallback repo for tickets whose Linear project is not in `repos.json` |
+| `MAIN_BRANCH` | `main` | Default base branch (repos.json entries may override per-repo) |
 | `MAX_CONCURRENT` | `3` | Maximum tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
 | `USE_AGENT_TEAMS` | `false` | Enable Claude Code Agent Teams (multi-agent parallelism) |
@@ -249,17 +271,7 @@ Nightshift creates PRs — it doesn't merge them. You review and merge manually.
 
 ### Can I run multiple repos simultaneously?
 
-Yes. Run separate instances of `nightshift.sh` with separate `.env` files pointing to different repos.
-
-```bash
-# Terminal 1
-NIGHTSHIFT_ENV=/path/to/repo-a/.nightshift.env ./nightshift.sh
-
-# Terminal 2
-NIGHTSHIFT_ENV=/path/to/repo-b/.nightshift.env ./nightshift.sh
-```
-
-Or just copy the nightshift directory for each repo and configure `.env` separately.
+Yes — that's built in. Register each repo in `repos.json` (mapped to its Linear project) and a single Nightshift instance routes every ticket to the right repo automatically. Tickets for different repos run concurrently up to `MAX_CONCURRENT`. See [Repositories](#repositories).
 
 ### What if Claude gets stuck?
 
