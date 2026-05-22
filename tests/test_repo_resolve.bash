@@ -80,6 +80,14 @@ result2=$(resolve_repo "ENG-5" "repo:app")
 assert_equals "$REPO_CACHE_BASE/app" "$(printf '%s' "$result2" | cut -f1)" \
   "second resolution reuses the cached clone"
 
+# ── default_branch_for_repo ──────────────────────────────────────────────────
+echo "--- default_branch_for_repo ---"
+
+assert_equals "trunk" "$(default_branch_for_repo "$REPO_CACHE_BASE/app")" \
+  "default branch comes from repos.json for a cached clone"
+assert_equals "main" "$(default_branch_for_repo "/tmp/not-a-cached-repo")" \
+  "default branch falls back to MAIN_BRANCH for an unknown repo"
+
 # ── resolve_repo: branch defaults to MAIN_BRANCH when omitted ────────────────
 echo "--- resolve_repo default branch ---"
 

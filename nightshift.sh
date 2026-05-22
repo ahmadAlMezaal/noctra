@@ -440,6 +440,31 @@ resolve_repo() {
   printf '%s\t%s\n' "$dir" "$branch"
 }
 
+# Determine a repo's default branch for cleanup purposes.
+# Prefers the branch declared in repos.json (for on-demand clones), then the
+# remote's own default via origin/HEAD, then the global MAIN_BRANCH.
+default_branch_for_repo() {
+  local repo="$1"
+  local branch=""
+
+  # On-demand clones live at $REPO_CACHE_BASE/<key> — look the key up.
+  case "$repo" in
+    "$REPO_CACHE_BASE"/*)
+      if [ -f "$REPOS_FILE" ]; then
+        branch=$(jq -r --arg k "$(basename "$repo")" '.[$k].branch // empty' \
+          "$REPOS_FILE" 2>/dev/null || true)
+      fi
+      ;;
+  esac
+
+  if [ -z "$branch" ]; then
+    branch=$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
+      | sed 's#^origin/##' || true)
+  fi
+
+  echo "${branch:-$MAIN_BRANCH}"
+}
+
 # ─── Worktree Management ──────────────────────────────────────────────────────
 
 branch_name_for() {
@@ -540,10 +565,14 @@ run_cleanup() {
   for repo in "${repo_dirs[@]}"; do
     echo "📁 $repo"
 
+    # Each repo may use a different default branch (main, master, trunk…).
+    local base_branch
+    base_branch=$(default_branch_for_repo "$repo")
+
     # Merged local branches
     local merged_branches=()
-    mapfile -t merged_branches < <(git -C "$repo" branch --merged "$MAIN_BRANCH" 2>/dev/null \
-      | grep -vE "^\*|main|staging|master" \
+    mapfile -t merged_branches < <(git -C "$repo" branch --merged "origin/$base_branch" 2>/dev/null \
+      | grep -vE "^\*|main|staging|master|$base_branch" \
       | sed 's/^[[:space:]]*//' || true)
 
     if [ "${#merged_branches[@]}" -gt 0 ]; then
@@ -559,7 +588,7 @@ run_cleanup() {
 
     # Unmerged nightshift branches
     local unmerged=""
-    unmerged=$(git -C "$repo" branch --no-merged "$MAIN_BRANCH" 2>/dev/null \
+    unmerged=$(git -C "$repo" branch --no-merged "origin/$base_branch" 2>/dev/null \
       | grep -E "nightshift/" \
       | sed 's/^[[:space:]]*//' || true)
 
