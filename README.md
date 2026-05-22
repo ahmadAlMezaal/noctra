@@ -92,8 +92,9 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `TRIGGER_STATE` | `Next` | Linear column to watch for new work |
 | `IN_PROGRESS_STATE` | `In Progress` | State set when Nightshift picks up a ticket |
 | `IN_REVIEW_STATE` | `In Review` | State set after PR is created |
-| `REPO_PATH` | *(required)* | Absolute path to your git repository |
+| `REPO_PATH` | *(required\*)* | Absolute path to the default git repository |
 | `MAIN_BRANCH` | `main` | Base branch for new PRs |
+| `REPOS_FILE` | `repos.json` | Multi-repo map — route tickets to repos with `repo:<key>` labels |
 | `MAX_CONCURRENT` | `3` | Maximum tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
 | `USE_AGENT_TEAMS` | `false` | Enable Claude Code Agent Teams (multi-agent parallelism) |
@@ -102,6 +103,39 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `MAX_REVIEW_RETRIES` | `1` | Fix passes Claude gets after Gemini flags issues |
 
 State names are **case-sensitive** and must match your Linear board exactly.
+
+\* `REPO_PATH` is required unless `repos.json` defines at least one repo — see below.
+
+---
+
+## Working on multiple repos
+
+By default Nightshift works on the single repo at `REPO_PATH`. To let one
+Nightshift instance serve **any** repo — without editing `.env` when you switch
+projects — use a repos file and Linear labels.
+
+1. Copy `repos.example.json` to `repos.json` and map a short key to each repo:
+
+   ```json
+   {
+     "my-app":       { "url": "git@github.com:you/my-app.git",       "branch": "main" },
+     "side-project": { "url": "https://github.com/you/side-project.git", "branch": "master" }
+   }
+   ```
+
+2. In Linear, create a label named `repo:my-app` (matching a key above) and add
+   it to a ticket. When you move that ticket to your trigger state, Nightshift
+   reads the label, clones the repo on demand into `~/.nightshift-repos/`, and
+   works there.
+
+Tickets **without** a `repo:` label fall back to `REPO_PATH`, so existing
+single-repo setups keep working unchanged. The polling/cron trigger is
+unchanged — only the repo each ticket targets is now decided per ticket.
+
+Notes:
+- The `branch` field is optional and defaults to `MAIN_BRANCH`.
+- Repo keys are case-sensitive and must match the label exactly after `repo:`.
+- A repo is cloned once and reused; later tickets just fetch the latest base branch.
 
 ---
 
@@ -249,17 +283,11 @@ Nightshift creates PRs — it doesn't merge them. You review and merge manually.
 
 ### Can I run multiple repos simultaneously?
 
-Yes. Run separate instances of `nightshift.sh` with separate `.env` files pointing to different repos.
-
-```bash
-# Terminal 1
-NIGHTSHIFT_ENV=/path/to/repo-a/.nightshift.env ./nightshift.sh
-
-# Terminal 2
-NIGHTSHIFT_ENV=/path/to/repo-b/.nightshift.env ./nightshift.sh
-```
-
-Or just copy the nightshift directory for each repo and configure `.env` separately.
+Yes — a single Nightshift instance can serve any number of repos. Create a
+`repos.json` and add a `repo:<key>` label to each ticket. See
+[Working on multiple repos](#working-on-multiple-repos). Tickets for different
+repos are processed concurrently, each in its own worktree, up to
+`MAX_CONCURRENT`.
 
 ### What if Claude gets stuck?
 

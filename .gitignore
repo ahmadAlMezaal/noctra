@@ -1,6 +1,9 @@
 # Environment — contains secrets
 .env
 
+# Multi-repo map — user-specific repo list
+repos.json
+
 # Agent logs — runtime output
 .agent-logs/
 

@@ -1,0 +1,10 @@
+{
+  "my-app": {
+    "url": "git@github.com:your-org/my-app.git",
+    "branch": "main"
+  },
+  "side-project": {
+    "url": "https://github.com/your-org/side-project.git",
+    "branch": "master"
+  }
+}

@@ -14,6 +14,7 @@ WORKTREE_BASE=$(make_test_tmpdir)
 git -C "$TEST_REPO" init -b main --quiet
 git -C "$TEST_REPO" config user.email "test@test.com"
 git -C "$TEST_REPO" config user.name "Test"
+git -C "$TEST_REPO" config commit.gpgsign false
 echo "init" > "$TEST_REPO/README.md"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -m "init" --quiet
