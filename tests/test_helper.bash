@@ -14,6 +14,9 @@ export REPO_PATH="/tmp/nightshift-test-repo"
 export MAIN_BRANCH="main"
 export LOG_DIR="/tmp/nightshift-test-logs"
 export WORKTREE_BASE="/tmp/nightshift-test-worktrees"
+# Point at a path that does not exist so tests start in single-repo mode.
+# REPOS_FILE is read with a :- default, so this export survives sourcing.
+export REPOS_FILE="/tmp/nightshift-test-repos.json"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$SCRIPT_DIR/nightshift.sh"

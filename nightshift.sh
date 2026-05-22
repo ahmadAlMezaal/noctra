@@ -43,6 +43,7 @@ TRIGGER_STATE="${TRIGGER_STATE:-Next}"
 IN_REVIEW_STATE="${IN_REVIEW_STATE:-In Review}"
 REPO_PATH="${REPO_PATH:-}"
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
+REPOS_FILE="${REPOS_FILE:-$SCRIPT_DIR/repos.json}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
 USE_AGENT_TEAMS="${USE_AGENT_TEAMS:-false}"
@@ -63,6 +64,7 @@ TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 # Paths
 LOG_DIR="$SCRIPT_DIR/.agent-logs"
 WORKTREE_BASE="$HOME/.nightshift-worktrees"
+REPO_CACHE_BASE="$HOME/.nightshift-repos"
 
 # ─── Global State ────────────────────────────────────────────────────────────
 
@@ -89,11 +91,25 @@ validate_config() {
     errors=$((errors + 1))
   fi
 
-  if [ -z "$REPO_PATH" ]; then
-    echo "❌ REPO_PATH is required — set it in .env" >&2
-    errors=$((errors + 1))
-  elif [ ! -d "$REPO_PATH/.git" ]; then
-    echo "❌ REPO_PATH ($REPO_PATH) is not a git repository" >&2
+  # A repo can be supplied two ways: a default REPO_PATH, or a repos file
+  # mapping `repo:<key>` labels to git URLs. At least one must be usable.
+  local repos_ok=false
+  if [ -f "$REPOS_FILE" ]; then
+    if jq -e 'type == "object" and length > 0' "$REPOS_FILE" >/dev/null 2>&1; then
+      repos_ok=true
+    else
+      echo "❌ REPOS_FILE ($REPOS_FILE) must be a non-empty JSON object — see repos.example.json" >&2
+      errors=$((errors + 1))
+    fi
+  fi
+
+  if [ -n "$REPO_PATH" ]; then
+    if [ ! -d "$REPO_PATH/.git" ]; then
+      echo "❌ REPO_PATH ($REPO_PATH) is not a git repository" >&2
+      errors=$((errors + 1))
+    fi
+  elif [ "$repos_ok" != true ]; then
+    echo "❌ No repository configured — set REPO_PATH in .env or add repos to $REPOS_FILE" >&2
     errors=$((errors + 1))
   fi
 
@@ -210,7 +226,7 @@ fetch_trigger_issues() {
   # Inline the state name directly — no GraphQL variables, no escaping layers.
   local payload response
   payload=$(jq -n --arg state "$TRIGGER_STATE" \
-    '{"query": ("{ teams { nodes { issues(filter: { state: { name: { eq: \"" + $state + "\" } } }, orderBy: updatedAt, first: 20) { nodes { id identifier title description url } } } } }")}')
+    '{"query": ("{ teams { nodes { issues(filter: { state: { name: { eq: \"" + $state + "\" } } }, orderBy: updatedAt, first: 20) { nodes { id identifier title description url labels { nodes { name } } } } } } }")}')
 
   response=$(curl -s -X POST \
     -H "Content-Type: application/json" \
@@ -325,6 +341,130 @@ Then provide your review comments."
   fi
 }
 
+# ─── Repository Resolution ────────────────────────────────────────────────────
+
+# Extract the repo key from a ticket's labels.
+# Looks for a label of the form "repo:<key>" (case-insensitive prefix).
+# Echoes the key, or nothing if no such label exists.
+repo_key_from_labels() {
+  local labels="$1"
+  printf '%s\n' "$labels" \
+    | grep -iE '^[[:space:]]*repo:' \
+    | head -1 \
+    | sed -E 's/^[[:space:]]*[Rr][Ee][Pp][Oo]:[[:space:]]*//' \
+    | sed -E 's/[[:space:]]+$//'
+}
+
+# Clone a repo on first use, fetch it on subsequent uses.
+# A per-repo lock (atomic mkdir) serialises concurrent tickets for the same repo.
+# Echoes the local clone path on success.
+ensure_repo_clone() {
+  local key="$1"
+  local url="$2"
+  local dir="$REPO_CACHE_BASE/$key"
+  local lock_dir="$REPO_CACHE_BASE/.locks"
+  local lock="$lock_dir/$key"
+
+  mkdir -p "$lock_dir"
+
+  # Acquire the lock — mkdir is atomic, so only one process wins.
+  # Stale locks are cleared at startup, so a bounded wait is safe.
+  local waited=0
+  while ! mkdir "$lock" 2>/dev/null; do
+    sleep 2
+    waited=$((waited + 2))
+    if [ "$waited" -ge 300 ]; then
+      echo "timed out waiting for repo lock: $key" >&2
+      return 1
+    fi
+  done
+
+  local rc=0
+  if [ -d "$dir/.git" ]; then
+    git -C "$dir" fetch origin --prune --quiet >/dev/null 2>&1 || true
+  else
+    if ! git clone --quiet "$url" "$dir" >/dev/null 2>&1; then
+      rm -rf "$dir"
+      rc=1
+    fi
+  fi
+
+  rmdir "$lock" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || return 1
+  echo "$dir"
+}
+
+# Resolve which repo a ticket targets, based on its labels.
+# Echoes "<repo_path><TAB><branch>" on success.
+# On failure, prints a human-readable reason to stderr and returns 1.
+resolve_repo() {
+  local identifier="$1"
+  local labels="$2"
+
+  local key
+  key=$(repo_key_from_labels "$labels")
+
+  # No repo: label — fall back to the default REPO_PATH.
+  if [ -z "$key" ]; then
+    if [ -z "$REPO_PATH" ]; then
+      echo "Ticket has no \`repo:\` label and no default REPO_PATH is configured." >&2
+      return 1
+    fi
+    printf '%s\t%s\n' "$REPO_PATH" "$MAIN_BRANCH"
+    return 0
+  fi
+
+  if [ ! -f "$REPOS_FILE" ]; then
+    echo "Ticket is labelled \`repo:${key}\` but no repos file exists at ${REPOS_FILE}." >&2
+    return 1
+  fi
+
+  local url branch
+  url=$(jq -r --arg k "$key" '.[$k].url // empty' "$REPOS_FILE" 2>/dev/null || true)
+  branch=$(jq -r --arg k "$key" '.[$k].branch // empty' "$REPOS_FILE" 2>/dev/null || true)
+
+  if [ -z "$url" ]; then
+    local available
+    available=$(jq -r 'keys | join(", ")' "$REPOS_FILE" 2>/dev/null || true)
+    echo "Repo key \`${key}\` is not defined in ${REPOS_FILE}. Known repos: ${available:-none}." >&2
+    return 1
+  fi
+  [ -z "$branch" ] && branch="$MAIN_BRANCH"
+
+  local dir
+  if ! dir=$(ensure_repo_clone "$key" "$url"); then
+    echo "Failed to clone or update repo \`${key}\` from ${url}." >&2
+    return 1
+  fi
+
+  printf '%s\t%s\n' "$dir" "$branch"
+}
+
+# Determine a repo's default branch for cleanup purposes.
+# Prefers the branch declared in repos.json (for on-demand clones), then the
+# remote's own default via origin/HEAD, then the global MAIN_BRANCH.
+default_branch_for_repo() {
+  local repo="$1"
+  local branch=""
+
+  # On-demand clones live at $REPO_CACHE_BASE/<key> — look the key up.
+  case "$repo" in
+    "$REPO_CACHE_BASE"/*)
+      if [ -f "$REPOS_FILE" ]; then
+        branch=$(jq -r --arg k "$(basename "$repo")" '.[$k].branch // empty' \
+          "$REPOS_FILE" 2>/dev/null || true)
+      fi
+      ;;
+  esac
+
+  if [ -z "$branch" ]; then
+    branch=$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
+      | sed 's#^origin/##' || true)
+  fi
+
+  echo "${branch:-$MAIN_BRANCH}"
+}
+
 # ─── Worktree Management ──────────────────────────────────────────────────────
 
 branch_name_for() {
@@ -333,14 +473,16 @@ branch_name_for() {
 
 create_worktree() {
   local identifier="$1"
+  local repo_path="${2:-$REPO_PATH}"
+  local main_branch="${3:-$MAIN_BRANCH}"
   local branch_name
   branch_name=$(branch_name_for "$identifier")
   local worktree_path="$WORKTREE_BASE/$identifier"
 
   (
-    cd "$REPO_PATH" || { echo "Cannot cd to REPO_PATH: $REPO_PATH" >&2; return 1; }
+    cd "$repo_path" || { echo "Cannot cd to repo: $repo_path" >&2; return 1; }
 
-    git fetch origin "$MAIN_BRANCH" --quiet >/dev/null 2>&1 || true
+    git fetch origin "$main_branch" --quiet >/dev/null 2>&1 || true
 
     # Remove stale local branch if exists
     git branch -D "$branch_name" >/dev/null 2>&1 || true
@@ -349,7 +491,7 @@ create_worktree() {
     git worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
 
     # Create worktree with a new branch from latest main
-    if ! git worktree add -b "$branch_name" "$worktree_path" "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
+    if ! git worktree add -b "$branch_name" "$worktree_path" "origin/$main_branch" >/dev/null 2>&1; then
       echo "git worktree add failed for: $worktree_path" >&2
       return 1
     fi
@@ -360,13 +502,14 @@ create_worktree() {
 
 cleanup_worktree() {
   local identifier="$1"
+  local repo_path="${2:-$REPO_PATH}"
   local worktree_path="$WORKTREE_BASE/$identifier"
 
   if [ -z "$identifier" ]; then
     return
   fi
 
-  git -C "$REPO_PATH" worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
+  git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
 }
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -374,8 +517,18 @@ cleanup_worktree() {
 # Lightweight cleanup run silently on every startup
 startup_cleanup() {
   log "Running startup cleanup..."
-  git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
-  git -C "$REPO_PATH" worktree prune 2>/dev/null || true
+  if [ -n "$REPO_PATH" ]; then
+    git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
+    git -C "$REPO_PATH" worktree prune 2>/dev/null || true
+  fi
+  # Stale per-repo clone locks — nothing holds them at startup, so clear them.
+  rm -rf "$REPO_CACHE_BASE/.locks" 2>/dev/null || true
+  # Prune dangling worktree refs in every cached repo.
+  if [ -d "$REPO_CACHE_BASE" ]; then
+    for d in "$REPO_CACHE_BASE"/*/; do
+      [ -d "${d}.git" ] && git -C "$d" worktree prune 2>/dev/null || true
+    done
+  fi
   log "✅ Startup cleanup done"
 }
 
@@ -390,75 +543,94 @@ run_cleanup() {
   echo "🧹 Nightshift Cleanup"
   echo ""
 
-  # ── Validate REPO_PATH ────────────────────────────────────────────────────
-  if [ -z "$REPO_PATH" ]; then
-    echo "❌ REPO_PATH is required — set it in .env" >&2
-    exit 1
-  elif [ ! -d "$REPO_PATH/.git" ]; then
-    echo "❌ REPO_PATH ($REPO_PATH) is not a git repository" >&2
+  # ── Gather repositories to clean ──────────────────────────────────────────
+  # The default REPO_PATH plus every on-demand clone under REPO_CACHE_BASE.
+  local repo_dirs=()
+  local d repo branch
+  if [ -n "$REPO_PATH" ] && [ -d "$REPO_PATH/.git" ]; then
+    repo_dirs+=("$REPO_PATH")
+  fi
+  if [ -d "$REPO_CACHE_BASE" ]; then
+    for d in "$REPO_CACHE_BASE"/*/; do
+      [ -d "${d}.git" ] && repo_dirs+=("${d%/}")
+    done
+  fi
+
+  if [ "${#repo_dirs[@]}" -eq 0 ]; then
+    echo "❌ No repositories found — set REPO_PATH in .env, or let Nightshift clone repos via labels first." >&2
     exit 1
   fi
 
-  # ── Merged local branches ─────────────────────────────────────────────────
-  local merged_branches=()
-  mapfile -t merged_branches < <(git -C "$REPO_PATH" branch --merged "$MAIN_BRANCH" 2>/dev/null \
-    | grep -vE "^\*|main|staging|master" \
-    | sed 's/^[[:space:]]*//' || true)
+  # ── Per-repo branch cleanup ───────────────────────────────────────────────
+  for repo in "${repo_dirs[@]}"; do
+    echo "📁 $repo"
 
-  if [ "${#merged_branches[@]}" -gt 0 ]; then
-    echo "Merged branches to delete (${#merged_branches[@]}):"
-    printf "  - %s\n" "${merged_branches[@]}"
+    # Each repo may use a different default branch (main, master, trunk…).
+    local base_branch
+    base_branch=$(default_branch_for_repo "$repo")
 
-    if [ "$force" = true ] || confirm "Delete these merged branches?"; then
-      for branch in "${merged_branches[@]}"; do
-        git -C "$REPO_PATH" branch -d "$branch" 2>/dev/null && merged_deleted=$((merged_deleted + 1))
-      done
-    fi
-    echo ""
-  fi
+    # Merged local branches
+    local merged_branches=()
+    mapfile -t merged_branches < <(git -C "$repo" branch --merged "origin/$base_branch" 2>/dev/null \
+      | grep -vE "^\*|main|staging|master|$base_branch" \
+      | sed 's/^[[:space:]]*//' || true)
 
-  # ── Unmerged nightshift branches ──────────────────────────────────────────
-  local unmerged=""
-  unmerged=$(git -C "$REPO_PATH" branch --no-merged "$MAIN_BRANCH" 2>/dev/null \
-    | grep -E "nightshift/" \
-    | sed 's/^[[:space:]]*//' || true)
+    if [ "${#merged_branches[@]}" -gt 0 ]; then
+      echo "Merged branches to delete (${#merged_branches[@]}):"
+      printf "  - %s\n" "${merged_branches[@]}"
 
-  if [ -n "$unmerged" ]; then
-    echo "⚠️  Unmerged Nightshift branches (from failed runs):"
-    echo "$unmerged" | while IFS= read -r b; do echo "  - $b"; done
-
-    # Check for open PRs before deleting
-    local safe_to_delete=()
-    local has_open_pr=()
-    while IFS= read -r branch; do
-      [ -z "$branch" ] && continue
-      local pr_count
-      pr_count=$(gh pr list --repo "$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null)" \
-        --head "$branch" --state open --json number 2>/dev/null \
-        | jq 'length' 2>/dev/null || echo "0")
-      if [ "$pr_count" -gt 0 ]; then
-        has_open_pr+=("$branch")
-      else
-        safe_to_delete+=("$branch")
-      fi
-    done <<< "$unmerged"
-
-    if [ "${#has_open_pr[@]}" -gt 0 ]; then
-      echo ""
-      echo "  Skipping (have open PRs):"
-      for b in "${has_open_pr[@]}"; do echo "    - $b"; done
-    fi
-
-    if [ "${#safe_to_delete[@]}" -gt 0 ]; then
-      echo ""
-      if [ "$force" = true ] || confirm "Force-delete ${#safe_to_delete[@]} unmerged branch(es) without open PRs?"; then
-        for branch in "${safe_to_delete[@]}"; do
-          git -C "$REPO_PATH" branch -D "$branch" 2>/dev/null && unmerged_deleted=$((unmerged_deleted + 1))
+      if [ "$force" = true ] || confirm "Delete these merged branches?"; then
+        for branch in "${merged_branches[@]}"; do
+          git -C "$repo" branch -d "$branch" 2>/dev/null && merged_deleted=$((merged_deleted + 1))
         done
       fi
     fi
+
+    # Unmerged nightshift branches
+    local unmerged=""
+    unmerged=$(git -C "$repo" branch --no-merged "origin/$base_branch" 2>/dev/null \
+      | grep -E "nightshift/" \
+      | sed 's/^[[:space:]]*//' || true)
+
+    if [ -n "$unmerged" ]; then
+      echo "⚠️  Unmerged Nightshift branches (from failed runs):"
+      echo "$unmerged" | while IFS= read -r b; do echo "  - $b"; done
+
+      # Check for open PRs before deleting
+      local safe_to_delete=()
+      local has_open_pr=()
+      while IFS= read -r branch; do
+        [ -z "$branch" ] && continue
+        local pr_count
+        pr_count=$(gh pr list --repo "$(git -C "$repo" remote get-url origin 2>/dev/null)" \
+          --head "$branch" --state open --json number 2>/dev/null \
+          | jq 'length' 2>/dev/null || echo "0")
+        if [ "$pr_count" -gt 0 ]; then
+          has_open_pr+=("$branch")
+        else
+          safe_to_delete+=("$branch")
+        fi
+      done <<< "$unmerged"
+
+      if [ "${#has_open_pr[@]}" -gt 0 ]; then
+        echo "  Skipping (have open PRs):"
+        for b in "${has_open_pr[@]}"; do echo "    - $b"; done
+      fi
+
+      if [ "${#safe_to_delete[@]}" -gt 0 ]; then
+        if [ "$force" = true ] || confirm "Force-delete ${#safe_to_delete[@]} unmerged branch(es) without open PRs?"; then
+          for branch in "${safe_to_delete[@]}"; do
+            git -C "$repo" branch -D "$branch" 2>/dev/null && unmerged_deleted=$((unmerged_deleted + 1))
+          done
+        fi
+      fi
+    fi
+
+    # Prune dangling worktree refs + stale remote tracking refs
+    git -C "$repo" worktree prune 2>/dev/null || true
+    git -C "$repo" fetch --prune 2>/dev/null || true
     echo ""
-  fi
+  done
 
   # ── Stale worktrees ───────────────────────────────────────────────────────
   if [ -d "$WORKTREE_BASE" ]; then
@@ -473,18 +645,18 @@ run_cleanup() {
 
       if [ "$force" = true ] || confirm "Remove these worktrees?"; then
         for d in "${worktree_dirs[@]}"; do
-          git -C "$REPO_PATH" worktree remove --force "$d" 2>/dev/null || rm -rf "$d"
+          rm -rf "$d"
+        done
+        for repo in "${repo_dirs[@]}"; do
+          git -C "$repo" worktree prune 2>/dev/null || true
         done
       fi
       echo ""
     fi
-    git -C "$REPO_PATH" worktree prune 2>/dev/null || true
   fi
 
-  # ── Prune remote tracking refs ────────────────────────────────────────────
-  echo "Pruning stale remote tracking refs..."
-  git -C "$REPO_PATH" fetch --prune 2>/dev/null || true
-  echo ""
+  # ── Stale repo clone locks ────────────────────────────────────────────────
+  rm -rf "$REPO_CACHE_BASE/.locks" 2>/dev/null || true
 
   # ── Old agent logs (>7 days) ──────────────────────────────────────────────
   if [ -d "$LOG_DIR" ]; then
@@ -617,12 +789,13 @@ PROMPT
 process_ticket() {
   local issue_json="$1"
 
-  local issue_id identifier title description url
+  local issue_id identifier title description url labels
   issue_id=$(echo "$issue_json"    | jq -r '.id')
   identifier=$(echo "$issue_json"  | jq -r '.identifier')
   title=$(echo "$issue_json"       | jq -r '.title')
   description=$(echo "$issue_json" | jq -r '.description // "No description provided."')
   url=$(echo "$issue_json"         | jq -r '.url')
+  labels=$(echo "$issue_json"      | jq -r '.labels.nodes[]?.name // empty' 2>/dev/null || true)
 
   local log_file="$LOG_DIR/${identifier}.log"
   echo "--- Attempt $(date -Iseconds) ---" >> "$log_file"
@@ -630,12 +803,32 @@ process_ticket() {
   tlog "$identifier" "Starting: $title"
   tlog "$identifier" "Log: $log_file"
 
+  # ── Resolve Target Repo ────────────────────────────────────────────────────
+  # A `repo:<key>` label routes the ticket to a repo in $REPOS_FILE.
+  # With no such label, Nightshift falls back to the default REPO_PATH.
+  local repo_info repo_path main_branch
+  if ! repo_info=$(resolve_repo "$identifier" "$labels" 2>&1); then
+    tlog "$identifier" "❌ Repo resolution failed: $repo_info"
+    linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
+    linear_comment "$issue_id" "❌ **Nightshift: Could not pick a repository**
+
+${repo_info}
+
+Add a \`repo:<key>\` label matching an entry in your repos file, then move the ticket back to **${TRIGGER_STATE}**." 2>/dev/null || true
+    notify "❌ *${identifier}* — ${title}
+Repo resolution failed."
+    return 1
+  fi
+  repo_path=$(printf '%s' "$repo_info" | cut -f1)
+  main_branch=$(printf '%s' "$repo_info" | cut -f2)
+  tlog "$identifier" "Repo: $repo_path (base: $main_branch)"
+
   # ── Create Worktree ────────────────────────────────────────────────────────
   # Note: Linear's GitHub integration auto-moves tickets to "In Progress"
   # when a branch with the ticket ID is created, so no manual state update needed.
   local worktree_path branch_name
   branch_name=$(branch_name_for "$identifier")
-  if ! worktree_path=$(create_worktree "$identifier"); then
+  if ! worktree_path=$(create_worktree "$identifier" "$repo_path" "$main_branch"); then
     tlog "$identifier" "❌ Worktree creation failed"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
     linear_comment "$issue_id" "❌ **Nightshift: Setup failed**
@@ -678,7 +871,7 @@ The ticket may be too complex for a single session. Consider breaking it into sm
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "⏰ *${identifier}* — ${title}
 Timed out after ${AGENT_TIMEOUT_MINUTES}m. Moving back to ${TRIGGER_STATE}."
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     return 1
   fi
 
@@ -700,7 +893,7 @@ Ticket moved back to **${TRIGGER_STATE}**. Nightshift is shutting down to avoid 
     notify "🛑 *Usage limit detected*
 Nightshift stopped after ${TOTAL_DISPATCHES} dispatches.
 ✅ ${SUCCESS_COUNT} PRs created | ❌ ${FAIL_COUNT} failed"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     SHUTTING_DOWN=true
     return 1
   fi
@@ -719,7 +912,7 @@ Claude exited with code \`${exit_code}\`. Will retry on next poll cycle (up to $
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
     notify "❌ *${identifier}* — ${title}
 Failed (attempt ${attempts}/${MAX_RETRIES}, exit code ${exit_code})"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     return 1
   fi
 
@@ -739,7 +932,7 @@ Claude got blocked on this ticket:
 Please clarify in the ticket comments, then move back to **${TRIGGER_STATE}** to retry." 2>/dev/null || true
     notify "⚠️ *${identifier}* — Blocked
 ${blocked_line}"
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     tlog "$identifier" "Moved back to '$TRIGGER_STATE'"
     return 0
   fi
@@ -757,7 +950,7 @@ ${blocked_line}"
 Claude completed the session without modifying any files. This usually means the ticket description is too vague or needs more context.
 
 Add more detail to the ticket description and move back to **${TRIGGER_STATE}** to retry. See the [Writing Good Tickets guide](https://github.com/your-org/nightshift/blob/main/docs/WRITING-GOOD-TICKETS.md) for tips." 2>/dev/null || true
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     return 0
   fi
 
@@ -887,12 +1080,12 @@ ${review_section}
 *Implemented by [Nightshift](https://github.com/your-org/nightshift) 🌙 using Claude Code${impl_mode}*"
 
   # ── Create PR ──────────────────────────────────────────────────────────────
-  cd "$REPO_PATH"
+  cd "$repo_path"
   local pr_url=""
   if ! pr_url=$(gh pr create \
     --title "${identifier}: ${title}" \
     --body "$pr_body" \
-    --base "$MAIN_BRANCH" \
+    --base "$main_branch" \
     --head "$branch_name" 2>&1); then
     tlog "$identifier" "❌ PR creation failed: $pr_url"
     linear_set_state "$issue_id" "$STATE_ID_TRIGGER" 2>/dev/null || true
@@ -908,7 +1101,7 @@ ${pr_url}
 \`\`\`
 
 Ticket moved back to **${TRIGGER_STATE}**." 2>/dev/null || true
-    cleanup_worktree "$identifier" 2>/dev/null || true
+    cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
     return 1
   fi
 
@@ -928,7 +1121,7 @@ Moved to **${IN_REVIEW_STATE}**. Ready for your review!" 2>/dev/null || true
   tlog "$identifier" "✅ Done — moved to '$IN_REVIEW_STATE'"
 
   # ── Cleanup ────────────────────────────────────────────────────────────────
-  cleanup_worktree "$identifier" 2>/dev/null || true
+  cleanup_worktree "$identifier" "$repo_path" 2>/dev/null || true
 }
 
 # ─── Process Management ──────────────────────────────────────────────────────
@@ -996,14 +1189,22 @@ trap handle_shutdown SIGINT SIGTERM
 # ─── Startup Banner ──────────────────────────────────────────────────────────
 
 print_banner() {
-  local agent_mode review_mode notify_mode
+  local agent_mode review_mode notify_mode repo_mode
   agent_mode="$( [ "${USE_AGENT_TEAMS}" = "true" ] && echo "Agent Teams" || echo "Single agent")"
   review_mode="$( [ -n "${GEMINI_API_KEY:-}" ] && echo "Gemini (${GEMINI_MODEL})" || echo "Disabled")"
   notify_mode="$( [ "${TELEGRAM_ENABLED}" = "true" ] && echo "Telegram" || echo "Disabled")"
 
+  if [ -f "$REPOS_FILE" ]; then
+    local repo_count
+    repo_count=$(jq -r 'keys | length' "$REPOS_FILE" 2>/dev/null || echo "0")
+    repo_mode="${repo_count} repo(s) via repo: labels — default: ${REPO_PATH:-none}"
+  else
+    repo_mode="${REPO_PATH:-none}"
+  fi
+
   echo ""
   printf "🌙 Nightshift v%s\n" "$VERSION"
-  printf "   Repo:           %s\n" "$REPO_PATH"
+  printf "   Repo:           %s\n" "$repo_mode"
   printf "   Worktrees:      %s\n" "$WORKTREE_BASE"
   printf "   Team:           %s\n" "$LINEAR_TEAM_KEY"
   printf "   Watching:       \"%s\" column\n" "$TRIGGER_STATE"
