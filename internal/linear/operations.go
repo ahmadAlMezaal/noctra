@@ -152,7 +152,7 @@ func (c *Client) Ping(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if resp.Viewer.ID == "" {
-		return "", fmt.Errorf("Linear returned no viewer — is the API key valid?")
+		return "", fmt.Errorf("linear returned no viewer — is the API key valid?")
 	}
 	return resp.Viewer.Name, nil
 }

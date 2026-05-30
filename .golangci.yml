@@ -1,0 +1,25 @@
+# Minimal golangci-lint config — defaults plus gofmt.
+#
+# errcheck excludes the noisy `defer Close()` / `fmt.Fprintf` patterns where
+# checking the error is rarely actionable. Real unchecked errors elsewhere
+# still fail the lint.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*net/http.Response).Body.Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.Remove
+
+formatters:
+  enable:
+    - gofmt
