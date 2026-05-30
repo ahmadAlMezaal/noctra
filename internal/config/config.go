@@ -31,6 +31,10 @@ const (
 	DefaultAgentTimeout     = 45 * time.Minute
 	DefaultGeminiModel      = "gemini-2.5-pro"
 	DefaultMaxReviewRetries = 1
+
+	// Auto-iterate (ENG-173) — disabled by default; opt in via .env.
+	DefaultMaxPRIterations = 3
+	DefaultPRPollInterval  = 2 * time.Minute
 )
 
 // Config is Nightshift's resolved runtime configuration.
@@ -64,6 +68,13 @@ type Config struct {
 	GeminiAPIKey     string
 	GeminiModel      string
 	MaxReviewRetries int
+
+	// Auto-iterate on PR review feedback (ENG-173) — off by default.
+	AutoIteratePRs   bool
+	MaxPRIterations  int
+	PRPollInterval   time.Duration
+	TrustedReviewers []string // GitHub logins/bots Nightshift will act on (default: humans only)
+	StateFile        string   // where the per-PR cursor + iteration count is persisted
 
 	// Derived paths
 	ScriptDir    string
@@ -128,6 +139,14 @@ func Load(scriptDir string) (*Config, error) {
 
 	timeoutMin := getint(fileEnv, "AGENT_TIMEOUT_MINUTES", int(DefaultAgentTimeout/time.Minute))
 	cfg.AgentTimeout = time.Duration(timeoutMin) * time.Minute
+
+	// Auto-iterate
+	cfg.AutoIteratePRs = getbool(fileEnv, "AUTO_ITERATE_PRS", false)
+	cfg.MaxPRIterations = getint(fileEnv, "MAX_PR_ITERATIONS", DefaultMaxPRIterations)
+	prPollSecs := getint(fileEnv, "PR_POLL_INTERVAL", int(DefaultPRPollInterval/time.Second))
+	cfg.PRPollInterval = time.Duration(prPollSecs) * time.Second
+	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
+	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".nightshift-state.json"))
 
 	cfg.Registry, err = LoadRepoRegistry(reposFile)
 	if err != nil {
@@ -220,4 +239,25 @@ func getint(fileEnv map[string]string, key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// getlist parses a comma-separated value into a trimmed, empty-filtered slice.
+// Returns nil (not an empty slice) when the value is absent, which lets callers
+// distinguish "no entries configured" from "configured to empty list."
+func getlist(fileEnv map[string]string, key string) []string {
+	v := getenv(fileEnv, key, "")
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
