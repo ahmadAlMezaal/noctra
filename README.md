@@ -32,27 +32,22 @@ You: Wake up → Review 3 PRs → Merge
 
 ## Prerequisites
 
-Before running Nightshift, make sure you have:
+Nightshift is a single Go binary. Beyond Go for the build, it shells out to a few standard tools at runtime:
 
 | Tool | Install | Purpose |
 |------|---------|---------|
+| Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
 | `claude` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) | AI implementation engine |
 | `gh` CLI | `brew install gh` | PR creation |
-| `curl` | Pre-installed on macOS/Linux | API calls |
-| `jq` | `brew install jq` | JSON parsing |
-| `git` | Pre-installed | Worktree management |
-| `bash 4+` | `brew install bash` | Script runtime (macOS ships with bash 3.2) |
+| `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
 | Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) | Optional review gate |
 
 **Authentication:**
 
 ```bash
-# Authenticate Claude Code
-claude
-
-# Authenticate gh CLI
-gh auth login
+claude          # authenticate Claude Code
+gh auth login   # authenticate gh
 ```
 
 ---
@@ -60,22 +55,37 @@ gh auth login
 ## Setup
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/your-org/nightshift.git
+# 1. Clone and build
+git clone https://github.com/ahmadAlMezaal/nightshift.git
 cd nightshift
+go build -o nightshift ./cmd/nightshift
 
 # 2. Run the interactive setup wizard
 #    Prompts for Linear, optional Gemini/Telegram, and your repos —
 #    then generates .env and repos.json for you.
-./nightshift.sh setup
+./nightshift setup
 
-# 3. Run
-./nightshift.sh
+# 3. Start the poll loop
+./nightshift
 ```
 
 That's it. Move tickets to your trigger state (default: "Next") and watch them become PRs.
 
 Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
+
+### Cross-compile for the Raspberry Pi
+
+```bash
+# Pi 4 / 5 (64-bit OS)
+GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift
+
+# Pi 3 or older / 32-bit OS
+GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
+
+scp nightshift pi@your-pi:/srv/nightshift/
+```
+
+Then update your cron to point at the binary instead of the old shell script.
 
 ---
 
@@ -105,7 +115,7 @@ When a ticket comes in, Nightshift reads its project, finds the matching repo, a
 
 ## Configuration
 
-Run `./nightshift.sh setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.
+Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -244,11 +254,13 @@ For extra safety, run Nightshift in a Docker container with your repo mounted:
 
 ```bash
 docker run -it \
-  -v /path/to/your/repo:/repo \
-  -v /path/to/nightshift:/nightshift \
+  -v $HOME/.nightshift-repos:/root/.nightshift-repos \
+  -v $HOME/.nightshift-worktrees:/root/.nightshift-worktrees \
+  -v $(pwd):/srv/nightshift \
+  -w /srv/nightshift \
   -e LINEAR_API_KEY=... \
   ubuntu:22.04 \
-  bash /nightshift/nightshift.sh
+  /srv/nightshift/nightshift
 ```
 
 ### Gemini API note
@@ -291,18 +303,14 @@ Different model = different blind spots. If Claude's implementation missed somet
 
 No problem — leave `GEMINI_API_KEY` empty and Nightshift skips the review gate entirely. Your tickets still get implemented and PRs get created. You can add the key later without any other changes.
 
-### The script crashed mid-task. How do I clean up?
+### The agent crashed mid-task. How do I clean up?
 
 ```bash
-# List all worktrees
-cd /path/to/your/repo && git worktree list
-
-# Remove a stale worktree
-git worktree remove .nightshift-worktrees/ENG-42 --force
-
-# Or clean up all nightshift worktrees
-git worktree list | grep nightshift | awk '{print $1}' | xargs -I{} git worktree remove {} --force
+./nightshift cleanup           # interactive — pick what to remove
+./nightshift cleanup --force   # non-interactive — remove everything stale
 ```
+
+Cleanup iterates every registered repo, deletes merged branches, force-deletes unmerged `nightshift/*` branches that don't have an open PR, prunes worktrees, and clears agent logs older than 7 days.
 
 ---
 

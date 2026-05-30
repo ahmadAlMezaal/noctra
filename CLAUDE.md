@@ -1,75 +1,74 @@
 # Nightshift
 
-Autonomous Linear-to-PR agent. Polls Linear for tickets in a trigger state, dispatches Claude Code to implement them, creates PRs, and moves tickets to review.
+Autonomous Linear-to-PR agent in Go. Polls Linear for tickets in a trigger state, dispatches Claude Code to implement them, creates PRs, and moves tickets to review.
 
 ## Architecture
 
 ```
-main loop (poll) → fetch_trigger_issues → process_ticket (background subshell per ticket)
-  → resolve_repo → create_worktree → run_claude → check output → commit/push → gh pr create → linear update
+poll loop → linear.FetchTriggerIssues → pipeline.process (bounded goroutine)
+  → repo.Resolve → repo.CreateWorktree → agent.Run → check output
+  → (optional) review.Gate → commit/push → gh pr create → linear update
 ```
 
-Worktrees are created at `~/.nightshift-worktrees/<IDENTIFIER>` so multiple tickets can run concurrently without sharing a working directory.
+Worktrees live at `~/.nightshift-worktrees/<IDENTIFIER>` so multiple tickets run concurrently without sharing a working directory.
 
 ## Multi-repo
 
-The target repo is chosen **per-ticket** from the ticket's Linear **project**, not from a single global path. `repos.json` (gitignored) maps a project name → `{ url, main_branch }`. `resolve_repo` looks the project up, clones the repo on demand into `~/.nightshift-repos/<slug>`, and returns the local path + main branch, which are threaded through `create_worktree`, `cleanup_worktree`, and `gh pr create`.
+The target repo is chosen **per-ticket** from the ticket's Linear **project**, not from a single global path. `repos.json` (gitignored) maps a project name → `{ url, main_branch }`. `repo.Resolve` looks the project up, clones the repo on demand into `~/.nightshift-repos/<slug>` (lock-guarded against concurrent clone races via `mkdir(2)`), and returns the local path + main branch.
 
-If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH` from `.env` (if set), otherwise it skips the ticket with a Linear comment. Single-repo `.env`-only setups keep working unchanged.
+If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH` from `.env` if set, otherwise it skips the ticket with a Linear comment.
 
-`./nightshift.sh setup` is an interactive wizard that generates `.env` and `repos.json` — no hand-editing required. `repos.example.json` is the checked-in template.
+`./nightshift setup` is the interactive wizard that generates `.env` and `repos.json`. `repos.example.json` is the checked-in template.
 
-## Key Functions
+## Package map
 
-| Function | Purpose |
-|----------|---------|
-| `resolve_repo` | Maps a ticket's Linear project → local repo path + main branch; clones on demand |
-| `registry_lookup` | Reads `repos.json`; returns the URL + main branch for a project |
-| `repo_slug` | Slugifies a project name into a clone directory name |
-| `create_worktree` | Creates git worktree + branch from latest main (takes repo path + main branch) |
-| `cleanup_worktree` | Removes worktree via `git worktree remove --force` (takes repo path) |
-| `run_claude` | Invokes `claude --print` with timeout; takes `workdir` as first param |
-| `process_ticket` | Full lifecycle: resolve repo → worktree → claude → review → commit → PR → Linear update |
-| `build_prompt` | Generates the prompt from ticket metadata |
-| `gemini_review` | Optional second-model review gate |
-| `fetch_trigger_issues` | Queries Linear GraphQL for tickets in trigger state (incl. project name) |
-| `run_setup` | Interactive wizard — generates `.env` + `repos.json` |
+| Package | Purpose |
+|---------|---------|
+| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `version`) |
+| `internal/config` | `.env` parser, `repos.json` loader, validated `Config` |
+| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `SetState`, `Comment` |
+| `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup |
+| `internal/agent` | Claude Code runner (`exec`) with timeout; prompt builder; log_offset parsing |
+| `internal/review` | Optional Gemini second-model review gate |
+| `internal/notify` | Optional Telegram notifier (fire-and-forget) |
+| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle |
+| `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
+| `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 
-## Configuration
+## Log file structure
 
-Run `./nightshift.sh setup`, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json`. Key variables:
-- `repos.json` — maps Linear project name → repo URL + optional `main_branch`
-- `REPO_PATH` — optional fallback repo for tickets whose project is not in `repos.json`
-- `LINEAR_API_KEY`, `LINEAR_TEAM_KEY` — Linear access
-- `MAX_CONCURRENT` — number of parallel tickets (each gets its own worktree)
-
-## Log File Structure
-
-Log files at `.agent-logs/<IDENTIFIER>.log` **append across attempts**:
+Logs at `.agent-logs/<IDENTIFIER>.log` **append across attempts**:
 
 ```
---- Attempt 2024-01-01T00:00:00 ---
+--- Attempt 2026-01-01T00:00:00Z ---
 DEBUG: pwd = /path
 <claude output>
---- Attempt 2024-01-01T01:00:00 ---
+--- Attempt 2026-01-01T01:00:00Z ---
 DEBUG: pwd = /path
 <claude output>
 ```
 
 ### IMPORTANT: log_offset pattern
 
-The `log_offset + tail -c` pattern in `process_ticket` is a critical bug fix. It records the file size before Claude runs, then uses `tail -c +$offset` to extract only the current attempt's output for BLOCKED/rate-limit checks. **Do not replace this with a grep over the full file** — that re-detects failures from previous attempts and causes false positives.
+`agent.OffsetBefore` records the file size *before* Claude runs; `agent.ReadAfter` reads only the new tail. `agent.BlockedLine` and `agent.HasRateLimit` operate on that tail so failures from previous attempts don't get re-detected. **Do not replace this with a scan over the full file** — that re-detects failures from previous attempts and causes false positives.
 
-## Running Tests
-
-```bash
-bash tests/run_tests.bash
-```
-
-Tests use plain bash (no bats). The `NIGHTSHIFT_TESTING=true` guard prevents the entrypoint from executing when sourcing `nightshift.sh`.
-
-## Syntax Check
+## Running tests
 
 ```bash
-bash -n nightshift.sh
+go test ./...
 ```
+
+## Building
+
+```bash
+# Local
+go build -o nightshift ./cmd/nightshift
+
+# Raspberry Pi (arm64 — Pi 4 / 5 with 64-bit OS)
+GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift
+
+# Raspberry Pi (32-bit, armv7)
+GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
+```
+
+`go vet ./...` should be clean.
