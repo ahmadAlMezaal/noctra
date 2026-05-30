@@ -138,3 +138,21 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 	}
 	return nil
 }
+
+// Ping verifies the API key works by fetching the authenticated viewer.
+// Returns the viewer's display name on success.
+func (c *Client) Ping(ctx context.Context) (string, error) {
+	var resp struct {
+		Viewer struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"viewer"`
+	}
+	if err := c.Do(ctx, `{ viewer { id name } }`, nil, &resp); err != nil {
+		return "", err
+	}
+	if resp.Viewer.ID == "" {
+		return "", fmt.Errorf("Linear returned no viewer — is the API key valid?")
+	}
+	return resp.Viewer.Name, nil
+}

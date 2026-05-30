@@ -3,11 +3,18 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// requiredCLIs are the external commands Nightshift shells out to at runtime.
+// The setup wizard surfaces their presence as a friendly checklist;
+// Config.Validate treats absence as a hard error so `run` and `cleanup`
+// don't start in a broken state.
+var requiredCLIs = []string{"git", "gh", "claude"}
 
 // Defaults — used when a setting is absent from both .env and the process
 // environment. Kept as exported constants so tests and the setup wizard can
@@ -154,6 +161,22 @@ func (c *Config) Validate() error {
 	}
 	return nil
 }
+
+// CheckCLIs returns the subset of required CLIs that are missing from PATH.
+// The setup wizard uses this to print a friendly status section without
+// failing — `Validate` is the one that hard-errors.
+func CheckCLIs() (missing []string) {
+	for _, cmd := range requiredCLIs {
+		if _, err := exec.LookPath(cmd); err != nil {
+			missing = append(missing, cmd)
+		}
+	}
+	return missing
+}
+
+// RequiredCLIs returns the list of external commands Nightshift relies on.
+// Exposed so the wizard can render a status block without duplicating the list.
+func RequiredCLIs() []string { return append([]string(nil), requiredCLIs...) }
 
 func isGitRepo(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
