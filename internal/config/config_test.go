@@ -86,6 +86,39 @@ AGENT_TIMEOUT_MINUTES="60"
 	}
 }
 
+func TestLoad_TelegramVerbose(t *testing.T) {
+	isolateEnv(t)
+
+	t.Run("default false when absent", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+		writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.TelegramVerbose {
+			t.Errorf("TelegramVerbose should default to false")
+		}
+	})
+
+	t.Run("reads true from .env", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TELEGRAM_VERBOSE="true"
+`)
+		writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !cfg.TelegramVerbose {
+			t.Errorf("TelegramVerbose should be true when .env says true")
+		}
+	})
+}
+
 func TestValidate_RequiresLinearKey(t *testing.T) {
 	isolateEnv(t)
 

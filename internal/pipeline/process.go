@@ -25,6 +25,11 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	logger := slog.With("id", id)
 	logger.Info("starting", "title", issue.Title)
 
+	if p.cfg.TelegramVerbose {
+		p.telegram.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNightshift picked it up — working on it.",
+			id, issue.Title))
+	}
+
 	logFile := filepath.Join(p.cfg.LogDir, id+".log")
 	if err := agent.AttemptHeader(logFile); err != nil {
 		logger.Warn("could not write attempt header", "err", err)
