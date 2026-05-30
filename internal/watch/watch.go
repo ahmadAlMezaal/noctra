@@ -54,10 +54,10 @@ type PRChanges struct {
 // Watcher couples the gh client with the state store and the trusted-reviewer
 // allowlist.
 type Watcher struct {
-	gh        *github.Client
-	store     *state.Store
-	trusted   map[string]bool
-	repoURLs  []string
+	gh       *github.Client
+	store    *state.Store
+	trusted  map[string]bool
+	repoURLs []string
 }
 
 // New constructs a Watcher. trusted is the list of GitHub logins/bot names
