@@ -1,11 +1,15 @@
 # Environment — contains secrets
 .env
 
-# Multi-repo map — user-specific repo list
+# Repo registry — local, machine-specific config
 repos.json
 
 # Agent logs — runtime output
 .agent-logs/
+
+# Built binary
+/nightshift
+/dist/
 
 # macOS
 .DS_Store

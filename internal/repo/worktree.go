@@ -1,0 +1,63 @@
+package repo
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// BranchName returns the branch Nightshift creates for a ticket
+// (e.g. "nightshift/eng-42").
+func BranchName(identifier string) string {
+	return "nightshift/" + strings.ToLower(identifier)
+}
+
+// Worktree describes a freshly created git worktree.
+type Worktree struct {
+	Path   string
+	Branch string
+}
+
+// CreateWorktree creates an isolated worktree at <base>/<identifier> on a new
+// branch derived from origin/<mainBranch>. Any stale local branch or worktree
+// at the same name is removed first so retries always start clean.
+func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch string) (Worktree, error) {
+	branch := BranchName(identifier)
+	wt := filepath.Join(base, identifier)
+
+	// Best-effort: pull the latest main and clear any stale state.
+	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
+	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
+	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
+
+	if err := runIn(ctx, repoPath, "git", "worktree", "add", "-b", branch, wt, "origin/"+mainBranch); err != nil {
+		return Worktree{}, fmt.Errorf("git worktree add %s: %w", wt, err)
+	}
+	return Worktree{Path: wt, Branch: branch}, nil
+}
+
+// CleanupWorktree removes the worktree for an identifier. We try the git
+// worktree machinery first (which also clears the admin entry), and fall back
+// to plain rm -rf if that fails — matching the bash predecessor.
+func CleanupWorktree(ctx context.Context, repoPath, base, identifier string) {
+	if identifier == "" {
+		return
+	}
+	wt := filepath.Join(base, identifier)
+	if err := runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt); err != nil {
+		_ = os.RemoveAll(wt)
+	}
+}
+
+func runIn(ctx context.Context, dir, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}

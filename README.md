@@ -32,27 +32,22 @@ You: Wake up → Review 3 PRs → Merge
 
 ## Prerequisites
 
-Before running Nightshift, make sure you have:
+Nightshift is a single Go binary. Beyond Go for the build, it shells out to a few standard tools at runtime:
 
 | Tool | Install | Purpose |
 |------|---------|---------|
+| Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
 | `claude` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) | AI implementation engine |
 | `gh` CLI | `brew install gh` | PR creation |
-| `curl` | Pre-installed on macOS/Linux | API calls |
-| `jq` | `brew install jq` | JSON parsing |
-| `git` | Pre-installed | Worktree management |
-| `bash 4+` | `brew install bash` | Script runtime (macOS ships with bash 3.2) |
+| `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
 | Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) | Optional review gate |
 
 **Authentication:**
 
 ```bash
-# Authenticate Claude Code
-claude
-
-# Authenticate gh CLI
-gh auth login
+claude          # authenticate Claude Code
+gh auth login   # authenticate gh
 ```
 
 ---
@@ -60,30 +55,67 @@ gh auth login
 ## Setup
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/your-org/nightshift.git
+# 1. Clone and build
+git clone https://github.com/ahmadAlMezaal/nightshift.git
 cd nightshift
+go build -o nightshift ./cmd/nightshift
 
-# 2. Copy the config template
-cp .env.example .env
+# 2. Run the interactive setup wizard
+#    Prompts for Linear, optional Gemini/Telegram, and your repos —
+#    then generates .env and repos.json for you.
+./nightshift setup
 
-# 3. Edit .env with your values
-open .env   # or: nano .env, vim .env
-
-# 4. Make the script executable (already done if you cloned)
-chmod +x nightshift.sh
-
-# 5. Run
-./nightshift.sh
+# 3. Start the poll loop
+./nightshift
 ```
 
 That's it. Move tickets to your trigger state (default: "Next") and watch them become PRs.
+
+Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
+
+### Cross-compile for the Raspberry Pi
+
+```bash
+# Pi 4 / 5 (64-bit OS)
+GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift
+
+# Pi 3 or older / 32-bit OS
+GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
+
+scp nightshift pi@your-pi:/srv/nightshift/
+```
+
+Then update your cron to point at the binary instead of the old shell script.
+
+---
+
+## Repositories
+
+Nightshift picks the target repo **per-ticket**, from the ticket's Linear **project** — so you never have to edit config to switch projects.
+
+`repos.json` maps each Linear project name to a git repo:
+
+```json
+{
+  "repos": {
+    "Auth Service": { "url": "git@github.com:your-org/auth-service.git", "main_branch": "main" },
+    "Web App":      { "url": "https://github.com/your-org/web-app.git" }
+  }
+}
+```
+
+When a ticket comes in, Nightshift reads its project, finds the matching repo, and **clones it on demand** into `~/.nightshift-repos/` (nothing needs to be cloned up front). `main_branch` is optional and falls back to `MAIN_BRANCH` in `.env`.
+
+- **Register a repo once**, reference it forever — no per-session `.env` edits.
+- `repos.json` is gitignored (machine-specific). The wizard generates it; `repos.example.json` is the template.
+- **Auth:** the host running Nightshift needs git access to each repo — an SSH key, or `gh auth login` for HTTPS URLs. The setup wizard checks access (`git ls-remote`) before saving a repo, and Nightshift re-checks before cloning.
+- **Fallback:** a ticket whose project has no `repos.json` entry uses `REPO_PATH` from `.env` if set; otherwise it's skipped with a Linear comment. Single-repo `.env`-only setups keep working unchanged.
 
 ---
 
 ## Configuration
 
-All config lives in `.env`. Copy `.env.example` to get started.
+Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -92,9 +124,8 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `TRIGGER_STATE` | `Next` | Linear column to watch for new work |
 | `IN_PROGRESS_STATE` | `In Progress` | State set when Nightshift picks up a ticket |
 | `IN_REVIEW_STATE` | `In Review` | State set after PR is created |
-| `REPO_PATH` | *(required\*)* | Absolute path to the default git repository |
-| `MAIN_BRANCH` | `main` | Base branch for new PRs |
-| `REPOS_FILE` | `repos.json` | Multi-repo map — route tickets to repos with `repo:<key>` labels |
+| `REPO_PATH` | *(empty)* | Optional fallback repo for tickets whose Linear project is not in `repos.json` |
+| `MAIN_BRANCH` | `main` | Default base branch (repos.json entries may override per-repo) |
 | `MAX_CONCURRENT` | `3` | Maximum tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
 | `USE_AGENT_TEAMS` | `false` | Enable Claude Code Agent Teams (multi-agent parallelism) |
@@ -103,39 +134,6 @@ All config lives in `.env`. Copy `.env.example` to get started.
 | `MAX_REVIEW_RETRIES` | `1` | Fix passes Claude gets after Gemini flags issues |
 
 State names are **case-sensitive** and must match your Linear board exactly.
-
-\* `REPO_PATH` is required unless `repos.json` defines at least one repo — see below.
-
----
-
-## Working on multiple repos
-
-By default Nightshift works on the single repo at `REPO_PATH`. To let one
-Nightshift instance serve **any** repo — without editing `.env` when you switch
-projects — use a repos file and Linear labels.
-
-1. Copy `repos.example.json` to `repos.json` and map a short key to each repo:
-
-   ```json
-   {
-     "my-app":       { "url": "git@github.com:you/my-app.git",       "branch": "main" },
-     "side-project": { "url": "https://github.com/you/side-project.git", "branch": "master" }
-   }
-   ```
-
-2. In Linear, create a label named `repo:my-app` (matching a key above) and add
-   it to a ticket. When you move that ticket to your trigger state, Nightshift
-   reads the label, clones the repo on demand into `~/.nightshift-repos/`, and
-   works there.
-
-Tickets **without** a `repo:` label fall back to `REPO_PATH`, so existing
-single-repo setups keep working unchanged. The polling/cron trigger is
-unchanged — only the repo each ticket targets is now decided per ticket.
-
-Notes:
-- The `branch` field is optional and defaults to `MAIN_BRANCH`.
-- Repo keys are case-sensitive and must match the label exactly after `repo:`.
-- A repo is cloned once and reused; later tickets just fetch the latest base branch.
 
 ---
 
@@ -256,11 +254,13 @@ For extra safety, run Nightshift in a Docker container with your repo mounted:
 
 ```bash
 docker run -it \
-  -v /path/to/your/repo:/repo \
-  -v /path/to/nightshift:/nightshift \
+  -v $HOME/.nightshift-repos:/root/.nightshift-repos \
+  -v $HOME/.nightshift-worktrees:/root/.nightshift-worktrees \
+  -v $(pwd):/srv/nightshift \
+  -w /srv/nightshift \
   -e LINEAR_API_KEY=... \
   ubuntu:22.04 \
-  bash /nightshift/nightshift.sh
+  /srv/nightshift/nightshift
 ```
 
 ### Gemini API note
@@ -283,11 +283,7 @@ Nightshift creates PRs — it doesn't merge them. You review and merge manually.
 
 ### Can I run multiple repos simultaneously?
 
-Yes — a single Nightshift instance can serve any number of repos. Create a
-`repos.json` and add a `repo:<key>` label to each ticket. See
-[Working on multiple repos](#working-on-multiple-repos). Tickets for different
-repos are processed concurrently, each in its own worktree, up to
-`MAX_CONCURRENT`.
+Yes — that's built in. Register each repo in `repos.json` (mapped to its Linear project) and a single Nightshift instance routes every ticket to the right repo automatically. Tickets for different repos run concurrently up to `MAX_CONCURRENT`. See [Repositories](#repositories).
 
 ### What if Claude gets stuck?
 
@@ -307,18 +303,14 @@ Different model = different blind spots. If Claude's implementation missed somet
 
 No problem — leave `GEMINI_API_KEY` empty and Nightshift skips the review gate entirely. Your tickets still get implemented and PRs get created. You can add the key later without any other changes.
 
-### The script crashed mid-task. How do I clean up?
+### The agent crashed mid-task. How do I clean up?
 
 ```bash
-# List all worktrees
-cd /path/to/your/repo && git worktree list
-
-# Remove a stale worktree
-git worktree remove .nightshift-worktrees/ENG-42 --force
-
-# Or clean up all nightshift worktrees
-git worktree list | grep nightshift | awk '{print $1}' | xargs -I{} git worktree remove {} --force
+./nightshift cleanup           # interactive — pick what to remove
+./nightshift cleanup --force   # non-interactive — remove everything stale
 ```
+
+Cleanup iterates every registered repo, deletes merged branches, force-deletes unmerged `nightshift/*` branches that don't have an open PR, prunes worktrees, and clears agent logs older than 7 days.
 
 ---
 
