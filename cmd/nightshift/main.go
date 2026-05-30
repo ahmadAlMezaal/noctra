@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
 )
 
 const version = "2.0.0-dev"
@@ -88,16 +89,8 @@ func runPoll(scriptDir string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("nightshift starting",
-		"version", version,
-		"team", cfg.LinearTeamKey,
-		"trigger", cfg.TriggerState,
-		"max_concurrent", cfg.MaxConcurrent,
-	)
-
-	// TODO(ENG-166): wire up internal/pipeline.Run(ctx, cfg)
-	_ = ctx
-	return fmt.Errorf("poll loop not yet implemented — Go port in progress")
+	slog.Info("nightshift starting", "version", version)
+	return pipeline.New(cfg).Run(ctx)
 }
 
 func runSetup(scriptDir string) error {
