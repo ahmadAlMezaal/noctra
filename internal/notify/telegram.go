@@ -57,6 +57,27 @@ func (t *Telegram) SendSync(ctx context.Context, message string) error {
 	return t.post(ctx, message)
 }
 
+// EscapeMarkdown backslash-escapes the characters Telegram's legacy Markdown
+// parser is strict about: `_`, `*`, backtick, and `[`. Use it on any
+// dynamic value (ticket titles, Claude's BLOCKED reason, user-configured
+// state names) before interpolating into a message template — leave the
+// template's own `*bold*` scaffolding alone so it still renders bold.
+//
+// Without this, a Linear title like `snake_case_thing` makes Telegram return
+// 400 Bad Request and the notification gets silently dropped — pipeline keeps
+// running, user wonders why nothing pinged. Flagged by gemini-code-assist on
+// PR #52.
+func EscapeMarkdown(s string) string {
+	return mdEscaper.Replace(s)
+}
+
+var mdEscaper = strings.NewReplacer(
+	"_", `\_`,
+	"*", `\*`,
+	"`", "\\`",
+	"[", `\[`,
+)
+
 func (t *Telegram) post(ctx context.Context, message string) error {
 	endpoint := "https://api.telegram.org/bot" + t.BotToken + "/sendMessage"
 	form := url.Values{

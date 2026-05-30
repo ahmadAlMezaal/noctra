@@ -73,8 +73,8 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	p.startupCleanup(ctx)
 	p.banner()
-	p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching %q for %s tickets",
-		p.cfg.TriggerState, p.cfg.LinearTeamKey))
+	p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching \"%s\" for %s tickets",
+		notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 
 	var wg sync.WaitGroup
 	ticker := time.NewTicker(p.cfg.PollInterval)
