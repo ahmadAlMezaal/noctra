@@ -7,6 +7,26 @@ import (
 	"testing"
 )
 
+// nightshiftEnvKeys are every env var Nightshift reads. Tests clear them all
+// up front so the dev's shell environment (direnv, exported .env, etc.) can't
+// leak through and quietly satisfy a check the test means to fail.
+var nightshiftEnvKeys = []string{
+	"LINEAR_API_KEY", "LINEAR_TEAM_KEY", "TRIGGER_STATE", "IN_REVIEW_STATE",
+	"REPO_PATH", "MAIN_BRANCH",
+	"MAX_CONCURRENT", "POLL_INTERVAL", "USE_AGENT_TEAMS",
+	"MAX_DISPATCHES", "MAX_RETRIES", "AGENT_TIMEOUT_MINUTES",
+	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+	"GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
+	"REPOS_FILE", "REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
+}
+
+func isolateEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range nightshiftEnvKeys {
+		t.Setenv(k, "")
+	}
+}
+
 // writeFile is a small helper used in tests below.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -16,6 +36,8 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 func TestLoad_AppliesDefaultsAndOverrides(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY="lin_xyz"
@@ -65,6 +87,8 @@ AGENT_TIMEOUT_MINUTES="60"
 }
 
 func TestValidate_RequiresLinearKey(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY=""
@@ -80,6 +104,8 @@ REPO_PATH="`+initBareRepo(t)+`"
 }
 
 func TestValidate_RequiresAtLeastOneRepoSource(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	cfg, err := Load(dir)
@@ -93,6 +119,8 @@ func TestValidate_RequiresAtLeastOneRepoSource(t *testing.T) {
 }
 
 func TestValidate_PassesWithRegistry(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
@@ -106,6 +134,8 @@ func TestValidate_PassesWithRegistry(t *testing.T) {
 }
 
 func TestValidate_PassesWithRepoPathFallback(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	bare := initBareRepo(t)
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
@@ -120,6 +150,8 @@ REPO_PATH="`+bare+`"`)
 }
 
 func TestValidate_RejectsNonGitRepoPath(t *testing.T) {
+	isolateEnv(t)
+
 	dir := t.TempDir()
 	notARepo := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
