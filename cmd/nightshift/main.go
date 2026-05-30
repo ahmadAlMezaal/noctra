@@ -10,12 +10,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/cleanup"
@@ -80,11 +82,11 @@ func resolveScriptDir() (string, error) {
 }
 
 func runPoll(scriptDir string) error {
-	cfg, err := config.Load(scriptDir)
+	cfg, err := ensureValidConfig(scriptDir)
 	if err != nil {
 		return err
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := requireCLIs(); err != nil {
 		return err
 	}
 
@@ -100,11 +102,108 @@ func runSetup(scriptDir string) error {
 }
 
 func runCleanup(scriptDir string, force bool) error {
-	cfg, err := config.Load(scriptDir)
+	cfg, err := ensureValidConfig(scriptDir)
 	if err != nil {
 		return err
 	}
+	if err := requireCLIs(); err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return cleanup.Run(ctx, cfg, force)
+}
+
+// ensureValidConfig loads + validates config. If validation fails and we're
+// running interactively, it offers to launch the setup wizard inline so first-
+// run users don't get a cryptic error and walk away. Non-interactive runs
+// (systemd, cron) just get the validation error.
+func ensureValidConfig(scriptDir string) (*config.Config, error) {
+	cfg, err := config.Load(scriptDir)
+	if err != nil {
+		return nil, err
+	}
+	verr := cfg.Validate()
+	if verr == nil {
+		return cfg, nil
+	}
+
+	if !isInteractive() {
+		return nil, verr
+	}
+
+	fmt.Println()
+	fmt.Println("🌙 Welcome to Nightshift!")
+	fmt.Println()
+	fmt.Println("Your configuration has gaps:")
+	for _, line := range strings.Split(verr.Error(), "\n") {
+		fmt.Println("  " + strings.TrimPrefix(line, "  "))
+	}
+	fmt.Println()
+	if !askYesNo("Launch the setup wizard now?", true) {
+		return nil, verr
+	}
+
+	if err := setup.Run(scriptDir); err != nil {
+		return nil, err
+	}
+	// Reload after the wizard wrote the files
+	cfg, err = config.Load(scriptDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config still invalid after setup: %w", err)
+	}
+	return cfg, nil
+}
+
+// requireCLIs fails fast if any of the external commands Nightshift needs
+// (git/gh/claude) aren't on PATH. Surfaces all missing ones at once so the
+// user can install them in a single round.
+func requireCLIs() error {
+	missing := config.CheckCLIs()
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("required command(s) not found in PATH: %s — install before running",
+		strings.Join(missing, ", "))
+}
+
+// isInteractive reports whether the user is likely sitting at a terminal.
+// Used to decide whether it's safe to auto-launch the setup wizard inline.
+//
+// We require BOTH stdin and stdout to be character devices. Checking only
+// stdin would treat `< /dev/null` (also a char device) as interactive; under
+// systemd, stdout is a journald socket (not a char device), so requiring both
+// correctly classifies that case as non-interactive even though stdin happens
+// to be /dev/null.
+func isInteractive() bool {
+	return isCharDevice(os.Stdin) && isCharDevice(os.Stdout)
+}
+
+func isCharDevice(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func askYesNo(prompt string, defaultYes bool) bool {
+	suffix := " [y/N] "
+	if defaultYes {
+		suffix = " [Y/n] "
+	}
+	fmt.Print(prompt + suffix)
+	sc := bufio.NewScanner(os.Stdin)
+	if !sc.Scan() {
+		return defaultYes
+	}
+	s := strings.ToLower(strings.TrimSpace(sc.Text()))
+	if s == "" {
+		return defaultYes
+	}
+	return s == "y" || s == "yes"
 }

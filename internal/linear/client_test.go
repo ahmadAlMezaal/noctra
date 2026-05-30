@@ -100,6 +100,46 @@ func TestFetchTriggerIssues_ParsesProject(t *testing.T) {
 	}
 }
 
+func TestPing_ReturnsViewerName(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "viewer",
+	}, map[string]any{
+		"data": map[string]any{
+			"viewer": map[string]string{"id": "u_1", "name": "Ada Lovelace"},
+		},
+	})
+
+	name, err := client.Ping(context.Background())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if name != "Ada Lovelace" {
+		t.Errorf("name: got %q, want %q", name, "Ada Lovelace")
+	}
+}
+
+func TestPing_NoViewerIsAnError(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "bad",
+		query:      "viewer",
+	}, map[string]any{
+		"data": map[string]any{"viewer": nil},
+	})
+
+	if _, err := client.Ping(context.Background()); err == nil {
+		t.Fatal("expected error when viewer is empty, got nil")
+	}
+}
+
 func TestDo_SurfacesGraphQLErrors(t *testing.T) {
 	client := fakeServer(t, struct {
 		authHeader string
