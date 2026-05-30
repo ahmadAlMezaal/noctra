@@ -13,6 +13,7 @@ import (
 
 	"github.com/ahmadAlMezaal/nightshift/internal/agent"
 	"github.com/ahmadAlMezaal/nightshift/internal/linear"
+	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
 )
 
@@ -27,7 +28,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	if p.cfg.TelegramVerbose {
 		p.telegram.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNightshift picked it up — working on it.",
-			id, issue.Title))
+			id, notify.EscapeMarkdown(issue.Title)))
 	}
 
 	logFile := filepath.Join(p.cfg.LogDir, id+".log")
@@ -89,7 +90,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			"⏰ **Nightshift: Agent timed out**\n\nClaude timed out after %s working on this ticket.\n\nThe ticket may be too complex for a single session. Consider breaking it into smaller tasks.\n\nTicket moved back to **%s**.",
 			p.cfg.AgentTimeout, p.cfg.TriggerState))
 		p.telegram.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
-			id, issue.Title, p.cfg.AgentTimeout, p.cfg.TriggerState))
+			id, notify.EscapeMarkdown(issue.Title), p.cfg.AgentTimeout, notify.EscapeMarkdown(p.cfg.TriggerState)))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -123,7 +124,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			"❌ **Nightshift: Agent failed** (attempt %d/%d)\n\nClaude exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
 			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
 		p.telegram.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
-			id, issue.Title, attempts, p.cfg.MaxRetries))
+			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -134,7 +135,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 			"🚧 **Nightshift needs your input**\n\nClaude got blocked on this ticket:\n\n> %s\n\nPlease clarify in the ticket comments, then move back to **%s** to retry.",
 			blocked, p.cfg.TriggerState))
-		p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, blocked))
+		p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -270,7 +271,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	logger.Info("✅ PR created", "url", prURL)
 	p.bumpSuccess()
-	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready: %s", id, issue.Title, prURL))
+	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready: %s", id, notify.EscapeMarkdown(issue.Title), prURL))
 
 	// ── Move to In Review ────────────────────────────────────────────────────
 	if err := p.linear.SetState(ctx, issue.ID, p.states.InReview); err != nil {
