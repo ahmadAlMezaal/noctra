@@ -145,8 +145,9 @@ func Run(scriptDir string) error {
 	}
 
 	// ── Optional: Telegram ─────────────────────────────────────────────────────
-	tgEnabled, tgToken, tgChat := "false", "", ""
+	tgEnabled, tgToken, tgChat, tgVerbose := "false", "", "", "false"
 	tgWasEnabled := strings.EqualFold(existingEnv["TELEGRAM_ENABLED"], "true")
+	tgWasVerbose := strings.EqualFold(existingEnv["TELEGRAM_VERBOSE"], "true")
 	prompt := "Enable Telegram notifications?"
 	if tgWasEnabled {
 		prompt = "Telegram notifications are currently enabled. Keep them?"
@@ -156,12 +157,20 @@ func Run(scriptDir string) error {
 		tgToken = w.askEx("Telegram bot token", askOpts{existing: existingEnv["TELEGRAM_BOT_TOKEN"], secret: true, required: true})
 		tgChat = w.askEx("Telegram chat ID", askOpts{existing: existingEnv["TELEGRAM_CHAT_ID"], required: true})
 
+		verbosePrompt := "Also notify on every dispatch (more chatty)?"
+		if tgWasVerbose {
+			verbosePrompt = "Verbose notifications are currently on. Keep them?"
+		}
+		if w.confirm(verbosePrompt) {
+			tgVerbose = "true"
+		}
+
 		fmt.Print("  Sending test message ... ")
 		if err := testTelegram(tgToken, tgChat); err != nil {
 			fmt.Println("FAILED")
 			fmt.Printf("  ⚠️  %v\n", err)
 			if !w.confirm("  Save Telegram config anyway?") {
-				tgEnabled, tgToken, tgChat = "false", "", ""
+				tgEnabled, tgToken, tgChat, tgVerbose = "false", "", "", "false"
 			}
 		} else {
 			fmt.Println("ok — check your Telegram!")
@@ -199,6 +208,7 @@ func Run(scriptDir string) error {
 	if tgEnabled == "true" {
 		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
 		fmt.Printf("  TELEGRAM_CHAT_ID      = %s\n", tgChat)
+		fmt.Printf("  TELEGRAM_VERBOSE      = %s\n", tgVerbose)
 	}
 	fmt.Println()
 	fmt.Printf("  repos.json: %d project(s)\n", len(reg.Repos))
@@ -227,6 +237,7 @@ func Run(scriptDir string) error {
 		tgEnabled:   tgEnabled,
 		tgToken:     tgToken,
 		tgChat:      tgChat,
+		tgVerbose:   tgVerbose,
 		autoIterate: autoIterate,
 		maxIter:     strconv.Itoa(maxIter),
 		prPoll:      strconv.Itoa(prPoll),
@@ -605,7 +616,8 @@ type envValues struct {
 	linearKey, team, trigger, review             string
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
-	geminiKey, tgEnabled, tgToken, tgChat        string
+	geminiKey                                    string
+	tgEnabled, tgToken, tgChat, tgVerbose        string
 	autoIterate, maxIter, prPoll, trusted        string
 }
 
@@ -640,6 +652,8 @@ AGENT_TIMEOUT_MINUTES="%s"
 TELEGRAM_ENABLED="%s"
 TELEGRAM_BOT_TOKEN="%s"
 TELEGRAM_CHAT_ID="%s"
+# Also notify on every ticket dispatch (more chatty)
+TELEGRAM_VERBOSE="%s"
 
 GEMINI_API_KEY="%s"
 GEMINI_MODEL="gemini-2.5-pro"
@@ -660,7 +674,7 @@ TRUSTED_REVIEWERS="%s"
 		repoPathLine, v.mainBranch,
 		v.concurrency,
 		v.dispatches, v.retries, v.timeoutMin,
-		v.tgEnabled, v.tgToken, v.tgChat,
+		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
 		v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 	)

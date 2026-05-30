@@ -63,6 +63,7 @@ type Config struct {
 	TelegramEnabled  bool
 	TelegramBotToken string
 	TelegramChatID   string
+	TelegramVerbose  bool // also notify on dispatch (otherwise: terminal events only)
 
 	// Gemini review gate (optional)
 	GeminiAPIKey     string
@@ -117,6 +118,7 @@ func Load(scriptDir string) (*Config, error) {
 		TelegramEnabled:  getbool(fileEnv, "TELEGRAM_ENABLED", false),
 		TelegramBotToken: getenv(fileEnv, "TELEGRAM_BOT_TOKEN", ""),
 		TelegramChatID:   getenv(fileEnv, "TELEGRAM_CHAT_ID", ""),
+		TelegramVerbose:  getbool(fileEnv, "TELEGRAM_VERBOSE", false),
 
 		GeminiAPIKey: getenv(fileEnv, "GEMINI_API_KEY", ""),
 		GeminiModel:  getenv(fileEnv, "GEMINI_MODEL", DefaultGeminiModel),
