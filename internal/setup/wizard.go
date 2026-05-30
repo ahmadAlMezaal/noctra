@@ -1,75 +1,213 @@
 // Package setup is the interactive wizard that generates .env and repos.json.
 // It's the friendlier alternative to hand-editing the config files.
+//
+// On re-run, every prompt is pre-filled with the value currently in .env (or
+// the static default if absent). Press Enter to keep, type to replace. The
+// wizard also offers a "manual mode" that just copies the example templates
+// into place for users who prefer to edit by hand.
 package setup
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/linear"
+	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 )
 
 // Run drives the wizard. It writes scriptDir/.env and scriptDir/repos.json.
 func Run(scriptDir string) error {
+	envFile := filepath.Join(scriptDir, ".env")
+	reposFile := filepath.Join(scriptDir, "repos.json")
+
+	existingEnv, _ := config.LoadEnvFile(envFile)
+	existingRepos, _ := config.LoadRepoRegistry(reposFile)
+
 	w := &wizard{in: bufio.NewScanner(os.Stdin)}
 
 	fmt.Println()
 	fmt.Println("🌙 Nightshift Setup")
 	fmt.Println("   Generates .env and repos.json — press Enter to accept [defaults].")
+	if len(existingEnv) > 0 {
+		fmt.Println("   Existing values from .env are pre-filled in [brackets].")
+	}
 	fmt.Println()
 
-	envFile := filepath.Join(scriptDir, ".env")
-	reposFile := filepath.Join(scriptDir, "repos.json")
-
-	if _, err := os.Stat(envFile); err == nil {
-		if !w.confirm(".env already exists — overwrite it?") {
-			fmt.Println("Setup cancelled.")
-			return nil
-		}
-		fmt.Println()
+	// Mode selector (interactive vs manual)
+	switch w.chooseMode() {
+	case "manual":
+		return runManual(scriptDir)
 	}
+	fmt.Println()
 
 	w.chooseTracker()
 	fmt.Println()
 	w.chooseEngine()
 	fmt.Println()
 
-	linearKey := w.askRequired("Linear API key", "The Linear API key is required.")
-	team := w.ask("Linear team key", config.DefaultLinearTeamKey)
-	trigger := w.ask("Trigger state", config.DefaultTriggerState)
-	review := w.ask("In-review state", config.DefaultInReviewState)
-	mainBranch := w.ask("Default main branch", config.DefaultMainBranch)
-	concurrency := w.ask("Max concurrent tickets", fmt.Sprint(config.DefaultMaxConcurrent))
+	w.printCLIStatus()
 	fmt.Println()
 
+	// ── Linear ─────────────────────────────────────────────────────────────────
+	fmt.Println("─── Linear ───")
+	var linearKey string
+	for {
+		linearKey = w.askEx("Linear API key", askOpts{
+			existing: existingEnv["LINEAR_API_KEY"],
+			secret:   true,
+			required: true,
+		})
+		if w.eof || linearKey == "" {
+			break
+		}
+		fmt.Print("  Verifying ... ")
+		name, err := pingLinear(linearKey)
+		if err == nil {
+			fmt.Printf("ok — authenticated as %s\n", name)
+			break
+		}
+		fmt.Println("FAILED")
+		fmt.Printf("  ⚠️  %v\n", err)
+		if w.confirm("  Save this key anyway?") || w.eof {
+			break
+		}
+		fmt.Println("  Let's try again — or press Ctrl+C to abort.")
+	}
+
+	team := w.askEx("Linear team key", askOpts{
+		existing: existingEnv["LINEAR_TEAM_KEY"],
+		fallback: config.DefaultLinearTeamKey,
+	})
+	trigger := w.askEx("Trigger state", askOpts{
+		existing: existingEnv["TRIGGER_STATE"],
+		fallback: config.DefaultTriggerState,
+	})
+	review := w.askEx("In-review state", askOpts{
+		existing: existingEnv["IN_REVIEW_STATE"],
+		fallback: config.DefaultInReviewState,
+	})
+	fmt.Println()
+
+	// ── Repos: registry ────────────────────────────────────────────────────────
+	mainBranch := w.askEx("Default main branch", askOpts{
+		existing: existingEnv["MAIN_BRANCH"],
+		fallback: config.DefaultMainBranch,
+	})
+	reg := w.collectRepos(mainBranch, existingRepos)
+
+	// ── Optional REPO_PATH fallback ────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("─── Single-repo fallback (optional) ───")
+	fmt.Println("Used only for tickets whose Linear project is not in repos.json.")
+	repoPath := w.askEx("Path to fallback git repo (blank to skip)", askOpts{
+		existing: existingEnv["REPO_PATH"],
+	})
+	if repoPath != "" && !isGitRepo(repoPath) {
+		fmt.Printf("  ⚠️  %s does not look like a git repository (no .git directory).\n", repoPath)
+		if !w.confirm("  Save it anyway?") {
+			repoPath = ""
+		}
+	}
+
+	// ── Safety limits ──────────────────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("─── Safety limits ───")
+	concurrency := w.askInt("Max concurrent tickets", existingEnv["MAX_CONCURRENT"], config.DefaultMaxConcurrent, 1)
+	dispatches := w.askInt("Max dispatches per session", existingEnv["MAX_DISPATCHES"], config.DefaultMaxDispatches, 1)
+	retries := w.askInt("Max retries per ticket", existingEnv["MAX_RETRIES"], config.DefaultMaxRetries, 1)
+	timeoutMin := w.askInt("Agent timeout (minutes)", existingEnv["AGENT_TIMEOUT_MINUTES"], int(config.DefaultAgentTimeout/time.Minute), 5)
+	fmt.Println()
+
+	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
-	if w.confirm("Enable the Gemini review gate?") {
-		geminiKey = w.ask("Gemini API key", "")
+	if existingEnv["GEMINI_API_KEY"] != "" {
+		fmt.Println("Gemini review gate is currently enabled.")
+		if w.confirm("Keep it enabled?") {
+			geminiKey = w.askEx("Gemini API key", askOpts{existing: existingEnv["GEMINI_API_KEY"], secret: true})
+		}
+	} else if w.confirm("Enable the Gemini review gate?") {
+		geminiKey = w.askEx("Gemini API key", askOpts{secret: true})
 	}
 
+	// ── Optional: Telegram ─────────────────────────────────────────────────────
 	tgEnabled, tgToken, tgChat := "false", "", ""
-	if w.confirm("Enable Telegram notifications?") {
+	tgWasEnabled := strings.EqualFold(existingEnv["TELEGRAM_ENABLED"], "true")
+	prompt := "Enable Telegram notifications?"
+	if tgWasEnabled {
+		prompt = "Telegram notifications are currently enabled. Keep them?"
+	}
+	if w.confirm(prompt) {
 		tgEnabled = "true"
-		tgToken = w.ask("Telegram bot token", "")
-		tgChat = w.ask("Telegram chat ID", "")
+		tgToken = w.askEx("Telegram bot token", askOpts{existing: existingEnv["TELEGRAM_BOT_TOKEN"], secret: true, required: true})
+		tgChat = w.askEx("Telegram chat ID", askOpts{existing: existingEnv["TELEGRAM_CHAT_ID"], required: true})
+
+		fmt.Print("  Sending test message ... ")
+		if err := testTelegram(tgToken, tgChat); err != nil {
+			fmt.Println("FAILED")
+			fmt.Printf("  ⚠️  %v\n", err)
+			if !w.confirm("  Save Telegram config anyway?") {
+				tgEnabled, tgToken, tgChat = "false", "", ""
+			}
+		} else {
+			fmt.Println("ok — check your Telegram!")
+		}
+	}
+
+	// ── Summary + confirm ──────────────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("─── Summary ───")
+	fmt.Println()
+	fmt.Printf("  LINEAR_API_KEY        = %s\n", mask(linearKey))
+	fmt.Printf("  LINEAR_TEAM_KEY       = %s\n", team)
+	fmt.Printf("  TRIGGER_STATE         = %s\n", trigger)
+	fmt.Printf("  IN_REVIEW_STATE       = %s\n", review)
+	fmt.Printf("  MAIN_BRANCH           = %s\n", mainBranch)
+	if repoPath != "" {
+		fmt.Printf("  REPO_PATH             = %s\n", repoPath)
+	}
+	fmt.Printf("  MAX_CONCURRENT        = %d\n", concurrency)
+	fmt.Printf("  MAX_DISPATCHES        = %d\n", dispatches)
+	fmt.Printf("  MAX_RETRIES           = %d\n", retries)
+	fmt.Printf("  AGENT_TIMEOUT_MINUTES = %d\n", timeoutMin)
+	fmt.Printf("  GEMINI_API_KEY        = %s\n", maskOrNone(geminiKey))
+	fmt.Printf("  TELEGRAM_ENABLED      = %s\n", tgEnabled)
+	if tgEnabled == "true" {
+		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
+		fmt.Printf("  TELEGRAM_CHAT_ID      = %s\n", tgChat)
 	}
 	fmt.Println()
+	fmt.Printf("  repos.json: %d project(s)\n", len(reg.Repos))
+	for _, name := range reg.ProjectNames() {
+		fmt.Printf("    - %s → %s\n", name, reg.Repos[name].URL)
+	}
+	fmt.Println()
+	if !w.confirm("Save to .env and repos.json?") {
+		fmt.Println("Setup cancelled — no files changed.")
+		return nil
+	}
 
-	reg := w.collectRepos(mainBranch)
-
+	// ── Write files ────────────────────────────────────────────────────────────
 	if err := writeEnvFile(envFile, envValues{
 		linearKey:   linearKey,
 		team:        team,
 		trigger:     trigger,
 		review:      review,
 		mainBranch:  mainBranch,
-		concurrency: concurrency,
+		repoPath:    repoPath,
+		concurrency: strconv.Itoa(concurrency),
+		dispatches:  strconv.Itoa(dispatches),
+		retries:     strconv.Itoa(retries),
+		timeoutMin:  strconv.Itoa(timeoutMin),
 		geminiKey:   geminiKey,
 		tgEnabled:   tgEnabled,
 		tgToken:     tgToken,
@@ -85,51 +223,155 @@ func Run(scriptDir string) error {
 	fmt.Println()
 	fmt.Printf("✅ Wrote %s\n", envFile)
 	fmt.Printf("✅ Wrote %s (%d repo(s))\n", reposFile, count)
-	if count == 0 {
-		fmt.Println("⚠️  No repos registered yet — add them to repos.json or re-run setup.")
+	if count == 0 && repoPath == "" {
+		fmt.Println("⚠️  No repos registered and no REPO_PATH fallback — Nightshift won't process any tickets yet.")
 	}
 	fmt.Println()
 	fmt.Println("Start Nightshift with: ./nightshift")
 	return nil
 }
 
-type wizard struct {
-	in *bufio.Scanner
+// runManual copies .env.example → .env and repos.example.json → repos.json,
+// asking before overwriting either.
+func runManual(scriptDir string) error {
+	in := bufio.NewScanner(os.Stdin)
+
+	pairs := []struct{ src, dst string }{
+		{filepath.Join(scriptDir, ".env.example"), filepath.Join(scriptDir, ".env")},
+		{filepath.Join(scriptDir, "repos.example.json"), filepath.Join(scriptDir, "repos.json")},
+	}
+	for _, p := range pairs {
+		if _, err := os.Stat(p.src); err != nil {
+			fmt.Printf("⚠️  Template not found: %s — skipping\n", p.src)
+			continue
+		}
+		if _, err := os.Stat(p.dst); err == nil {
+			fmt.Print(filepath.Base(p.dst), " already exists — overwrite? [y/N] ")
+			if !in.Scan() || !yes(in.Text()) {
+				fmt.Println("   kept existing")
+				continue
+			}
+		}
+		if err := copyFile(p.src, p.dst); err != nil {
+			return fmt.Errorf("copy %s → %s: %w", p.src, p.dst, err)
+		}
+		fmt.Printf("📄 Created %s\n", p.dst)
+	}
+	fmt.Println()
+	fmt.Println("Edit those files with your values, then run: ./nightshift")
+	return nil
 }
 
+// ── Wizard mechanics ────────────────────────────────────────────────────────
+
+type wizard struct {
+	in  *bufio.Scanner
+	eof bool
+}
+
+// readLine writes the prompt and reads one line. Once stdin reaches EOF the
+// wizard sticks: every subsequent call returns "" without re-prompting, so
+// required-loop helpers above terminate cleanly instead of spinning.
 func (w *wizard) readLine(prompt string) string {
+	if w.eof {
+		return ""
+	}
 	fmt.Print(prompt)
 	if !w.in.Scan() {
+		w.eof = true
 		return ""
 	}
 	return strings.TrimSpace(w.in.Text())
 }
 
-func (w *wizard) ask(label, def string) string {
-	var prompt string
-	if def != "" {
-		prompt = fmt.Sprintf("%s [%s]: ", label, def)
-	} else {
-		prompt = label + ": "
-	}
-	if s := w.readLine(prompt); s != "" {
-		return s
-	}
-	return def
+type askOpts struct {
+	existing string // value already in .env, if any
+	fallback string // static default if no existing
+	secret   bool   // mask existing values in the prompt
+	required bool   // loop until non-empty
 }
 
-func (w *wizard) askRequired(label, missingMsg string) string {
+// askEx is the workhorse prompt: shows existing value (or fallback) in
+// brackets, accepts Enter to keep, type to replace. Required prompts loop
+// until they get a value.
+func (w *wizard) askEx(label string, opts askOpts) string {
 	for {
-		if s := w.ask(label, ""); s != "" {
+		display := opts.existing
+		if display == "" {
+			display = opts.fallback
+		}
+
+		var prompt string
+		if display == "" {
+			prompt = label + ": "
+		} else {
+			shown := display
+			if opts.secret && opts.existing != "" {
+				shown = mask(opts.existing) + " — Enter to keep"
+			}
+			prompt = fmt.Sprintf("%s [%s]: ", label, shown)
+		}
+
+		s := w.readLine(prompt)
+		if w.eof {
 			return s
 		}
-		fmt.Println("  " + missingMsg)
+		if s == "" {
+			s = display
+		}
+		if s == "" && opts.required {
+			fmt.Println("  This value is required.")
+			continue
+		}
+		return s
+	}
+}
+
+func (w *wizard) askInt(label, existing string, fallback, min int) int {
+	defaultStr := strconv.Itoa(fallback)
+	if existing != "" {
+		defaultStr = existing
+	}
+	for {
+		s := w.askEx(label, askOpts{fallback: defaultStr})
+		if w.eof {
+			return fallback
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			fmt.Printf("  Not a number: %q\n", s)
+			continue
+		}
+		if n < min {
+			fmt.Printf("  Must be at least %d.\n", min)
+			continue
+		}
+		return n
 	}
 }
 
 func (w *wizard) confirm(prompt string) bool {
-	s := strings.ToLower(w.readLine(prompt + " [y/N] "))
-	return s == "y" || s == "yes"
+	return yes(w.readLine(prompt + " [y/N] "))
+}
+
+func (w *wizard) chooseMode() string {
+	fmt.Println("How would you like to configure Nightshift?")
+	fmt.Println("  1) Interactive setup (guided prompts) — recommended")
+	fmt.Println("  2) Manual setup (copies .env.example & repos.example.json — you fill them in)")
+	for {
+		s := w.askEx("Choose", askOpts{fallback: "1"})
+		if w.eof {
+			return "interactive"
+		}
+		switch s {
+		case "1":
+			return "interactive"
+		case "2":
+			return "manual"
+		default:
+			fmt.Println("  Enter 1 or 2.")
+		}
+	}
 }
 
 func (w *wizard) chooseTracker() {
@@ -138,7 +380,11 @@ func (w *wizard) chooseTracker() {
 	fmt.Println("  2) Jira             (coming soon)")
 	fmt.Println("  3) GitHub Issues    (coming soon)")
 	for {
-		switch w.ask("Choose", "1") {
+		s := w.askEx("Choose", askOpts{fallback: "1"})
+		if w.eof {
+			return
+		}
+		switch s {
 		case "1":
 			return
 		case "2", "3":
@@ -154,7 +400,11 @@ func (w *wizard) chooseEngine() {
 	fmt.Println("  1) Claude Code")
 	fmt.Println("  2) Gemini           (coming soon)")
 	for {
-		switch w.ask("Choose", "1") {
+		s := w.askEx("Choose", askOpts{fallback: "1"})
+		if w.eof {
+			return
+		}
+		switch s {
 		case "1":
 			return
 		case "2":
@@ -165,18 +415,46 @@ func (w *wizard) chooseEngine() {
 	}
 }
 
-func (w *wizard) collectRepos(defaultMainBranch string) *config.RepoRegistry {
-	fmt.Println("Register repos — map each Linear project to a git repo.")
-	fmt.Println("Nightshift clones these on demand; nothing needs to be cloned yet.")
+func (w *wizard) printCLIStatus() {
+	fmt.Println("Required CLIs:")
+	for _, cmd := range config.RequiredCLIs() {
+		if _, err := exec.LookPath(cmd); err == nil {
+			fmt.Printf("  ✅ %s\n", cmd)
+		} else {
+			fmt.Printf("  ⚠️  %s — not found in PATH (install before running ./nightshift)\n", cmd)
+		}
+	}
+}
+
+func (w *wizard) collectRepos(defaultMainBranch string, existing *config.RepoRegistry) *config.RepoRegistry {
 	fmt.Println()
+	fmt.Println("─── Repos ───")
+	fmt.Println("Map each Linear project to a git repo. Nightshift clones these on demand.")
 
 	reg := &config.RepoRegistry{Repos: map[string]config.RepoEntry{}}
+	if existing != nil {
+		for k, v := range existing.Repos {
+			reg.Repos[k] = v
+		}
+	}
+
+	if len(reg.Repos) > 0 {
+		fmt.Printf("Currently registered (%d):\n", len(reg.Repos))
+		for _, name := range reg.ProjectNames() {
+			fmt.Printf("  - %s → %s\n", name, reg.Repos[name].URL)
+		}
+		fmt.Println()
+		if !w.confirm("Add more repos?") {
+			return reg
+		}
+	}
+
 	for {
-		project := w.ask("Linear project name (blank to finish)", "")
+		project := w.askEx("Linear project name (blank to finish)", askOpts{})
 		if project == "" {
 			return reg
 		}
-		url := w.ask("  Git URL", "")
+		url := w.askEx("  Git URL", askOpts{})
 		if url == "" {
 			fmt.Println("  Skipped — no URL given.")
 			fmt.Println()
@@ -196,23 +474,93 @@ func (w *wizard) collectRepos(defaultMainBranch string) *config.RepoRegistry {
 			fmt.Println("ok")
 		}
 
-		branch := w.ask("  Main branch", defaultMainBranch)
+		branch := w.askEx("  Main branch", askOpts{fallback: defaultMainBranch})
 		reg.Repos[project] = config.RepoEntry{URL: url, MainBranch: branch}
 		fmt.Printf("  ✅ Added %q\n\n", project)
 	}
 }
 
+// ── Helpers (file I/O, validators, formatting) ──────────────────────────────
+
+func pingLinear(apiKey string) (string, error) {
+	if apiKey == "" {
+		return "", fmt.Errorf("empty key")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return linear.New(apiKey).Ping(ctx)
+}
+
+func testTelegram(botToken, chatID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return notify.New(true, botToken, chatID).SendSync(ctx,
+		"🌙 *Nightshift setup* — this is a test message. If you can read this, your bot is configured correctly.")
+}
+
 func checkRemoteAccess(url string) error {
-	cmd := exec.Command("git", "ls-remote", "--exit-code", url, "HEAD")
-	return cmd.Run()
+	return exec.Command("git", "ls-remote", "--exit-code", url, "HEAD").Run()
+}
+
+func isGitRepo(path string) bool {
+	info, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil && info.IsDir()
+}
+
+func mask(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	if len(s) <= 8 {
+		return strings.Repeat("*", len(s))
+	}
+	return s[:4] + "…" + s[len(s)-4:]
+}
+
+func maskOrNone(s string) string {
+	if s == "" {
+		return "(disabled)"
+	}
+	return mask(s)
+}
+
+func yes(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return s == "y" || s == "yes"
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 type envValues struct {
-	linearKey, team, trigger, review, mainBranch, concurrency string
-	geminiKey, tgEnabled, tgToken, tgChat                     string
+	linearKey, team, trigger, review                   string
+	mainBranch, repoPath                               string
+	concurrency, dispatches, retries, timeoutMin       string
+	geminiKey, tgEnabled, tgToken, tgChat              string
 }
 
 func writeEnvFile(path string, v envValues) error {
+	// REPO_PATH is rendered as a comment when empty so users can see where
+	// the fallback would live, mirroring the bash example.
+	repoPathLine := `# REPO_PATH=""`
+	if v.repoPath != "" {
+		repoPathLine = fmt.Sprintf(`REPO_PATH="%s"`, v.repoPath)
+	}
+
 	body := fmt.Sprintf(`# Generated by ./nightshift setup on %s
 # Re-run the wizard any time, or edit by hand.
 
@@ -222,16 +570,16 @@ TRIGGER_STATE="%s"
 IN_REVIEW_STATE="%s"
 
 # Optional single-repo fallback for tickets whose project is not in repos.json
-# REPO_PATH=""
+%s
 MAIN_BRANCH="%s"
 
 MAX_CONCURRENT="%s"
 POLL_INTERVAL="30"
 USE_AGENT_TEAMS="false"
 
-MAX_DISPATCHES="10"
-MAX_RETRIES="3"
-AGENT_TIMEOUT_MINUTES="45"
+MAX_DISPATCHES="%s"
+MAX_RETRIES="%s"
+AGENT_TIMEOUT_MINUTES="%s"
 
 TELEGRAM_ENABLED="%s"
 TELEGRAM_BOT_TOKEN="%s"
@@ -243,8 +591,12 @@ MAX_REVIEW_RETRIES="1"
 `,
 		time.Now().Format(time.RFC3339),
 		v.linearKey, v.team, v.trigger, v.review,
-		v.mainBranch, v.concurrency,
-		v.tgEnabled, v.tgToken, v.tgChat, v.geminiKey)
+		repoPathLine, v.mainBranch,
+		v.concurrency,
+		v.dispatches, v.retries, v.timeoutMin,
+		v.tgEnabled, v.tgToken, v.tgChat,
+		v.geminiKey,
+	)
 	return os.WriteFile(path, []byte(body), 0o600)
 }
 
