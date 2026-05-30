@@ -45,7 +45,12 @@ build-pi: ## Cross-compile for Raspberry Pi (arm64)
 
 update: ## Pull, rebuild, and restart the systemd service
 	git pull
-	go build -o $(BINARY) $(PKG)
+	# Build to a side file first so a failed build can't leave us with no
+	# binary, and so we can swap the live one with an atomic rename — rename
+	# is allowed while the old binary is executing (the kernel keeps the old
+	# inode alive for the running process; the path gets the new inode).
+	go build -o $(BINARY).new $(PKG)
+	mv $(BINARY).new $(BINARY)
 	systemctl --user restart nightshift
 
 start: ## Start the systemd service
