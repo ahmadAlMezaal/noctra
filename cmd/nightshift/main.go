@@ -18,8 +18,10 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/ahmadAlMezaal/nightshift/internal/cleanup"
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
+	"github.com/ahmadAlMezaal/nightshift/internal/setup"
 )
 
 const version = "2.0.0-dev"
@@ -94,14 +96,15 @@ func runPoll(scriptDir string) error {
 }
 
 func runSetup(scriptDir string) error {
-	// TODO(ENG-166): wire up internal/setup.Run(scriptDir)
-	_ = scriptDir
-	return fmt.Errorf("setup wizard not yet implemented — Go port in progress")
+	return setup.Run(scriptDir)
 }
 
 func runCleanup(scriptDir string, force bool) error {
-	// TODO(ENG-166): wire up internal/cleanup.Run(scriptDir, force)
-	_ = scriptDir
-	_ = force
-	return fmt.Errorf("cleanup not yet implemented — Go port in progress")
+	cfg, err := config.Load(scriptDir)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return cleanup.Run(ctx, cfg, force)
 }
