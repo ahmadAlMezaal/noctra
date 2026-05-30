@@ -555,10 +555,10 @@ func copyFile(src, dst string) error {
 }
 
 type envValues struct {
-	linearKey, team, trigger, review                   string
-	mainBranch, repoPath                               string
-	concurrency, dispatches, retries, timeoutMin       string
-	geminiKey, tgEnabled, tgToken, tgChat              string
+	linearKey, team, trigger, review             string
+	mainBranch, repoPath                         string
+	concurrency, dispatches, retries, timeoutMin string
+	geminiKey, tgEnabled, tgToken, tgChat        string
 }
 
 func writeEnvFile(path string, v envValues) error {

@@ -33,8 +33,8 @@ type Pipeline struct {
 	active            map[string]struct{} // identifiers in-flight
 	failedAttempts    map[string]int      // per-ticket retry counter
 	totalDispatches   int
-	successCount     int
-	failCount        int
+	successCount      int
+	failCount         int
 	rateLimitDetected bool
 }
 
