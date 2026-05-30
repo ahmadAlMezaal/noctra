@@ -98,14 +98,8 @@ func TestRunManual_CopiesTemplates(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".env.example"), "FOO=bar\n")
 	writeTestFile(t, filepath.Join(dir, "repos.example.json"), "{\"repos\": {}}\n")
 
-	// stdin is unused when no overwrite prompt fires (no existing .env/repos.json)
-	stashedStdin := os.Stdin
-	defer func() { os.Stdin = stashedStdin }()
-	r, _, _ := os.Pipe()
-	os.Stdin = r
-	r.Close()
-
-	if err := runManual(dir); err != nil {
+	in := bufio.NewScanner(strings.NewReader(""))
+	if err := runManual(dir, in); err != nil {
 		t.Fatalf("runManual: %v", err)
 	}
 
@@ -114,6 +108,24 @@ func TestRunManual_CopiesTemplates(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("%s should have been created: %v", name, err)
 		}
+	}
+}
+
+func TestAskInt_EOFPreservesExisting(t *testing.T) {
+	// Empty input → fallback used → EOF before second prompt.
+	// Existing value "7" should win over factory default 3.
+	w := newWizardWithInput("")
+	got := w.askInt("Max concurrent", "7", 3, 1)
+	if got != 7 {
+		t.Errorf("askInt EOF with existing=7 returned %d, want 7", got)
+	}
+}
+
+func TestAskInt_EOFNoExistingUsesFallback(t *testing.T) {
+	w := newWizardWithInput("")
+	got := w.askInt("Max concurrent", "", 3, 1)
+	if got != 3 {
+		t.Errorf("askInt EOF with no existing returned %d, want 3", got)
 	}
 }
 

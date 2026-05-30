@@ -46,7 +46,9 @@ func Run(scriptDir string) error {
 	// Mode selector (interactive vs manual)
 	switch w.chooseMode() {
 	case "manual":
-		return runManual(scriptDir)
+		// Reuse the wizard's scanner so we don't risk dropping buffered
+		// bytes by constructing a second Scanner on os.Stdin.
+		return runManual(scriptDir, w.in)
 	}
 	fmt.Println()
 
@@ -232,10 +234,10 @@ func Run(scriptDir string) error {
 }
 
 // runManual copies .env.example → .env and repos.example.json → repos.json,
-// asking before overwriting either.
-func runManual(scriptDir string) error {
-	in := bufio.NewScanner(os.Stdin)
-
+// asking before overwriting either. The caller passes its own scanner so we
+// share the same input stream — constructing a second bufio.Scanner on
+// os.Stdin would risk losing bytes the first scanner already buffered.
+func runManual(scriptDir string, in *bufio.Scanner) error {
 	pairs := []struct{ src, dst string }{
 		{filepath.Join(scriptDir, ".env.example"), filepath.Join(scriptDir, ".env")},
 		{filepath.Join(scriptDir, "repos.example.json"), filepath.Join(scriptDir, "repos.json")},
@@ -335,6 +337,12 @@ func (w *wizard) askInt(label, existing string, fallback, min int) int {
 	for {
 		s := w.askEx(label, askOpts{fallback: defaultStr})
 		if w.eof {
+			// Preserve the existing .env value on unexpected EOF — losing
+			// it would silently downgrade the user's config to the factory
+			// default on the next re-run.
+			if n, err := strconv.Atoi(defaultStr); err == nil {
+				return n
+			}
 			return fallback
 		}
 		n, err := strconv.Atoi(s)
