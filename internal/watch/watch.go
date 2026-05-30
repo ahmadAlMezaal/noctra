@@ -95,12 +95,9 @@ func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 
 		cursor := w.store.Get(pr.URL)
 		ch := w.diff(pr, details, cursor)
-		// Surface the PR if there's anything to act on or log, OR if the
-		// cursor moved past purely non-actionable events (a new APPROVED
-		// review, an empty COMMENTED wrapper). The latter produces no Events
-		// or Skipped, but we still need to return it so the caller persists
-		// the advanced cursor — otherwise those events are re-fetched and
-		// re-diffed on every single poll.
+		// cursorMoved covers PRs whose only new events are non-actionable
+		// (APPROVED review, empty COMMENTED wrapper): no Events/Skipped, but
+		// still returned so the caller persists the advanced cursor.
 		cursorMoved := ch.NewestComment.After(cursor.LastCommentAt) ||
 			ch.NewestReview.After(cursor.LastReviewAt)
 		if len(ch.Events) > 0 || len(ch.Skipped) > 0 || cursorMoved {

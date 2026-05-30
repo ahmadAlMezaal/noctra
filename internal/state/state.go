@@ -118,9 +118,6 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	// Keep the lock held through the write so concurrent Updates serialize
-	// their disk writes — otherwise an older snapshot could land on disk
-	// after a newer one and silently revert it.
 	return writeAtomic(s.path, data)
 }
 
