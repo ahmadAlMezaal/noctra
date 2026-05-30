@@ -113,6 +113,27 @@ When a ticket comes in, Nightshift reads its project, finds the matching repo, a
 
 ---
 
+## Auto-iterate on PR review feedback (optional)
+
+By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when a new review comment or `CHANGES_REQUESTED` review lands, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
+
+```env
+AUTO_ITERATE_PRS=true
+MAX_PR_ITERATIONS=3              # safety cap per PR
+PR_POLL_INTERVAL=120             # seconds between PR scans
+TRUSTED_REVIEWERS=               # CSV of bots/logins; empty = humans only
+```
+
+**Safety guards built in:**
+- **Iteration cap.** After `MAX_PR_ITERATIONS` re-engagements on the same PR, Nightshift stops and pings you (Telegram + Linear comment). Prevents flake-loops and stuck reviews from grinding through your API quota.
+- **Trusted-reviewer allowlist.** Humans are always trusted. Bots are only acted on if their login is in `TRUSTED_REVIEWERS`. Default is empty = humans only — bot reviews are still seen and logged, but Nightshift won't act on them blindly. (The default exists because a bot reviewer once confidently misread a `golangci-lint` v2 config as v1; applying its "fix" would have broken CI.)
+- **Cursor persistence.** State at `~/.nightshift-state.json` tracks how far the watcher has caught up. Restarts don't re-react to historical comments.
+- **Telegram heads-up** on each re-engage (always — not gated by `TELEGRAM_VERBOSE`).
+
+Disabled by default; set `AUTO_ITERATE_PRS=true` to opt in, or run the wizard.
+
+---
+
 ## Configuration
 
 Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.

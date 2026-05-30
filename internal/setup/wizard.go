@@ -130,6 +130,9 @@ func Run(scriptDir string) error {
 	timeoutMin := w.askInt("Agent timeout (minutes)", existingEnv["AGENT_TIMEOUT_MINUTES"], int(config.DefaultAgentTimeout/time.Minute), 5)
 	fmt.Println()
 
+	// ── Optional: Auto-iterate on PR feedback ─────────────────────────────────
+	autoIterate, maxIter, prPoll, trusted := w.collectAutoIterate(existingEnv)
+
 	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
 	if existingEnv["GEMINI_API_KEY"] != "" {
@@ -182,6 +185,16 @@ func Run(scriptDir string) error {
 	fmt.Printf("  MAX_RETRIES           = %d\n", retries)
 	fmt.Printf("  AGENT_TIMEOUT_MINUTES = %d\n", timeoutMin)
 	fmt.Printf("  GEMINI_API_KEY        = %s\n", maskOrNone(geminiKey))
+	fmt.Printf("  AUTO_ITERATE_PRS      = %s\n", autoIterate)
+	if autoIterate == "true" {
+		fmt.Printf("  MAX_PR_ITERATIONS     = %d\n", maxIter)
+		fmt.Printf("  PR_POLL_INTERVAL      = %d\n", prPoll)
+		if trusted == "" {
+			fmt.Printf("  TRUSTED_REVIEWERS     = (humans only)\n")
+		} else {
+			fmt.Printf("  TRUSTED_REVIEWERS     = %s\n", trusted)
+		}
+	}
 	fmt.Printf("  TELEGRAM_ENABLED      = %s\n", tgEnabled)
 	if tgEnabled == "true" {
 		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
@@ -214,6 +227,10 @@ func Run(scriptDir string) error {
 		tgEnabled:   tgEnabled,
 		tgToken:     tgToken,
 		tgChat:      tgChat,
+		autoIterate: autoIterate,
+		maxIter:     strconv.Itoa(maxIter),
+		prPoll:      strconv.Itoa(prPoll),
+		trusted:     trusted,
 	}); err != nil {
 		return fmt.Errorf("write %s: %w", envFile, err)
 	}
@@ -434,6 +451,36 @@ func (w *wizard) printCLIStatus() {
 	}
 }
 
+// collectAutoIterate prompts for the auto-iterate-PR feature and its safety
+// knobs. Returns the values as strings (for the .env template) plus the
+// numeric forms used in the summary block.
+func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate string, maxIter int, prPoll int, trusted string) {
+	autoIterate = "false"
+	maxIter = config.DefaultMaxPRIterations
+	prPoll = int(config.DefaultPRPollInterval / time.Second)
+
+	wasEnabled := strings.EqualFold(existing["AUTO_ITERATE_PRS"], "true")
+	prompt := "Enable auto-iterate on PR review feedback?"
+	if wasEnabled {
+		prompt = "Auto-iterate on PR feedback is currently on. Keep it?"
+	}
+	if !w.confirm(prompt) {
+		return autoIterate, maxIter, prPoll, ""
+	}
+	autoIterate = "true"
+
+	maxIter = w.askInt("Max iterations per PR before stopping",
+		existing["MAX_PR_ITERATIONS"], config.DefaultMaxPRIterations, 1)
+	prPoll = w.askInt("PR poll interval (seconds)",
+		existing["PR_POLL_INTERVAL"], int(config.DefaultPRPollInterval/time.Second), 30)
+
+	fmt.Println("Trusted reviewers (comma-separated GitHub logins).")
+	fmt.Println("Leave blank to act on humans only — bots get logged but skipped.")
+	trusted = w.askEx("Trusted reviewers", askOpts{existing: existing["TRUSTED_REVIEWERS"]})
+
+	return autoIterate, maxIter, prPoll, trusted
+}
+
 func (w *wizard) collectRepos(defaultMainBranch string, existing *config.RepoRegistry) *config.RepoRegistry {
 	fmt.Println()
 	fmt.Println("─── Repos ───")
@@ -559,6 +606,7 @@ type envValues struct {
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
 	geminiKey, tgEnabled, tgToken, tgChat        string
+	autoIterate, maxIter, prPoll, trusted        string
 }
 
 func writeEnvFile(path string, v envValues) error {
@@ -596,6 +644,16 @@ TELEGRAM_CHAT_ID="%s"
 GEMINI_API_KEY="%s"
 GEMINI_MODEL="gemini-2.5-pro"
 MAX_REVIEW_RETRIES="1"
+
+# Auto-iterate on PR review feedback (ENG-173). Opt-in. When true,
+# Nightshift periodically polls open PRs it created for new review
+# comments and re-engages Claude on the same branch.
+AUTO_ITERATE_PRS="%s"
+MAX_PR_ITERATIONS="%s"
+PR_POLL_INTERVAL="%s"
+# Comma-separated GitHub logins / bot names whose feedback Nightshift will
+# act on. Humans are always trusted; empty = humans only (bots ignored).
+TRUSTED_REVIEWERS="%s"
 `,
 		time.Now().Format(time.RFC3339),
 		v.linearKey, v.team, v.trigger, v.review,
@@ -604,6 +662,7 @@ MAX_REVIEW_RETRIES="1"
 		v.dispatches, v.retries, v.timeoutMin,
 		v.tgEnabled, v.tgToken, v.tgChat,
 		v.geminiKey,
+		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
 }

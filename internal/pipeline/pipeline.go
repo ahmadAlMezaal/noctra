@@ -257,6 +257,11 @@ func (p *Pipeline) banner() {
 	if p.telegram.Enabled {
 		notifyMode = "Telegram"
 	}
+	autoIterMode := "Disabled"
+	if p.watcher != nil {
+		autoIterMode = fmt.Sprintf("On (cap %d, poll %s)",
+			p.cfg.MaxPRIterations, p.cfg.PRPollInterval)
+	}
 
 	repoSummary := p.cfg.RepoPath
 	if p.cfg.Registry != nil {
@@ -274,6 +279,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
 	fmt.Printf("   Watching:       %q column\n", p.cfg.TriggerState)
 	fmt.Printf("   Review:         %s\n", reviewMode)
+	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
