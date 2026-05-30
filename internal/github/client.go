@@ -32,15 +32,17 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 			continue
 		}
 
+		var stderr strings.Builder
 		cmd := exec.CommandContext(ctx, "gh", "pr", "list",
 			"--repo", ownerRepo,
 			"--author", "@me",
 			"--state", "open",
 			"--json", "url,number,title,headRefName",
 		)
+		cmd.Stderr = &stderr
 		stdout, err := cmd.Output()
 		if err != nil {
-			slog.Warn("github: gh pr list failed", "repo", ownerRepo, "err", err)
+			slog.Warn("github: gh pr list failed", "repo", ownerRepo, "err", err, "stderr", strings.TrimSpace(stderr.String()))
 			continue
 		}
 
@@ -62,12 +64,14 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 // GetPR fetches the full view of a PR — comments, reviews, state — used by
 // the watcher to diff against the cursor in state.json.
 func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
+	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL,
 		"--json", "url,number,state,comments,reviews",
 	)
+	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("gh pr view %s: %w", prURL, err)
+		return nil, fmt.Errorf("gh pr view %s: %w (%s)", prURL, err, strings.TrimSpace(stderr.String()))
 	}
 	var d Details
 	if err := json.Unmarshal(stdout, &d); err != nil {

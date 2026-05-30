@@ -213,7 +213,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 				blocked, p.cfg.TriggerState))
 		}
 		// Advance cursor + count attempt so we don't loop on the same feedback.
-		p.recordIteration(ch, identifier, ch.PR.Number, issueID)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
 
@@ -243,12 +243,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		logger.Info("iteration produced no diff — feedback addressed without code edits, or Claude chose not to act")
 	}
 
-	p.recordIteration(ch, identifier, ch.PR.Number, issueID)
+	p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 }
 
 // recordIteration bumps the per-PR iteration counter, advances the comment +
 // review cursors, and fires the cap-hit notifications on the transition.
-func (p *Pipeline) recordIteration(ch watch.PRChanges, identifier string, prNumber int, issueID string) {
+func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, identifier string, prNumber int, issueID string) {
 	var iterations int
 	if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 		if r.TicketID == "" {
@@ -268,11 +268,11 @@ func (p *Pipeline) recordIteration(ch watch.PRChanges, identifier string, prNumb
 	}
 
 	if iterations >= p.cfg.MaxPRIterations {
-		p.telegram.Send(context.Background(), fmt.Sprintf(
+		p.telegram.Send(ctx, fmt.Sprintf(
 			"🛑 *%s* — PR #%d hit iteration cap (%d attempts). Needs human attention.",
 			identifier, prNumber, iterations))
 		if issueID != "" {
-			_ = p.linear.Comment(context.Background(), issueID, fmt.Sprintf(
+			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
 				"🛑 **Nightshift: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Nightshift won't re-engage on this PR again unless you reset the iteration count in `~/.nightshift-state.json` or close the PR.",
 				iterations, ch.PR.URL))
 		}

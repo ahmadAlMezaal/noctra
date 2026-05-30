@@ -107,6 +107,7 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 		return nil
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	r, ok := s.data.PRs[prURL]
 	if !ok || r == nil {
 		r = &PRState{}
@@ -114,10 +115,12 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	}
 	fn(r)
 	data, err := json.MarshalIndent(s.data, "", "  ")
-	s.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
+	// Keep the lock held through the write so concurrent Updates serialize
+	// their disk writes — otherwise an older snapshot could land on disk
+	// after a newer one and silently revert it.
 	return writeAtomic(s.path, data)
 }
 
