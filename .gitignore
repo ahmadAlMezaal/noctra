@@ -7,5 +7,9 @@ repos.json
 # Agent logs — runtime output
 .agent-logs/
 
+# Built binary
+/nightshift
+/dist/
+
 # macOS
 .DS_Store
