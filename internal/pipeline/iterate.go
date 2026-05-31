@@ -376,6 +376,7 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 		lastCISHA = r.LastCISHA
 	}); err != nil {
 		slog.Warn("pipeline: state update failed", "url", ch.PR.URL, "err", err)
+		return
 	}
 
 	slog.Info("cursor advanced",
