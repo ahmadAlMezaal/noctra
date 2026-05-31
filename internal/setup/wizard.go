@@ -247,21 +247,21 @@ func Run(scriptDir string) error {
 		trigger:      trigger,
 		triggerLabel: triggerLabel,
 		review:       review,
-		mainBranch:  mainBranch,
-		repoPath:    repoPath,
-		concurrency: strconv.Itoa(concurrency),
-		dispatches:  strconv.Itoa(dispatches),
-		retries:     strconv.Itoa(retries),
-		timeoutMin:  strconv.Itoa(timeoutMin),
-		geminiKey:   geminiKey,
-		tgEnabled:   tgEnabled,
-		tgToken:     tgToken,
-		tgChat:      tgChat,
-		tgVerbose:   tgVerbose,
-		autoIterate: autoIterate,
-		maxIter:     strconv.Itoa(maxIter),
-		prPoll:      strconv.Itoa(prPoll),
-		trusted:     trusted,
+		mainBranch:   mainBranch,
+		repoPath:     repoPath,
+		concurrency:  strconv.Itoa(concurrency),
+		dispatches:   strconv.Itoa(dispatches),
+		retries:      strconv.Itoa(retries),
+		timeoutMin:   strconv.Itoa(timeoutMin),
+		geminiKey:    geminiKey,
+		tgEnabled:    tgEnabled,
+		tgToken:      tgToken,
+		tgChat:       tgChat,
+		tgVerbose:    tgVerbose,
+		autoIterate:  autoIterate,
+		maxIter:      strconv.Itoa(maxIter),
+		prPoll:       strconv.Itoa(prPoll),
+		trusted:      trusted,
 	}); err != nil {
 		return fmt.Errorf("write %s: %w", envFile, err)
 	}
@@ -661,7 +661,7 @@ func copyFile(src, dst string) error {
 
 type envValues struct {
 	linearKey, team                              string
-	triggerMode, trigger, triggerLabel, review    string
+	triggerMode, trigger, triggerLabel, review   string
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
 	geminiKey                                    string
