@@ -288,8 +288,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			return
 		}
 		logger.Info("pushed follow-up commit", "branch", wt.Branch)
+		// Completion heads-up (always — mirrors the 🔄 start ping and the
+		// ✅ "PR ready" ping the main ticket flow sends on success).
+		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
+			identifier, ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("iteration produced no diff — feedback addressed without code edits, or Claude chose not to act")
+		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
+			identifier, ch.PR.Number))
 	}
 
 	p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
