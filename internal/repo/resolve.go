@@ -138,9 +138,25 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", url, dest)
+	// Clone into a temp dir, then atomically rename into place. `git clone`
+	// creates dest/.git early (before objects/refs are fetched), so cloning
+	// straight into dest would make isGitRepo(dest) true mid-clone — and a
+	// concurrent Resolve (or the lock-loser's poll) would then use a partial
+	// repo whose origin/<main> doesn't exist yet. The rename makes dest appear
+	// only once the clone is complete. (Same temp-then-rename trick as
+	// state.writeAtomic; the temp lives beside dest so the rename is atomic.)
+	tmp, err := os.MkdirTemp(filepath.Dir(dest), filepath.Base(dest)+".cloning-*")
+	if err != nil {
+		return fmt.Errorf("create clone temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmp) // no-op once renamed away; cleans up on any failure
+
+	cmd := exec.CommandContext(ctx, "git", "clone", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git clone: %w: %s", err, string(out))
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return fmt.Errorf("finalize clone into %s: %w", dest, err)
 	}
 	return nil
 }
