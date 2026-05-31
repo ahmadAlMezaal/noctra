@@ -43,6 +43,7 @@ type Pipeline struct {
 	mu                sync.Mutex
 	active            map[string]struct{} // identifiers in-flight
 	failedAttempts    map[string]int      // per-ticket retry counter
+	skipped           map[string]struct{} // non-transient failures — never re-dispatched
 	totalDispatches   int
 	successCount      int
 	failCount         int
@@ -59,6 +60,7 @@ func New(cfg *config.Config) *Pipeline {
 		review:         review.New(cfg.GeminiAPIKey, cfg.GeminiModel),
 		active:         map[string]struct{}{},
 		failedAttempts: map[string]int{},
+		skipped:        map[string]struct{}{},
 		sessionStart:   time.Now(),
 	}
 
@@ -245,6 +247,11 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 				"attempts", p.failedAttempts[issue.Identifier])
 			continue
 		}
+		if _, skip := p.skipped[issue.Identifier]; skip {
+			p.mu.Unlock()
+			slog.Debug("skipping (non-transient failure)", "id", issue.Identifier)
+			continue
+		}
 		p.active[issue.Identifier] = struct{}{}
 		p.totalDispatches++
 		p.mu.Unlock()
@@ -280,6 +287,17 @@ func (p *Pipeline) bumpSuccess() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.successCount++
+}
+
+// skipPermanently marks a ticket as permanently skipped (non-transient failure
+// like a missing repos.json mapping). The ticket won't be re-dispatched on
+// future polls, and the dispatch it consumed is refunded so deterministic
+// config errors don't burn the dispatch budget or shut the agent down.
+func (p *Pipeline) skipPermanently(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.skipped[id] = struct{}{}
+	p.totalDispatches-- // refund — config errors shouldn't count
 }
 
 func (p *Pipeline) flagRateLimit() {
