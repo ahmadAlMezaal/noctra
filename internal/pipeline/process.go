@@ -141,13 +141,23 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	// ── Any changes to commit? ───────────────────────────────────────────────
-	hasChanges, err := workingTreeChanged(ctx, wt.Path)
+	// Claude may leave edits uncommitted OR commit them itself, so "did it do
+	// anything" means a dirty worktree OR commits ahead of the base branch.
+	// Checking only the worktree would bounce a perfectly good self-committed
+	// implementation as "no changes made" (ENG-182).
+	dirty, err := workingTreeChanged(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git status failed", "err", err)
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
-	if !hasChanges {
+	committed, err := branchAhead(ctx, wt.Path, "origin/"+resolved.MainBranch)
+	if err != nil {
+		logger.Error("git rev-list failed", "err", err)
+		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+		return
+	}
+	if !dirty && !committed {
 		logger.Warn("no changes made")
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 			"💭 **Nightshift: No code changes made**\n\nClaude completed the session without modifying any files. This usually means the ticket description is too vague or needs more context.\n\nAdd more detail to the ticket description and move back to **%s** to retry.",
@@ -219,15 +229,27 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	// ── Commit and push ──────────────────────────────────────────────────────
+	// Commit only if there's staged work — if Claude already committed its own
+	// changes, the staged set is empty and a plain `git commit` would fail with
+	// "nothing to commit" and bounce a valid implementation (ENG-182).
 	commitMsg := fmt.Sprintf(
 		"feat: implement %s — %s\n\nImplemented by Nightshift using Claude Code\n\nLinear: %s",
 		id, issue.Title, issue.URL)
 
-	if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
-		logger.Error("git commit failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, "❌ **Nightshift: commit failed** — see Nightshift logs.")
+	staged, err := hasStagedChanges(ctx, wt.Path)
+	if err != nil {
+		logger.Error("git diff --cached failed", "err", err)
+		p.linearBackToTrigger(ctx, issue.ID, "❌ **Nightshift: commit check failed** — see Nightshift logs.")
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
+	}
+	if staged {
+		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
+			logger.Error("git commit failed", "err", err)
+			p.linearBackToTrigger(ctx, issue.ID, "❌ **Nightshift: commit failed** — see Nightshift logs.")
+			repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+			return
+		}
 	}
 	if err := runIn(ctx, wt.Path, "git", "push", "-u", "origin", wt.Branch); err != nil {
 		logger.Error("git push failed", "err", err)
@@ -306,6 +328,37 @@ func workingTreeChanged(ctx context.Context, workdir string) (bool, error) {
 		return false, err
 	}
 	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// hasStagedChanges reports whether the index has anything to commit. Used so we
+// only commit when there's staged work — Claude sometimes commits its own
+// changes, in which case a `git commit` would fail with "nothing to commit".
+func hasStagedChanges(ctx context.Context, workdir string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return false, nil // exit 0: index clean
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return true, nil // exit 1: staged changes present
+	}
+	return false, fmt.Errorf("git diff --cached: %w (%s)", err, strings.TrimSpace(string(out)))
+}
+
+// branchAhead reports whether HEAD has commits not present in upstream (e.g.
+// origin/main, or origin/<branch>). This is how we detect work to push even
+// when Claude committed it itself, leaving a clean working tree.
+func branchAhead(ctx context.Context, workdir, upstream string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", upstream+"..HEAD")
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("git rev-list %s..HEAD: %w (%s)", upstream, err, strings.TrimSpace(string(out)))
+	}
+	n := strings.TrimSpace(string(out))
+	return n != "" && n != "0", nil
 }
 
 // gitDiff returns the staged diff (or the working-tree diff against HEAD if
