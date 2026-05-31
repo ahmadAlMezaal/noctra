@@ -3,12 +3,76 @@ package repo
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 )
+
+// TestEnsureCloned_ConcurrentProducesCompleteRepo drives two concurrent
+// ensureCloned calls at the same un-cloned dest and asserts the result is a
+// complete clone (origin/main resolvable) — i.e. nobody observes the repo
+// mid-clone. Regression test for the cold-clone race (ENG-180).
+func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Source repo with a commit on main.
+	src := t.TempDir()
+	git(src, "init", "-b", "main", "--quiet")
+	git(src, "config", "user.email", "t@t")
+	git(src, "config", "user.name", "T")
+	git(src, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(src, "README.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(src, "add", "-A")
+	git(src, "commit", "-m", "init", "--quiet")
+
+	dest := filepath.Join(t.TempDir(), "repo")
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) { defer wg.Done(); errs[i] = ensureCloned(ctx, src, dest) }(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("ensureCloned[%d]: %v", i, err)
+		}
+	}
+	if !isGitRepo(dest) {
+		t.Fatal("dest is not a git repo after clone")
+	}
+	// The clone must be complete: origin/main must resolve. (A repo observed
+	// mid-clone would fail here — exactly the bug.)
+	rp := exec.Command("git", "rev-parse", "--verify", "origin/main")
+	rp.Dir = dest
+	if out, err := rp.CombinedOutput(); err != nil {
+		t.Fatalf("origin/main not resolvable in cloned repo: %v\n%s", err, out)
+	}
+	// No leftover temp clone dirs beside dest.
+	entries, _ := filepath.Glob(dest + ".cloning-*")
+	if len(entries) != 0 {
+		t.Errorf("leftover temp clone dirs: %v", entries)
+	}
+}
 
 // fakeGitRepo creates a directory containing a .git/ subdir so isGitRepo
 // reports true without us shelling out to git.
