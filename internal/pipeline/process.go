@@ -336,7 +336,7 @@ func workingTreeChanged(ctx context.Context, workdir string) (bool, error) {
 func hasStagedChanges(ctx context.Context, workdir string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
 	cmd.Dir = workdir
-	err := cmd.Run()
+	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return false, nil // exit 0: index clean
 	}
@@ -344,7 +344,7 @@ func hasStagedChanges(ctx context.Context, workdir string) (bool, error) {
 	if errors.As(err, &ee) && ee.ExitCode() == 1 {
 		return true, nil // exit 1: staged changes present
 	}
-	return false, err
+	return false, fmt.Errorf("git diff --cached: %w (%s)", err, strings.TrimSpace(string(out)))
 }
 
 // branchAhead reports whether HEAD has commits not present in upstream (e.g.
@@ -353,9 +353,9 @@ func hasStagedChanges(ctx context.Context, workdir string) (bool, error) {
 func branchAhead(ctx context.Context, workdir, upstream string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", upstream+"..HEAD")
 	cmd.Dir = workdir
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("git rev-list %s..HEAD: %w", upstream, err)
+		return false, fmt.Errorf("git rev-list %s..HEAD: %w (%s)", upstream, err, strings.TrimSpace(string(out)))
 	}
 	n := strings.TrimSpace(string(out))
 	return n != "" && n != "0", nil
