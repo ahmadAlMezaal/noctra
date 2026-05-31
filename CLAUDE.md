@@ -50,13 +50,14 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 
 | Package | Purpose |
 |---------|---------|
-| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
+| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `listener` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
 | `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
 | `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues`, `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment` |
 | `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Claude Code runner (`exec`) with timeout; implement-prompt builder; `BuildFixPrompt` (review feedback + failing-CI prompt); log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |
+| `internal/telegram` | Inbound Telegram listener: long-polling `getUpdates`, sender auth, command dispatcher; runs as `nightshift listener` subcommand |
 | `internal/github` | Thin `gh` CLI wrapper: `ListNightshiftPRs`, `GetPR` (comments + reviews + inline review comments via REST + `statusCheckRollup`), `CheckLogs` (failed-step logs via `gh run view`) |
 | `internal/state` | File-backed PR cursor store (`~/.nightshift-state.json`): per-PR comment/review timestamps + CI head-SHA + iteration count; atomic, mutex-guarded |
 | `internal/watch` | Side-effect-free classifier: diffs a PR's feedback + CI status against the cursor, applies trusted-reviewer rules, emits actionable events + `CIFailure` |

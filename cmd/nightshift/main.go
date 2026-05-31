@@ -3,6 +3,7 @@
 // Subcommands:
 //
 //	nightshift            start the poll loop (default)
+//	nightshift listener   start the inbound Telegram listener
 //	nightshift setup      interactive .env + repos.json wizard
 //	nightshift cleanup    clean up stale branches and worktrees
 //	nightshift cleanup --force
@@ -27,6 +28,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
 	"github.com/ahmadAlMezaal/nightshift/internal/setup"
+	"github.com/ahmadAlMezaal/nightshift/internal/telegram"
 )
 
 // version is the build version. Defaults to a dev marker for `go build`/`go
@@ -72,6 +74,9 @@ func realMain() error {
 	case "", "run":
 		printBanner()
 		return runPoll(scriptDir)
+	case "listener":
+		printBanner()
+		return runListener(scriptDir)
 	case "setup":
 		return runSetup(scriptDir)
 	case "cleanup":
@@ -111,6 +116,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  run       Start the poll loop (default)")
+	fmt.Println("  listener  Start the inbound Telegram command listener")
 	fmt.Println("  setup     Interactive configuration wizard")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
@@ -151,6 +157,24 @@ func runPoll(scriptDir string) error {
 
 	slog.Info("nightshift starting", "version", version)
 	return pipeline.New(cfg).Run(ctx)
+}
+
+func runListener(scriptDir string) error {
+	cfg, err := config.Load(scriptDir)
+	if err != nil {
+		return err
+	}
+	if cfg.TelegramBotToken == "" || cfg.TelegramChatID == "" {
+		return fmt.Errorf("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env to run the listener")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	slog.Info("nightshift listener starting", "version", version)
+
+	listener := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
+	return listener.Run(ctx)
 }
 
 func runSetup(scriptDir string) error {
