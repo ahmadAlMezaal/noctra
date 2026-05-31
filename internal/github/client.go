@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os/exec"
 	"strings"
 )
+
+// ErrNotActionsRun is returned by CheckLogs when a check's details URL is not
+// a GitHub Actions run (e.g. CircleCI, Vercel). Callers can errors.Is on it to
+// skip such checks quietly rather than logging a failure.
+var ErrNotActionsRun = errors.New("not a GitHub Actions run")
 
 // Client is a `gh`-CLI wrapper. Stateless — safe to use concurrently.
 type Client struct{}
@@ -138,7 +144,7 @@ const maxCheckLogBytes = 6000
 func (c *Client) CheckLogs(ctx context.Context, ch Check) (string, error) {
 	owner, repo, runID, ok := parseActionsRunURL(ch.URL())
 	if !ok {
-		return "", fmt.Errorf("not a GitHub Actions run URL: %q", ch.URL())
+		return "", fmt.Errorf("%q: %w", ch.URL(), ErrNotActionsRun)
 	}
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "run", "view", runID,
@@ -157,7 +163,13 @@ func tailString(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return "...(truncated)\n" + s[len(s)-max:]
+	start := len(s) - max
+	// Don't slice mid-rune: skip past any UTF-8 continuation bytes (top two
+	// bits == 10) so the result stays valid UTF-8.
+	for start < len(s) && s[start]&0xC0 == 0x80 {
+		start++
+	}
+	return "...(truncated)\n" + s[start:]
 }
 
 // parseActionsRunURL extracts owner, repo and run ID from a GitHub Actions

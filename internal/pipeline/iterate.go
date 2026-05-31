@@ -187,6 +187,10 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			item := agent.CIItem{Name: chk.CheckName(), URL: chk.URL()}
 			if logs, err := p.gh.CheckLogs(ctx, chk); err == nil {
 				item.Logs = logs
+			} else if errors.Is(err, github.ErrNotActionsRun) {
+				// Expected for non-Actions checks (CircleCI, Vercel, …) — no
+				// logs to fetch; Claude reproduces locally. Not worth a warning.
+				logger.Debug("skipping log fetch for non-Actions check", "check", chk.CheckName())
 			} else {
 				logger.Warn("could not fetch CI logs — Claude will reproduce locally", "check", chk.CheckName(), "err", err)
 			}

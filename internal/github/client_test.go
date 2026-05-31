@@ -1,6 +1,35 @@
 package github
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func TestTailString_KeepsValidUTF8(t *testing.T) {
+	// A run of 3-byte runes (★ = e2 98 85) so a raw byte cut would land
+	// mid-rune for most max values.
+	s := strings.Repeat("★", 100)
+	for _, max := range []int{10, 50, 101, 299} {
+		out := tailString(s, max)
+		if !utf8.ValidString(out) {
+			t.Errorf("tailString(max=%d) produced invalid UTF-8: %q", max, out)
+		}
+	}
+	// Short input is returned untouched.
+	if got := tailString("hi", 100); got != "hi" {
+		t.Errorf("short input: got %q", got)
+	}
+}
+
+func TestCheckLogs_NonActionsReturnsSentinel(t *testing.T) {
+	_, err := New().CheckLogs(context.Background(), Check{DetailsURL: "https://circleci.com/gh/me/repo/123"})
+	if !errors.Is(err, ErrNotActionsRun) {
+		t.Errorf("expected ErrNotActionsRun, got %v", err)
+	}
+}
 
 func TestDecodeReviewComments(t *testing.T) {
 	// Single merged array (modern gh).
