@@ -107,6 +107,13 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		UseAgentTeams: p.cfg.UseAgentTeams,
 	})
 
+	// ── Killed via /kill ────────────────────────────────────────────────────
+	if p.isKilled(id) {
+		logger.Info("run killed by user")
+		repo.CleanupWorktree(context.Background(), resolved.Path, p.cfg.WorktreeBase, id)
+		return
+	}
+
 	// ── Timeout ──────────────────────────────────────────────────────────────
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("timed out", "timeout", p.cfg.AgentTimeout)

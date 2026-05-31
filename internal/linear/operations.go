@@ -263,6 +263,52 @@ func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error
 	return nil
 }
 
+// AddLabel adds a single label to an issue. It fetches the issue's current
+// labels, appends the target if not already present, and writes the full set
+// back. No-ops if the issue already has the label.
+func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
+	fetchQ := `query($id: String!) {
+	  issue(id: $id) { labels { nodes { id } } }
+	}`
+	var fetchResp struct {
+		Issue struct {
+			Labels struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.Do(ctx, fetchQ, map[string]any{"id": issueID}, &fetchResp); err != nil {
+		return fmt.Errorf("fetch labels for %s: %w", issueID, err)
+	}
+
+	ids := make([]string, 0, len(fetchResp.Issue.Labels.Nodes)+1)
+	for _, l := range fetchResp.Issue.Labels.Nodes {
+		if l.ID == labelID {
+			return nil // already labelled
+		}
+		ids = append(ids, l.ID)
+	}
+	ids = append(ids, labelID)
+
+	mutation := `mutation($id: String!, $labelIds: [String!]!) {
+	  issueUpdate(id: $id, input: { labelIds: $labelIds }) { success }
+	}`
+	var resp struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+	if err := c.Do(ctx, mutation, map[string]any{"id": issueID, "labelIds": ids}, &resp); err != nil {
+		return err
+	}
+	if !resp.IssueUpdate.Success {
+		return fmt.Errorf("issueUpdate reported success=false adding label to %s", issueID)
+	}
+	return nil
+}
+
 // Ping verifies the API key works by fetching the authenticated viewer.
 // Returns the viewer's display name on success.
 func (c *Client) Ping(ctx context.Context) (string, error) {

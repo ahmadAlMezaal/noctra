@@ -18,6 +18,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
 	"github.com/ahmadAlMezaal/nightshift/internal/review"
 	"github.com/ahmadAlMezaal/nightshift/internal/state"
+	"github.com/ahmadAlMezaal/nightshift/internal/telegram"
 	"github.com/ahmadAlMezaal/nightshift/internal/watch"
 )
 
@@ -41,9 +42,11 @@ type Pipeline struct {
 	sessionStart time.Time
 
 	mu                sync.Mutex
-	active            map[string]struct{} // identifiers in-flight
-	failedAttempts    map[string]int      // per-ticket retry counter
-	skipped           map[string]struct{} // non-transient failures — never re-dispatched
+	active            map[string]struct{}          // identifiers in-flight
+	cancels           map[string]context.CancelFunc // per-ticket cancel (for /kill)
+	killed            map[string]struct{}          // tickets killed via /kill
+	failedAttempts    map[string]int               // per-ticket retry counter
+	skipped           map[string]struct{}          // non-transient failures — never re-dispatched
 	totalDispatches   int
 	successCount      int
 	failCount         int
@@ -59,6 +62,8 @@ func New(cfg *config.Config) *Pipeline {
 		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
 		review:         review.New(cfg.GeminiAPIKey, cfg.GeminiModel),
 		active:         map[string]struct{}{},
+		cancels:        map[string]context.CancelFunc{},
+		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{},
 		skipped:        map[string]struct{}{},
 		sessionStart:   time.Now(),
@@ -138,6 +143,22 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 
 	var wg sync.WaitGroup
+
+	// Start the Telegram command listener alongside the poll loop if configured.
+	// The listener shares the WaitGroup so shutdown drains it like any other goroutine.
+	if p.cfg.TelegramEnabled && p.cfg.TelegramBotToken != "" && p.cfg.TelegramChatID != "" {
+		listener := telegram.New(p.cfg.TelegramBotToken, p.cfg.TelegramChatID)
+		p.registerCommands(listener.Dispatcher())
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := listener.Run(ctx); err != nil {
+				slog.Warn("telegram listener stopped", "err", err)
+			}
+		}()
+		slog.Info("telegram command listener started")
+	}
+
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -252,7 +273,9 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 			slog.Debug("skipping (non-transient failure)", "id", issue.Identifier)
 			continue
 		}
+		ticketCtx, ticketCancel := context.WithCancel(ctx)
 		p.active[issue.Identifier] = struct{}{}
+		p.cancels[issue.Identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()
 
@@ -264,7 +287,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		go func(iss linear.Issue) {
 			defer wg.Done()
 			defer p.markDone(iss.Identifier)
-			p.process(ctx, iss)
+			p.process(ticketCtx, iss)
 		}(issue)
 	}
 }
@@ -273,6 +296,38 @@ func (p *Pipeline) markDone(id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.active, id)
+	if cancel, ok := p.cancels[id]; ok {
+		cancel() // release context resources
+		delete(p.cancels, id)
+	}
+	delete(p.killed, id)
+}
+
+// isKilled reports whether a ticket was terminated via /kill. Used to skip
+// normal error handling (bump-failed, linearBackToTrigger) when the user
+// intentionally stopped a run.
+func (p *Pipeline) isKilled(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.killed[id]
+	return ok
+}
+
+// KillRun cancels the context for an in-flight ticket, terminating any
+// running Claude process. The goroutine handles worktree cleanup on return.
+func (p *Pipeline) KillRun(identifier string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cancel, ok := p.cancels[identifier]
+	if !ok {
+		if _, active := p.active[identifier]; active {
+			return fmt.Errorf("%s is active but has no cancel handle", identifier)
+		}
+		return fmt.Errorf("no active run for %s", identifier)
+	}
+	p.killed[identifier] = struct{}{}
+	cancel()
+	return nil
 }
 
 func (p *Pipeline) bumpFailed(id string) int {

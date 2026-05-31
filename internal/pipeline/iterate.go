@@ -133,7 +133,9 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 			// advanced.
 			continue
 		}
+		ticketCtx, ticketCancel := context.WithCancel(ctx)
 		p.active[identifier] = struct{}{}
+		p.cancels[identifier] = ticketCancel
 		p.mu.Unlock()
 
 		slog.Info("pr poll detail",
@@ -147,7 +149,7 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		go func(ch watch.PRChanges, id string) {
 			defer wg.Done()
 			defer p.markDone(id)
-			p.iteratePR(ctx, ch, id)
+			p.iteratePR(ticketCtx, ch, id)
 		}(ch, identifier)
 	}
 }
@@ -270,6 +272,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		Timeout:       p.cfg.AgentTimeout,
 		UseAgentTeams: p.cfg.UseAgentTeams,
 	})
+
+	// Killed via /kill — skip all error handling and let the defer clean up.
+	if p.isKilled(identifier) {
+		logger.Info("run killed by user")
+		return
+	}
 
 	// Don't increment iteration count on infrastructure-level failures
 	// (timeout / rate-limit) — those weren't really attempts on the feedback.
