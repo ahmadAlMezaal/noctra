@@ -401,6 +401,17 @@ func ghCreatePR(ctx context.Context, repoPath, title, body, base, head string) (
 	return strings.TrimSpace(string(out)), nil
 }
 
+// gitHeadShort returns the abbreviated HEAD commit SHA, or "" on error.
+func gitHeadShort(ctx context.Context, workdir string) string {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+	cmd.Dir = workdir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func runIn(ctx context.Context, dir, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
