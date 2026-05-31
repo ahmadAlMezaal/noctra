@@ -66,10 +66,10 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	slog.Info("pr poll", "prs_with_changes", len(changes))
 
 	for _, ch := range changes {
-		// Even with no actionable events (all-APPROVED / all-skipped),
-		// advance the cursor so we don't re-evaluate the same events on
-		// every poll.
-		if len(ch.Events) == 0 {
+		// Even with no actionable events (all-APPROVED / all-skipped) and no
+		// CI failure, advance the cursor so we don't re-evaluate the same
+		// events on every poll.
+		if len(ch.Events) == 0 && ch.CIFailure == nil {
 			p.advanceCursor(ch)
 			continue
 		}
@@ -122,10 +122,10 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 // runs Claude, and pushes the follow-up commit.
 func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier string) {
 	logger := slog.With("id", identifier, "pr", ch.PR.URL)
-	logger.Info("re-engaging on PR feedback", "events", len(ch.Events))
+	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
 
 	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
-	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — addressing review on PR #%d", identifier, ch.PR.Number))
+	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", identifier, engagementSummary(ch), ch.PR.Number))
 
 	// On every failure path below we record the iteration before returning.
 	// Otherwise the cursor never advances and the next poll re-discovers the
@@ -179,6 +179,21 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		})
 	}
 
+	// Fetch failed-step logs for any failing CI checks (best-effort — if the
+	// fetch fails, Claude can still reproduce the failure locally).
+	var ciItems []agent.CIItem
+	if ch.CIFailure != nil {
+		for _, chk := range ch.CIFailure.FailedChecks {
+			item := agent.CIItem{Name: chk.CheckName(), URL: chk.URL()}
+			if logs, err := p.gh.CheckLogs(ctx, chk); err == nil {
+				item.Logs = logs
+			} else {
+				logger.Warn("could not fetch CI logs — Claude will reproduce locally", "check", chk.CheckName(), "err", err)
+			}
+			ciItems = append(ciItems, item)
+		}
+	}
+
 	prompt := agent.BuildFixPrompt(agent.FixPromptInput{
 		Identifier:  identifier,
 		Title:       title,
@@ -186,6 +201,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		PRNumber:    ch.PR.Number,
 		PRURL:       ch.PR.URL,
 		Feedback:    items,
+		CI:          ciItems,
 	})
 
 	logFile := filepath.Join(p.cfg.LogDir, identifier+".log")
@@ -244,8 +260,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
-		commitMsg := fmt.Sprintf("fix: address review feedback on %s\n\nFollow-up commit by Nightshift addressing %d new feedback item(s).",
-			identifier, len(ch.Events))
+		commitMsg := fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Nightshift (%s).",
+			identifier, engagementSummary(ch))
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
@@ -278,6 +294,9 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 		if ch.NewestReview.After(r.LastReviewAt) {
 			r.LastReviewAt = ch.NewestReview
 		}
+		if ch.CIFailure != nil && ch.CIFailure.SHA != "" {
+			r.LastCISHA = ch.CIFailure.SHA
+		}
 		r.Iterations++
 		r.LastIteratedAt = time.Now()
 		iterations = r.Iterations
@@ -308,8 +327,26 @@ func (p *Pipeline) advanceCursor(ch watch.PRChanges) {
 		if ch.NewestReview.After(r.LastReviewAt) {
 			r.LastReviewAt = ch.NewestReview
 		}
+		if ch.CIFailure != nil && ch.CIFailure.SHA != "" {
+			r.LastCISHA = ch.CIFailure.SHA
+		}
 	}); err != nil {
 		slog.Warn("pipeline: cursor advance failed", "url", ch.PR.URL, "err", err)
+	}
+}
+
+// engagementSummary is a short human description of why Nightshift is
+// re-engaging on a PR — used in the Telegram heads-up and the commit message.
+func engagementSummary(ch watch.PRChanges) string {
+	hasFeedback := len(ch.Events) > 0
+	hasCI := ch.CIFailure != nil
+	switch {
+	case hasFeedback && hasCI:
+		return "addressing review + CI"
+	case hasCI:
+		return "fixing CI"
+	default:
+		return "addressing review"
 	}
 }
 

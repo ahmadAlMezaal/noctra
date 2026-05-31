@@ -64,6 +64,30 @@ func TestBuildFixPrompt_RendersInlineCommentLocation(t *testing.T) {
 	}
 }
 
+func TestBuildFixPrompt_RendersCIFailures(t *testing.T) {
+	out := BuildFixPrompt(FixPromptInput{
+		Identifier: "ENG-50",
+		Title:      "Thing",
+		PRNumber:   7,
+		PRURL:      "https://github.com/me/repo/pull/7",
+		CI: []CIItem{{
+			Name: "test",
+			URL:  "https://github.com/me/repo/actions/runs/1",
+			Logs: "FAIL: TestThing\nexpected 2 got 3",
+		}},
+	})
+	for _, want := range []string{
+		"Failing CI checks to fix",
+		"test",
+		"expected 2 got 3",
+		"reproduce it locally",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("CI prompt missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
 func TestBuildFixPrompt_HandlesMissingDescription(t *testing.T) {
 	out := BuildFixPrompt(FixPromptInput{
 		Identifier: "ENG-1",

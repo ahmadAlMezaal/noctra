@@ -113,11 +113,13 @@ When a ticket comes in, Nightshift reads its project, finds the matching repo, a
 
 ---
 
-## Auto-iterate on PR review feedback (optional)
+## Auto-iterate on PR feedback (optional)
 
-By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when new feedback lands, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
+By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when new feedback lands **or CI fails**, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
 
-It picks up all three kinds of feedback: top-level conversation comments, submitted reviews (`CHANGES_REQUESTED` / non-empty `COMMENTED`), and **inline review-thread comments** attached to specific lines — the latter are passed to Claude with their `file:line` location so it knows exactly where each note applies.
+It picks up all three kinds of review feedback: top-level conversation comments, submitted reviews (`CHANGES_REQUESTED` / non-empty `COMMENTED`), and **inline review-thread comments** attached to specific lines — the latter are passed to Claude with their `file:line` location so it knows exactly where each note applies.
+
+It also watches **CI**: once every check on the head commit has completed and at least one failed, Nightshift fetches the failed-step logs and asks Claude to reproduce and fix them. CI is keyed by commit SHA, so it acts at most once per commit — pushing a fix that fails again counts as the next iteration (bounded by the cap). Review feedback and CI fixes share the same per-PR iteration budget and, when both are pending, are addressed in a single re-engagement.
 
 ```env
 AUTO_ITERATE_PRS=true
@@ -129,7 +131,7 @@ TRUSTED_REVIEWERS=               # CSV of bots/logins; empty = humans only
 **Safety guards built in:**
 - **Iteration cap.** After `MAX_PR_ITERATIONS` re-engagements on the same PR, Nightshift stops and pings you (Telegram + Linear comment). Prevents flake-loops and stuck reviews from grinding through your API quota.
 - **Trusted-reviewer allowlist.** Humans are always trusted. Bots are only acted on if their login is in `TRUSTED_REVIEWERS`. Default is empty = humans only — bot reviews are still seen and logged, but Nightshift won't act on them blindly. (The default exists because a bot reviewer once confidently misread a `golangci-lint` v2 config as v1; applying its "fix" would have broken CI.)
-- **Cursor persistence.** State at `~/.nightshift-state.json` tracks how far the watcher has caught up. Restarts don't re-react to historical comments.
+- **Cursor persistence.** State at `~/.nightshift-state.json` tracks how far the watcher has caught up (last comment/review timestamps + last CI commit SHA). Restarts don't re-react to historical comments or already-handled CI failures.
 - **Telegram heads-up** on each re-engage (always — not gated by `TELEGRAM_VERBOSE`).
 
 Disabled by default; set `AUTO_ITERATE_PRS=true` to opt in, or run the wizard.

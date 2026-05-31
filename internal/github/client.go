@@ -67,7 +67,7 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL,
-		"--json", "url,number,state,comments,reviews",
+		"--json", "url,number,state,headRefOid,comments,reviews,statusCheckRollup",
 	)
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
@@ -125,6 +125,58 @@ func decodeReviewComments(stdout []byte) ([]ReviewComment, error) {
 		comments = append(comments, page...)
 	}
 	return comments, nil
+}
+
+// maxCheckLogBytes caps how much of a failed check's log we feed back to
+// Claude — the tail almost always holds the actual error, and an unbounded
+// log would blow up the prompt.
+const maxCheckLogBytes = 6000
+
+// CheckLogs returns the failed-step logs for a check, truncated to the tail.
+// Only GitHub Actions runs are supported; other check kinds (whose details
+// URL isn't an Actions run) return an error the caller treats as best-effort.
+func (c *Client) CheckLogs(ctx context.Context, ch Check) (string, error) {
+	owner, repo, runID, ok := parseActionsRunURL(ch.URL())
+	if !ok {
+		return "", fmt.Errorf("not a GitHub Actions run URL: %q", ch.URL())
+	}
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "run", "view", runID,
+		"--repo", owner+"/"+repo, "--log-failed")
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("gh run view %s: %w (%s)", runID, err, strings.TrimSpace(stderr.String()))
+	}
+	return tailString(string(stdout), maxCheckLogBytes), nil
+}
+
+// tailString returns the last max bytes of s, prefixed with a truncation
+// marker when it had to cut.
+func tailString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return "...(truncated)\n" + s[len(s)-max:]
+}
+
+// parseActionsRunURL extracts owner, repo and run ID from a GitHub Actions
+// check details URL like
+// https://github.com/owner/repo/actions/runs/123/job/456.
+func parseActionsRunURL(raw string) (owner, repo, runID string, ok bool) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", "", "", false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	// owner / repo / actions / runs / <id> [...]
+	if len(parts) < 5 || parts[2] != "actions" || parts[3] != "runs" {
+		return "", "", "", false
+	}
+	if parts[0] == "" || parts[1] == "" || parts[4] == "" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[4], true
 }
 
 // reviewCommentsAPIPath turns a PR URL into the REST path for its inline

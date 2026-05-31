@@ -81,6 +81,52 @@ func TestReviewCommentsAPIPath(t *testing.T) {
 	}
 }
 
+func TestParseActionsRunURL(t *testing.T) {
+	cases := []struct {
+		in               string
+		owner, repo, run string
+		ok               bool
+	}{
+		{"https://github.com/me/auth/actions/runs/123/job/456", "me", "auth", "123", true},
+		{"https://github.com/me/auth/actions/runs/789", "me", "auth", "789", true},
+		{"https://github.com/me/auth/pull/12", "", "", "", false},
+		{"https://circleci.com/gh/me/auth/123", "", "", "", false},
+		{"", "", "", "", false},
+	}
+	for _, c := range cases {
+		o, r, run, ok := parseActionsRunURL(c.in)
+		if ok != c.ok || o != c.owner || r != c.repo || run != c.run {
+			t.Errorf("parseActionsRunURL(%q) = (%q,%q,%q,%v), want (%q,%q,%q,%v)",
+				c.in, o, r, run, ok, c.owner, c.repo, c.run, c.ok)
+		}
+	}
+}
+
+func TestCheckHelpers(t *testing.T) {
+	// Completed failing CheckRun.
+	fail := Check{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: "u"}
+	if !fail.IsComplete() || !fail.IsFailure() || fail.CheckName() != "build" || fail.URL() != "u" {
+		t.Errorf("failing CheckRun: %+v", fail)
+	}
+	// In-progress check is not complete.
+	if (Check{Name: "x", Status: "IN_PROGRESS"}).IsComplete() {
+		t.Error("IN_PROGRESS should not be complete")
+	}
+	// Passing CheckRun.
+	if (Check{Status: "COMPLETED", Conclusion: "SUCCESS"}).IsFailure() {
+		t.Error("SUCCESS should not be a failure")
+	}
+	// Legacy StatusContext failure.
+	sc := Check{Context: "ci/legacy", State: "FAILURE", TargetURL: "t"}
+	if !sc.IsComplete() || !sc.IsFailure() || sc.CheckName() != "ci/legacy" || sc.URL() != "t" {
+		t.Errorf("StatusContext: %+v", sc)
+	}
+	// Pending StatusContext is not complete.
+	if (Check{Context: "x", State: "PENDING"}).IsComplete() {
+		t.Error("PENDING StatusContext should not be complete")
+	}
+}
+
 func TestActorIsBot(t *testing.T) {
 	if (Actor{Type: "Bot"}).IsBot() != true {
 		t.Error("Bot type should report IsBot true")
