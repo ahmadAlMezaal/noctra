@@ -142,5 +142,9 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(tmpPath)
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath) // don't leak the temp file on a failed rename
+		return err
+	}
+	return nil
 }

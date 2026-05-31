@@ -66,9 +66,11 @@ type Watcher struct {
 // whose feedback should be acted on; humans are always trusted, so trusted
 // only meaningfully restricts bots.
 func New(gh *github.Client, store *state.Store, repoURLs []string, trusted []string) *Watcher {
+	// GitHub logins are case-insensitive; normalise to lower so a config
+	// entry like "Gemini-Code-Assist" still matches the API's casing.
 	t := make(map[string]bool, len(trusted))
 	for _, login := range trusted {
-		if login = strings.TrimSpace(login); login != "" {
+		if login = strings.ToLower(strings.TrimSpace(login)); login != "" {
 			t[login] = true
 		}
 	}
@@ -213,5 +215,5 @@ func (w *Watcher) actionable(ev Event) bool {
 	if !ev.Author.IsBot() {
 		return true
 	}
-	return w.trusted[ev.Author.Login]
+	return w.trusted[strings.ToLower(ev.Author.Login)]
 }

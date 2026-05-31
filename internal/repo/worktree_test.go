@@ -147,6 +147,72 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	CleanupWorktree(ctx, repo, base, "ENG-300")
 }
 
+// TestResumeWorktree_OverStaleWorktree resumes while a previous worktree for
+// the same branch is STILL checked out (e.g. a crash skipped cleanup). git
+// refuses to delete a branch checked out in a worktree, so cleanup must remove
+// the worktree before deleting the branch — otherwise `worktree add -b` fails.
+func TestResumeWorktree_OverStaleWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repo := t.TempDir()
+	mustGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+
+	mustGit("init", "-b", "main", "--quiet")
+	mustGit("config", "user.email", "t@t")
+	mustGit("config", "user.name", "T")
+	mustGit("config", "commit.gpgsign", "false")
+	mustGit("config", "receive.denyCurrentBranch", "ignore")
+	mustGit("remote", "add", "origin", repo)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("init"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit("add", "-A")
+	mustGit("commit", "-m", "init", "--quiet")
+	mustGit("fetch", "origin", "--quiet")
+
+	base := t.TempDir()
+	ctx := context.Background()
+
+	wt1, err := CreateWorktree(ctx, base, "ENG-400", repo, "main")
+	if err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wt1.Path, "marker.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runInWt := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wt1.Path
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v in worktree: %v\n%s", args, err, string(out))
+		}
+	}
+	runInWt("add", "-A")
+	runInWt("commit", "-m", "attempt-1", "--quiet")
+	runInWt("push", "-u", "origin", wt1.Branch, "--quiet")
+
+	// Deliberately DO NOT clean up — the branch stays checked out in wt1.
+	wt2, err := ResumeWorktree(ctx, base, "ENG-400", repo)
+	if err != nil {
+		t.Fatalf("ResumeWorktree over a stale worktree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt2.Path, "marker.txt")); err != nil {
+		t.Errorf("resumed worktree missing prior marker: %v", err)
+	}
+
+	CleanupWorktree(ctx, repo, base, "ENG-400")
+}
+
 func TestResumeWorktree_FailsIfBranchNotOnRemote(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

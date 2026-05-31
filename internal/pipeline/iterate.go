@@ -100,7 +100,10 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		if len(p.active) >= p.cfg.MaxConcurrent {
 			p.mu.Unlock()
 			slog.Info("pr iteration deferred — at capacity", "id", identifier)
-			return // try again next tick
+			// continue, not return: this PR waits for the next tick, but
+			// later non-actionable PRs in this batch still need their cursors
+			// advanced.
+			continue
 		}
 		p.active[identifier] = struct{}{}
 		p.mu.Unlock()
@@ -124,21 +127,29 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
 	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — addressing review on PR #%d", identifier, ch.PR.Number))
 
+	// On every failure path below we record the iteration before returning.
+	// Otherwise the cursor never advances and the next poll re-discovers the
+	// same feedback, re-runs, and fails again — an infinite retry loop. The
+	// only exceptions are infra failures (timeout / rate-limit), handled
+	// further down, which intentionally retry.
 	project, err := p.matchPRtoProject(ch.PR.URL)
 	if err != nil {
 		logger.Error("could not match PR to a registered project", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
 
 	resolved, err := p.resolver.Resolve(ctx, project)
 	if err != nil {
 		logger.Error("repo resolve failed", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
 
 	wt, err := repo.ResumeWorktree(ctx, p.cfg.WorktreeBase, identifier, resolved.Path)
 	if err != nil {
 		logger.Error("resume worktree failed", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
 	defer repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, identifier)
@@ -204,6 +215,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	}
 	if runErr != nil {
 		logger.Error("claude run failed", "err", runErr)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
 
@@ -223,21 +235,25 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	hasChanges, err := workingTreeChanged(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git status failed", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
 	if hasChanges {
 		if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
 			logger.Error("git add failed", "err", err)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
 		commitMsg := fmt.Sprintf("fix: address review feedback on %s\n\nFollow-up commit by Nightshift addressing %d new feedback item(s).",
 			identifier, len(ch.Events))
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
 		if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
 			logger.Error("git push failed", "err", err)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
 		logger.Info("pushed follow-up commit", "branch", wt.Branch)

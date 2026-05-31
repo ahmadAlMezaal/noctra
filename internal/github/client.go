@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -103,9 +104,25 @@ func (c *Client) listReviewComments(ctx context.Context, prURL string) ([]Review
 	if err != nil {
 		return nil, fmt.Errorf("gh api %s: %w (%s)", apiPath, err, strings.TrimSpace(stderr.String()))
 	}
-	var comments []ReviewComment
-	if err := json.Unmarshal(stdout, &comments); err != nil {
+	comments, err := decodeReviewComments(stdout)
+	if err != nil {
 		return nil, fmt.Errorf("decode review comments %s: %w", apiPath, err)
+	}
+	return comments, nil
+}
+
+// decodeReviewComments parses the output of `gh api --paginate`. Depending on
+// the gh version this is either a single merged JSON array or several arrays
+// concatenated (one per page); a streaming decoder handles both.
+func decodeReviewComments(stdout []byte) ([]ReviewComment, error) {
+	dec := json.NewDecoder(bytes.NewReader(stdout))
+	var comments []ReviewComment
+	for dec.More() {
+		var page []ReviewComment
+		if err := dec.Decode(&page); err != nil {
+			return nil, err
+		}
+		comments = append(comments, page...)
 	}
 	return comments, nil
 }

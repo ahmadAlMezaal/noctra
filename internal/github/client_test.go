@@ -2,6 +2,29 @@ package github
 
 import "testing"
 
+func TestDecodeReviewComments(t *testing.T) {
+	// Single merged array (modern gh).
+	single := `[{"id":1,"user":{"login":"alice","type":"User"},"body":"a","path":"x.go","line":1}]`
+	// Concatenated arrays, one per page (older gh --paginate).
+	concat := `[{"id":1,"user":{"login":"a","type":"User"},"body":"a"}]` +
+		`[{"id":2,"user":{"login":"gemini","type":"Bot"},"body":"b"}]`
+
+	got, err := decodeReviewComments([]byte(single))
+	if err != nil || len(got) != 1 || got[0].Author.Login != "alice" || got[0].Line != 1 {
+		t.Errorf("single: got %+v err %v", got, err)
+	}
+
+	got, err = decodeReviewComments([]byte(concat))
+	if err != nil || len(got) != 2 || got[1].Author.Login != "gemini" {
+		t.Errorf("concatenated: got %+v err %v", got, err)
+	}
+
+	got, err = decodeReviewComments([]byte(""))
+	if err != nil || len(got) != 0 {
+		t.Errorf("empty: got %+v err %v", got, err)
+	}
+}
+
 func TestExtractOwnerRepo(t *testing.T) {
 	cases := []struct {
 		in      string
