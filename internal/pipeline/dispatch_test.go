@@ -24,11 +24,10 @@ func TestSkipPermanently_AddToSetAndRefundsDispatch(t *testing.T) {
 		t.Fatalf("totalDispatches: got %d, want 4 (should be refunded)", p.totalDispatches)
 	}
 
-	// Skipping again is idempotent but still decrements — the set prevents
-	// double-dispatch so this path shouldn't happen in practice.
+	// Skipping again should be idempotent and not decrement again.
 	p.skipPermanently("ENG-100")
-	if p.totalDispatches != 3 {
-		t.Fatalf("totalDispatches: got %d after second skip", p.totalDispatches)
+	if p.totalDispatches != 4 {
+		t.Fatalf("totalDispatches: got %d after second skip, want 4 (should be idempotent)", p.totalDispatches)
 	}
 }
 

@@ -293,11 +293,14 @@ func (p *Pipeline) bumpSuccess() {
 // like a missing repos.json mapping). The ticket won't be re-dispatched on
 // future polls, and the dispatch it consumed is refunded so deterministic
 // config errors don't burn the dispatch budget or shut the agent down.
+// Idempotent: calling multiple times for the same ID only refunds once.
 func (p *Pipeline) skipPermanently(id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.skipped[id] = struct{}{}
-	p.totalDispatches-- // refund — config errors shouldn't count
+	if _, ok := p.skipped[id]; !ok {
+		p.skipped[id] = struct{}{}
+		p.totalDispatches-- // refund — config errors shouldn't count
+	}
 }
 
 func (p *Pipeline) flagRateLimit() {

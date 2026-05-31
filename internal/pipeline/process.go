@@ -49,7 +49,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			// the agent down. Only one comment + notification is posted.
 			p.skipPermanently(id)
 			if cerr := p.linear.Comment(ctx, issue.ID,
-				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nMap this ticket's project in `repos.json` (or run `./nightshift setup`), then move it back to **%s**.",
+				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nMap this ticket's project in `repos.json` (or run `./nightshift setup`), then restart Nightshift and move it back to **%s**.",
 					err.Error(), p.cfg.TriggerState)); cerr != nil {
 				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
 			}
@@ -59,9 +59,15 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 		// Transient failure — move back to trigger and retry (bounded).
 		attempts := p.bumpFailed(id)
-		p.linearBackToTrigger(ctx, issue.ID,
-			fmt.Sprintf("❌ **Nightshift: repo resolution failed** (attempt %d/%d)\n\n%s\n\nTicket moved back to **%s**. Will retry on next poll cycle.",
-				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState))
+		var msg string
+		if attempts >= p.cfg.MaxRetries {
+			msg = fmt.Sprintf("❌ **Nightshift: repo resolution failed** (attempt %d/%d)\n\n%s\n\nMax retries reached. Ticket moved back to **%s** but will not be retried automatically.",
+				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState)
+		} else {
+			msg = fmt.Sprintf("❌ **Nightshift: repo resolution failed** (attempt %d/%d)\n\n%s\n\nTicket moved back to **%s**. Will retry on next poll cycle.",
+				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState)
+		}
+		p.linearBackToTrigger(ctx, issue.ID, msg)
 		return
 	}
 	logger.Info("repo resolved", "path", resolved.Path, "main", resolved.MainBranch)
