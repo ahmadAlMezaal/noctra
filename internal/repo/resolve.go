@@ -149,7 +149,7 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return fmt.Errorf("create clone temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmp) // no-op once renamed away; cleans up on any failure
+	defer func() { _ = os.RemoveAll(tmp) }() // no-op once renamed away; cleans up on any failure
 
 	cmd := exec.CommandContext(ctx, "git", "clone", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
