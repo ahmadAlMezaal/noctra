@@ -251,19 +251,22 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		return
 	}
 
-	// Apply changes (if any).
-	hasChanges, err := workingTreeChanged(ctx, wt.Path)
-	if err != nil {
-		logger.Error("git status failed", "err", err)
+	// Push whatever the iteration produced. Claude may leave changes
+	// uncommitted OR commit them itself — so stage + commit anything pending,
+	// then push whenever the branch is ahead of its remote. Gating on a dirty
+	// worktree alone silently dropped Claude's own commits (ENG-182).
+	if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
+		logger.Error("git add failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
-	if hasChanges {
-		if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
-			logger.Error("git add failed", "err", err)
-			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
-			return
-		}
+	staged, err := hasStagedChanges(ctx, wt.Path)
+	if err != nil {
+		logger.Error("git diff --cached failed", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		return
+	}
+	if staged {
 		commitMsg := fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Nightshift (%s).",
 			identifier, engagementSummary(ch))
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
@@ -271,6 +274,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
+	}
+	ahead, err := branchAhead(ctx, wt.Path, "origin/"+wt.Branch)
+	if err != nil {
+		logger.Error("git rev-list failed", "err", err)
+		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		return
+	}
+	if ahead {
 		if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
 			logger.Error("git push failed", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)

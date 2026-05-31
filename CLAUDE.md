@@ -50,8 +50,8 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 
 | Package | Purpose |
 |---------|---------|
-| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `version`) |
-| `internal/config` | `.env` parser, `repos.json` loader, validated `Config` |
+| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
+| `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
 | `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues`, `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment` |
 | `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Claude Code runner (`exec`) with timeout; implement-prompt builder; `BuildFixPrompt` (review feedback + failing-CI prompt); log_offset parsing |
@@ -63,10 +63,17 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 | `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`) |
 | `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
+| `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repos.json |
+
+## Config directory
+
+Config defaults to `~/.nightshift/` (`.env`, `repos.json`, `logs/`). This is consistent with the existing `~/.nightshift-*` convention (worktrees, repos, state). The **cwd-checkout override** still works: if the current directory contains `.env`, `repos.json`, `.env.example`, or `go.mod`, Nightshift uses cwd instead — so `go run` during development still works without touching `~/.nightshift/`.
+
+`resolveScriptDir()` in `cmd/nightshift/main.go` implements this logic. `config.DefaultConfigDir()` returns the per-user path.
 
 ## Log file structure
 
-Logs at `.agent-logs/<IDENTIFIER>.log` **append across attempts**:
+Logs at `logs/<IDENTIFIER>.log` (under the config dir) **append across attempts**:
 
 ```
 --- Attempt 2026-01-01T00:00:00Z ---
