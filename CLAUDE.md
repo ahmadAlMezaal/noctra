@@ -96,3 +96,7 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
 ```
 
 `go vet ./...` should be clean.
+
+## Releasing
+
+Releases are automated with GoReleaser (`.goreleaser.yaml`) via `.github/workflows/release.yml`, triggered by pushing a `v*` tag. It cross-compiles linux `amd64`/`arm64`/`armv7` + darwin `amd64`/`arm64`, archives them with checksums, and publishes a GitHub Release. `main.version` is a `var` (not const) so the tag is stamped in via `-ldflags "-X main.version=..."`. Validate config changes locally with `goreleaser check` and `goreleaser release --snapshot --clean --skip=publish`.

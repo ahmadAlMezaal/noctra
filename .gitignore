@@ -13,3 +13,6 @@ repos.json
 
 # macOS
 .DS_Store
+
+# GoReleaser output
+dist/
