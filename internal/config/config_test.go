@@ -264,6 +264,32 @@ PR_POLL_INTERVAL="60"`)
 	}
 }
 
+func TestDefaultConfigDir(t *testing.T) {
+	dir := DefaultConfigDir()
+	if dir == "" {
+		t.Fatal("DefaultConfigDir returned empty string")
+	}
+	if !strings.HasSuffix(dir, ".nightshift") {
+		t.Errorf("DefaultConfigDir = %q, want suffix .nightshift", dir)
+	}
+}
+
+func TestLoad_LogDirDefaultsToLogs(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := filepath.Join(dir, "logs")
+	if cfg.LogDir != want {
+		t.Errorf("LogDir = %q, want %q", cfg.LogDir, want)
+	}
+}
+
 // initBareRepo creates a minimal-looking git repo (just a .git directory) so
 // isGitRepo returns true without us shelling out to git in tests.
 func initBareRepo(t *testing.T) string {

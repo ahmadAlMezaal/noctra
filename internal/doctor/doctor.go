@@ -1,0 +1,188 @@
+// Package doctor implements `nightshift doctor` — a preflight check that
+// validates dependencies, credentials, and config before you try to run.
+package doctor
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/linear"
+)
+
+// check is a single pass/fail diagnostic result.
+type check struct {
+	name   string
+	ok     bool
+	detail string
+	hint   string
+}
+
+// Run performs all preflight checks and prints a report.
+func Run(scriptDir string) error {
+	fmt.Println("Checking dependencies and configuration...")
+	fmt.Println()
+
+	var checks []check
+
+	// ── Required CLIs ────────────────────────────────────────────────────────
+	for _, cli := range config.RequiredCLIs() {
+		checks = append(checks, checkCLI(cli))
+	}
+
+	// ── gh auth ──────────────────────────────────────────────────────────────
+	checks = append(checks, checkGHAuth())
+
+	// ── Config + Linear ──────────────────────────────────────────────────────
+	cfg, loadErr := config.Load(scriptDir)
+	if loadErr != nil {
+		checks = append(checks, check{
+			name:   "config",
+			detail: loadErr.Error(),
+			hint:   "Run `nightshift setup` to generate config files.",
+		})
+	} else {
+		checks = append(checks, checkLinearKey(cfg))
+		checks = append(checks, checkRepos(cfg))
+	}
+
+	// ── Config dir ───────────────────────────────────────────────────────────
+	checks = append(checks, check{
+		name:   "config dir",
+		ok:     true,
+		detail: scriptDir,
+	})
+
+	// ── Report ───────────────────────────────────────────────────────────────
+	passed, failed := 0, 0
+	for _, c := range checks {
+		if c.ok {
+			passed++
+			fmt.Printf("  ✓ %-16s %s\n", c.name, c.detail)
+		} else {
+			failed++
+			fmt.Printf("  ✗ %-16s %s\n", c.name, c.detail)
+			if c.hint != "" {
+				fmt.Printf("    %-16s %s\n", "", c.hint)
+			}
+		}
+	}
+
+	fmt.Println()
+	if failed > 0 {
+		fmt.Printf("  %d passed, %d failed\n", passed, failed)
+		return fmt.Errorf("%d check(s) failed", failed)
+	}
+	fmt.Printf("  All %d checks passed — ready to roll.\n", passed)
+	return nil
+}
+
+// checkCLI verifies a single CLI binary is on PATH.
+func checkCLI(name string) check {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		hints := map[string]string{
+			"git":    "Install git: https://git-scm.com/downloads",
+			"gh":     "Install GitHub CLI: https://cli.github.com",
+			"claude": "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
+		}
+		return check{
+			name:   name,
+			detail: "not found in PATH",
+			hint:   hints[name],
+		}
+	}
+	return check{name: name, ok: true, detail: path}
+}
+
+// checkGHAuth verifies `gh` is authenticated.
+func checkGHAuth() check {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return check{
+			name:   "gh auth",
+			detail: "skipped (gh not installed)",
+		}
+	}
+
+	out, err := exec.Command("gh", "auth", "status").CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return check{
+			name:   "gh auth",
+			detail: "not authenticated",
+			hint:   "Run `gh auth login` to authenticate.",
+		}
+	}
+
+	// Extract the account line from gh auth status output.
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "Logged in") {
+			return check{name: "gh auth", ok: true, detail: strings.TrimSpace(line)}
+		}
+		if strings.Contains(line, "account") {
+			return check{name: "gh auth", ok: true, detail: strings.TrimSpace(line)}
+		}
+	}
+	return check{name: "gh auth", ok: true, detail: "authenticated"}
+}
+
+// checkLinearKey tests whether the configured LINEAR_API_KEY can reach Linear.
+func checkLinearKey(cfg *config.Config) check {
+	if cfg.LinearAPIKey == "" {
+		return check{
+			name:   "LINEAR_API_KEY",
+			detail: "not set",
+			hint:   "Run `nightshift setup` or set LINEAR_API_KEY in .env.",
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	name, err := linear.New(cfg.LinearAPIKey).Ping(ctx)
+	if err != nil {
+		return check{
+			name:   "LINEAR_API_KEY",
+			detail: fmt.Sprintf("unreachable (%v)", err),
+			hint:   "Check your API key in .env or at https://linear.app/settings/api.",
+		}
+	}
+	return check{name: "LINEAR_API_KEY", ok: true, detail: fmt.Sprintf("authenticated as %s", name)}
+}
+
+// checkRepos verifies repos.json is loadable and reports the project count.
+func checkRepos(cfg *config.Config) check {
+	if cfg.Registry == nil {
+		if cfg.RepoPath != "" {
+			return check{
+				name:   "repos",
+				ok:     true,
+				detail: fmt.Sprintf("no repos.json; using REPO_PATH fallback (%s)", cfg.RepoPath),
+			}
+		}
+		return check{
+			name:   "repos",
+			detail: "no repos.json and no REPO_PATH fallback",
+			hint:   "Run `nightshift setup` to configure repositories.",
+		}
+	}
+	names := cfg.Registry.ProjectNames()
+	if len(names) == 0 {
+		return check{
+			name:   "repos",
+			ok:     true,
+			detail: fmt.Sprintf("repos.json loaded (0 projects) — %s", cfg.ReposFile),
+		}
+	}
+	return check{
+		name:   "repos",
+		ok:     true,
+		detail: fmt.Sprintf("repos.json loaded (%d project(s): %s)", len(names), strings.Join(names, ", ")),
+	}
+}

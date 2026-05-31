@@ -16,6 +16,15 @@ import (
 // don't start in a broken state.
 var requiredCLIs = []string{"git", "gh", "claude"}
 
+// DefaultConfigDir returns the per-user config directory (~/.nightshift/).
+// This is where .env, repos.json, and logs/ live when Nightshift is installed
+// globally (go install / prebuilt binary). The cwd-checkout override in
+// resolveScriptDir still takes precedence during development.
+func DefaultConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".nightshift")
+}
+
 // Defaults — used when a setting is absent from both .env and the process
 // environment. Kept as exported constants so tests and the setup wizard can
 // reference them.
@@ -128,7 +137,7 @@ func Load(scriptDir string) (*Config, error) {
 		ReposFile:    reposFile,
 		ReposBase:    reposBase,
 		WorktreeBase: getenv(fileEnv, "WORKTREE_BASE", filepath.Join(home, ".nightshift-worktrees")),
-		LogDir:       getenv(fileEnv, "LOG_DIR", filepath.Join(scriptDir, ".agent-logs")),
+		LogDir:       getenv(fileEnv, "LOG_DIR", filepath.Join(scriptDir, "logs")),
 	}
 
 	cfg.MaxConcurrent = getint(fileEnv, "MAX_CONCURRENT", DefaultMaxConcurrent)
