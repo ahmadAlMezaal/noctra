@@ -7,7 +7,7 @@ BINARY := nightshift
 PKG    := ./cmd/nightshift
 
 .DEFAULT_GOAL := help
-.PHONY: help build test vet run setup cleanup build-pi update start stop restart status logs
+.PHONY: help build test vet run listener setup cleanup build-pi update start stop restart status logs start-listener stop-listener restart-listener status-listener logs-listener
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} \
@@ -29,6 +29,9 @@ vet: ## Run go vet
 
 run: build ## Build and start the poll loop in the foreground
 	./$(BINARY)
+
+listener: build ## Build and start the Telegram command listener
+	./$(BINARY) listener
 
 setup: build ## Build and run the interactive setup wizard
 	./$(BINARY) setup
@@ -67,3 +70,20 @@ status: ## Show service status
 
 logs: ## Tail live logs (Ctrl+C to stop)
 	journalctl --user-unit=nightshift.service -f
+
+# ── Telegram listener service management (run on the Pi) ─────────────────
+
+start-listener: ## Start the Telegram listener service
+	systemctl --user start nightshift-listener
+
+stop-listener: ## Stop the Telegram listener service
+	systemctl --user stop nightshift-listener
+
+restart-listener: ## Restart the Telegram listener service (does not rebuild)
+	systemctl --user restart nightshift-listener
+
+status-listener: ## Show listener service status
+	systemctl --user status nightshift-listener
+
+logs-listener: ## Tail live listener logs (Ctrl+C to stop)
+	journalctl --user-unit=nightshift-listener.service -f
