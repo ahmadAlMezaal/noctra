@@ -1,0 +1,67 @@
+# GoReleaser config — cross-compiles Nightshift and publishes a GitHub Release
+# with archives + checksums on every pushed `v*` tag. See .github/workflows/release.yml.
+#
+#   Local dry run:  goreleaser release --snapshot --clean
+#   Validate:       goreleaser check
+version: 2
+
+project_name: nightshift
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nightshift
+    main: ./cmd/nightshift
+    binary: nightshift
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      # No 32-bit arm builds for macOS.
+      - goos: darwin
+        goarch: arm
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: ahmadAlMezaal
+    name: nightshift
+  draft: false
+  prerelease: auto
+
+# A Homebrew formula/cask can be published here later via `homebrew_casks`,
+# once an `ahmadAlMezaal/homebrew-tap` repo and a HOMEBREW_TAP_TOKEN secret
+# exist. `go install` + the release binaries already cover install for now.

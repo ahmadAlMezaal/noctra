@@ -52,13 +52,31 @@ gh auth login   # authenticate gh
 
 ---
 
+## Install
+
+Nightshift is a single static binary — pick whichever you prefer:
+
+```bash
+# A. Go toolchain (installs the latest tagged release to $GOPATH/bin)
+go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
+
+# B. Prebuilt binary — no Go required
+#    Grab the archive for your OS/arch from the Releases page:
+#    https://github.com/ahmadAlMezaal/nightshift/releases
+#    (linux amd64/arm64/armv7, macOS amd64/arm64), then:
+tar -xzf nightshift_*_linux_arm64.tar.gz && sudo mv nightshift /usr/local/bin/
+
+# C. Build from source
+git clone https://github.com/ahmadAlMezaal/nightshift.git
+cd nightshift && go build -o nightshift ./cmd/nightshift
+```
+
+Run `nightshift version` to confirm the build.
+
 ## Setup
 
 ```bash
-# 1. Clone and build
-git clone https://github.com/ahmadAlMezaal/nightshift.git
-cd nightshift
-go build -o nightshift ./cmd/nightshift
+# 1. With nightshift on your PATH (or ./nightshift if built from source)
 
 # 2. Run the interactive setup wizard
 #    Prompts for Linear, optional Gemini/Telegram, and your repos —
@@ -73,19 +91,25 @@ That's it. Move tickets to your trigger state (default: "Next") and watch them b
 
 Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
 
-### Cross-compile for the Raspberry Pi
+### Raspberry Pi
+
+Easiest: download the prebuilt **`linux_arm64`** (Pi 4 / 5, 64-bit OS) or **`linux_armv7`** (Pi 3 / 32-bit OS) archive from the [Releases page](https://github.com/ahmadAlMezaal/nightshift/releases) — no Go toolchain on the Pi needed.
+
+Prefer to cross-compile yourself:
 
 ```bash
-# Pi 4 / 5 (64-bit OS)
-GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift
-
-# Pi 3 or older / 32-bit OS
-GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
-
+GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift            # Pi 4 / 5
+GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift      # Pi 3 / 32-bit
 scp nightshift pi@your-pi:/srv/nightshift/
 ```
 
-Then update your cron to point at the binary instead of the old shell script.
+### Cutting a release
+
+Releases are automated by [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml` + `.github/workflows/release.yml`). Push a semver tag and a GitHub Release with cross-compiled archives + checksums is published automatically:
+
+```bash
+git tag v2.0.0 && git push origin v2.0.0
+```
 
 ---
 
