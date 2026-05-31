@@ -115,7 +115,7 @@ func checkGHAuth() check {
 		}
 		return check{
 			name:   "gh auth",
-			detail: "not authenticated",
+			detail: detail,
 			hint:   "Run `gh auth login` to authenticate.",
 		}
 	}

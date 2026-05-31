@@ -2,7 +2,10 @@ package doctor
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
+
+	"github.com/ahmadAlMezaal/nightshift/internal/config"
 )
 
 func TestCheckCLI_Found(t *testing.T) {
@@ -54,58 +57,35 @@ func TestCheckGHAuth_Runs(t *testing.T) {
 }
 
 func TestCheckRepos_NilRegistry(t *testing.T) {
-	cfg := &stubConfig{registry: nil, repoPath: ""}
-	c := checkReposFromFields(cfg.registry, cfg.repoPath, "")
+	cfg := &config.Config{Registry: nil, RepoPath: ""}
+	c := checkRepos(cfg)
 	if c.ok {
 		t.Error("expected failure with no registry and no REPO_PATH")
 	}
 }
 
 func TestCheckRepos_FallbackPath(t *testing.T) {
-	cfg := &stubConfig{registry: nil, repoPath: "/some/path"}
-	c := checkReposFromFields(cfg.registry, cfg.repoPath, "")
+	cfg := &config.Config{Registry: nil, RepoPath: "/some/path"}
+	c := checkRepos(cfg)
 	if !c.ok {
 		t.Errorf("expected pass with REPO_PATH fallback; detail=%q", c.detail)
 	}
 }
 
-// stubConfig holds the fields checkRepos needs, avoiding a real config.Load.
-type stubConfig struct {
-	registry *stubRegistry
-	repoPath string
-}
-
-type stubRegistry struct {
-	names []string
-}
-
-// checkReposFromFields is a test helper that exercises the repos check logic
-// without needing a full config.Config (which requires file I/O).
-func checkReposFromFields(reg *stubRegistry, repoPath, reposFile string) check {
-	if reg == nil {
-		if repoPath != "" {
-			return check{
-				name:   "repos",
-				ok:     true,
-				detail: "no repos.json; using REPO_PATH fallback (" + repoPath + ")",
-			}
-		}
-		return check{
-			name:   "repos",
-			detail: "no repos.json and no REPO_PATH fallback",
-			hint:   "Run `nightshift setup` to configure repositories.",
-		}
+func TestCheckRepos_WithProjects(t *testing.T) {
+	repos := make(map[string]config.RepoEntry)
+	for i := 0; i < 12; i++ {
+		repos["project-"+strings.Repeat("x", i+1)] = config.RepoEntry{URL: "https://example.com"}
 	}
-	if len(reg.names) == 0 {
-		return check{
-			name:   "repos",
-			ok:     true,
-			detail: "repos.json loaded (0 projects) — " + reposFile,
-		}
+	cfg := &config.Config{
+		Registry:  &config.RepoRegistry{Repos: repos},
+		ReposFile: "/path/to/repos.json",
 	}
-	return check{
-		name:   "repos",
-		ok:     true,
-		detail: "repos.json loaded (" + string(rune('0'+len(reg.names))) + " project(s))",
+	c := checkRepos(cfg)
+	if !c.ok {
+		t.Errorf("expected pass with 12 projects; detail=%q", c.detail)
+	}
+	if !strings.Contains(c.detail, "12 project(s)") {
+		t.Errorf("expected detail to contain '12 project(s)'; got %q", c.detail)
 	}
 }
