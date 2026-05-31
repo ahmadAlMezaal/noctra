@@ -140,6 +140,208 @@ func TestPing_NoViewerIsAnError(t *testing.T) {
 	}
 }
 
+func TestFetchLabeledIssues_FiltersByLabel(t *testing.T) {
+	resp := map[string]any{
+		"data": map[string]any{
+			"teams": map[string]any{
+				"nodes": []map[string]any{{
+					"issues": map[string]any{
+						"nodes": []map[string]any{
+							{
+								"id":          "lbl1",
+								"identifier":  "ENG-10",
+								"title":       "Labeled ticket",
+								"description": "picked by label",
+								"url":         "https://linear.app/x/issue/ENG-10",
+								"project":     map[string]any{"name": "Web App"},
+							},
+						},
+					},
+				}},
+			},
+		},
+	}
+
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "labels: { name: { eq: $label } }",
+		variables:  map[string]any{"label": "nightshift"},
+	}, resp)
+
+	issues, err := client.FetchLabeledIssues(context.Background(), "nightshift")
+	if err != nil {
+		t.Fatalf("FetchLabeledIssues: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("issues: got %d, want 1", len(issues))
+	}
+	if issues[0].Identifier != "ENG-10" {
+		t.Errorf("issue identifier: got %q, want %q", issues[0].Identifier, "ENG-10")
+	}
+	if issues[0].ProjectName() != "Web App" {
+		t.Errorf("issue project: got %q, want %q", issues[0].ProjectName(), "Web App")
+	}
+}
+
+func TestResolveLabelID_FindsLabel(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "issueLabels",
+	}, map[string]any{
+		"data": map[string]any{
+			"issueLabels": map[string]any{
+				"nodes": []map[string]any{
+					{"id": "lbl_bug", "name": "bug"},
+					{"id": "lbl_ns", "name": "nightshift"},
+					{"id": "lbl_feat", "name": "feature"},
+				},
+			},
+		},
+	})
+
+	id, err := client.ResolveLabelID(context.Background(), "nightshift")
+	if err != nil {
+		t.Fatalf("ResolveLabelID: %v", err)
+	}
+	if id != "lbl_ns" {
+		t.Errorf("label ID: got %q, want %q", id, "lbl_ns")
+	}
+}
+
+func TestResolveLabelID_NotFound(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "issueLabels",
+	}, map[string]any{
+		"data": map[string]any{
+			"issueLabels": map[string]any{
+				"nodes": []map[string]any{
+					{"id": "lbl_bug", "name": "bug"},
+				},
+			},
+		},
+	})
+
+	_, err := client.ResolveLabelID(context.Background(), "nightshift")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected not-found error, got %v", err)
+	}
+}
+
+func TestRemoveLabel_RemovesTarget(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.Unmarshal(body, &got)
+
+		callCount++
+		if callCount == 1 {
+			// First call: fetch current labels
+			if !strings.Contains(got.Query, "labels { nodes { id } }") {
+				t.Errorf("expected label fetch query, got: %s", got.Query)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issue": map[string]any{
+						"labels": map[string]any{
+							"nodes": []map[string]any{
+								{"id": "lbl_keep"},
+								{"id": "lbl_remove"},
+								{"id": "lbl_also_keep"},
+							},
+						},
+					},
+				},
+			})
+		} else {
+			// Second call: update with remaining labels
+			if !strings.Contains(got.Query, "labelIds") {
+				t.Errorf("expected labelIds mutation, got: %s", got.Query)
+			}
+			// Verify the removed label is absent
+			labelIds, ok := got.Variables["labelIds"].([]any)
+			if !ok {
+				t.Fatalf("labelIds not an array: %T", got.Variables["labelIds"])
+			}
+			for _, lid := range labelIds {
+				if lid == "lbl_remove" {
+					t.Error("removed label should not be in labelIds")
+				}
+			}
+			if len(labelIds) != 2 {
+				t.Errorf("expected 2 remaining labels, got %d", len(labelIds))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issueUpdate": map[string]any{"success": true},
+				},
+			})
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	if err := client.RemoveLabel(context.Background(), "issue_1", "lbl_remove"); err != nil {
+		t.Fatalf("RemoveLabel: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "teams",
+	}, map[string]any{
+		"data": map[string]any{
+			"teams": map[string]any{
+				"nodes": []map[string]any{{
+					"key": "ENG",
+					"states": map[string]any{
+						"nodes": []map[string]any{
+							{"id": "s_next", "name": "Next"},
+							{"id": "s_review", "name": "In Review"},
+						},
+					},
+				}},
+			},
+		},
+	})
+
+	// With empty triggerName, only in-review is required.
+	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review")
+	if err != nil {
+		t.Fatalf("ResolveStateIDs: %v", err)
+	}
+	if ids.Trigger != "" {
+		t.Errorf("Trigger should be empty when triggerName is empty, got %q", ids.Trigger)
+	}
+	if ids.InReview != "s_review" {
+		t.Errorf("InReview: got %q, want %q", ids.InReview, "s_review")
+	}
+}
+
 func TestDo_SurfacesGraphQLErrors(t *testing.T) {
 	client := fakeServer(t, struct {
 		authHeader string

@@ -30,6 +30,9 @@ type Pipeline struct {
 	review   *review.Gate
 	states   linear.StateIDs
 
+	// Label-mode trigger — resolved at startup when cfg.TriggerMode == "label".
+	labelID string
+
 	// Auto-iterate plumbing — all nil when cfg.AutoIteratePRs is false.
 	store   *state.Store
 	gh      *github.Client
@@ -93,19 +96,44 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		}
 	}
 
+	// In label mode the trigger-state ID isn't needed — pass "" so
+	// ResolveStateIDs skips its validation. The in-review state is
+	// still required for the post-PR transition.
+	triggerStateName := p.cfg.TriggerState
+	if p.cfg.TriggerMode == "label" {
+		triggerStateName = ""
+	}
+
 	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	states, err := p.linear.ResolveStateIDs(stateCtx, p.cfg.LinearTeamKey, p.cfg.TriggerState, p.cfg.InReviewState)
+	states, err := p.linear.ResolveStateIDs(stateCtx, p.cfg.LinearTeamKey, triggerStateName, p.cfg.InReviewState)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("resolve linear states: %w", err)
 	}
 	p.states = states
-	slog.Info("resolved Linear states", "trigger", p.cfg.TriggerState, "in_review", p.cfg.InReviewState)
+
+	if p.cfg.TriggerMode == "label" {
+		labelCtx, labelCancel := context.WithTimeout(ctx, 30*time.Second)
+		lid, err := p.linear.ResolveLabelID(labelCtx, p.cfg.TriggerLabel)
+		labelCancel()
+		if err != nil {
+			return fmt.Errorf("resolve trigger label: %w", err)
+		}
+		p.labelID = lid
+		slog.Info("resolved Linear label", "label", p.cfg.TriggerLabel, "id", lid)
+	}
+
+	slog.Info("resolved Linear states", "trigger_mode", p.cfg.TriggerMode, "in_review", p.cfg.InReviewState)
 
 	p.startupCleanup(ctx)
 	p.banner()
-	p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching \"%s\" for %s tickets",
-		notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
+	if p.cfg.TriggerMode == "label" {
+		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching label \"%s\" for %s tickets",
+			notify.EscapeMarkdown(p.cfg.TriggerLabel), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
+	} else {
+		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching \"%s\" for %s tickets",
+			notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
+	}
 
 	var wg sync.WaitGroup
 	ticker := time.NewTicker(p.cfg.PollInterval)
@@ -170,15 +198,27 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 
 	fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	issues, err := p.linear.FetchTriggerIssues(fctx, p.cfg.TriggerState)
+	var (
+		issues []linear.Issue
+		err    error
+	)
+	if p.cfg.TriggerMode == "label" {
+		issues, err = p.linear.FetchLabeledIssues(fctx, p.cfg.TriggerLabel)
+	} else {
+		issues, err = p.linear.FetchTriggerIssues(fctx, p.cfg.TriggerState)
+	}
 	cancel()
 	if err != nil {
 		slog.Warn("fetch tickets failed", "err", err)
 		return
 	}
 
+	triggerDisplay := p.cfg.TriggerState
+	if p.cfg.TriggerMode == "label" {
+		triggerDisplay = "label:" + p.cfg.TriggerLabel
+	}
 	slog.Info("poll",
-		"trigger", p.cfg.TriggerState,
+		"trigger", triggerDisplay,
 		"found", len(issues),
 		"active", inFlight,
 		"max", p.cfg.MaxConcurrent,
@@ -277,7 +317,11 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Repos:          %s\n", repoSummary)
 	fmt.Printf("   Worktrees:      %s\n", p.cfg.WorktreeBase)
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
-	fmt.Printf("   Watching:       %q column\n", p.cfg.TriggerState)
+	if p.cfg.TriggerMode == "label" {
+		fmt.Printf("   Watching:       label %q\n", p.cfg.TriggerLabel)
+	} else {
+		fmt.Printf("   Watching:       %q column\n", p.cfg.TriggerState)
+	}
 	fmt.Printf("   Review:         %s\n", reviewMode)
 	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)

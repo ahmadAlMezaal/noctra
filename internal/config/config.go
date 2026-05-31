@@ -21,6 +21,7 @@ var requiredCLIs = []string{"git", "gh", "claude"}
 // reference them.
 const (
 	DefaultLinearTeamKey    = "ENG"
+	DefaultTriggerMode      = "state"
 	DefaultTriggerState     = "Next"
 	DefaultInReviewState    = "In Review"
 	DefaultMainBranch       = "main"
@@ -42,7 +43,9 @@ type Config struct {
 	// Linear
 	LinearAPIKey  string
 	LinearTeamKey string
-	TriggerState  string
+	TriggerMode   string // "state" (default) or "label"
+	TriggerState  string // watched column name (state mode)
+	TriggerLabel  string // label name to watch (label mode)
 	InReviewState string
 
 	// Repos
@@ -107,7 +110,9 @@ func Load(scriptDir string) (*Config, error) {
 	cfg := &Config{
 		LinearAPIKey:  getenv(fileEnv, "LINEAR_API_KEY", ""),
 		LinearTeamKey: getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
+		TriggerMode:   strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
 		TriggerState:  getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
+		TriggerLabel:  getenv(fileEnv, "TRIGGER_LABEL", ""),
 		InReviewState: getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
@@ -165,6 +170,17 @@ func (c *Config) Validate() error {
 
 	if c.LinearAPIKey == "" {
 		errs = append(errs, "LINEAR_API_KEY is required — run ./nightshift setup or set it in .env")
+	}
+
+	switch c.TriggerMode {
+	case "state":
+		// Default mode — no extra validation needed (trigger state is always set via default).
+	case "label":
+		if c.TriggerLabel == "" {
+			errs = append(errs, "TRIGGER_LABEL is required when TRIGGER_MODE=label")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("TRIGGER_MODE must be \"state\" or \"label\", got %q", c.TriggerMode))
 	}
 
 	if c.RepoPath != "" && !isGitRepo(c.RepoPath) {

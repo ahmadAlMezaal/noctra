@@ -12,7 +12,8 @@ import (
 // up front so the dev's shell environment (direnv, exported .env, etc.) can't
 // leak through and quietly satisfy a check the test means to fail.
 var nightshiftEnvKeys = []string{
-	"LINEAR_API_KEY", "LINEAR_TEAM_KEY", "TRIGGER_STATE", "IN_REVIEW_STATE",
+	"LINEAR_API_KEY", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
+	"TRIGGER_LABEL", "IN_REVIEW_STATE",
 	"REPO_PATH", "MAIN_BRANCH",
 	"MAX_CONCURRENT", "POLL_INTERVAL", "USE_AGENT_TEAMS",
 	"MAX_DISPATCHES", "MAX_RETRIES", "AGENT_TIMEOUT_MINUTES",
@@ -261,6 +262,140 @@ PR_POLL_INTERVAL="60"`)
 		if cfg.TrustedReviewers[i] != w {
 			t.Errorf("TrustedReviewers[%d]: got %q, want %q", i, cfg.TrustedReviewers[i], w)
 		}
+	}
+}
+
+func TestLoad_TriggerModeDefaultsToState(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TriggerMode != "state" {
+		t.Errorf("TriggerMode: got %q, want \"state\"", cfg.TriggerMode)
+	}
+	if cfg.TriggerLabel != "" {
+		t.Errorf("TriggerLabel should default to empty, got %q", cfg.TriggerLabel)
+	}
+}
+
+func TestLoad_TriggerModeLabel(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="label"
+TRIGGER_LABEL="nightshift"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TriggerMode != "label" {
+		t.Errorf("TriggerMode: got %q, want \"label\"", cfg.TriggerMode)
+	}
+	if cfg.TriggerLabel != "nightshift" {
+		t.Errorf("TriggerLabel: got %q, want \"nightshift\"", cfg.TriggerLabel)
+	}
+}
+
+func TestLoad_TriggerModeCaseInsensitive(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="Label"
+TRIGGER_LABEL="nightshift"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TriggerMode != "label" {
+		t.Errorf("TriggerMode should be lowercased, got %q", cfg.TriggerMode)
+	}
+}
+
+func TestValidate_LabelModeRequiresTriggerLabel(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="label"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "TRIGGER_LABEL") {
+		t.Fatalf("expected TRIGGER_LABEL error, got %v", err)
+	}
+}
+
+func TestValidate_LabelModePassesWithLabel(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="label"
+TRIGGER_LABEL="nightshift"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
+func TestValidate_InvalidTriggerModeRejected(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="magic"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "TRIGGER_MODE") {
+		t.Fatalf("expected TRIGGER_MODE error, got %v", err)
+	}
+}
+
+func TestValidate_StateModeDoesNotRequireTriggerLabel(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+TRIGGER_MODE="state"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass in state mode without TRIGGER_LABEL: %v", err)
 	}
 }
 

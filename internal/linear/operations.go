@@ -13,7 +13,9 @@ type StateIDs struct {
 }
 
 // ResolveStateIDs looks up the IDs for the trigger and in-review state names
-// within the team identified by teamKey (e.g. "ENG").
+// within the team identified by teamKey (e.g. "ENG"). When triggerName is
+// empty (label-based trigger mode), the trigger-state lookup is skipped —
+// only the in-review state is required.
 func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName string) (StateIDs, error) {
 	query := `{ teams { nodes { key states { nodes { id name } } } } }`
 
@@ -50,7 +52,7 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 				ids.InReview = s.ID
 			}
 		}
-		if ids.Trigger == "" {
+		if triggerName != "" && ids.Trigger == "" {
 			return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
 				triggerName, teamKey, available)
 		}
@@ -157,6 +159,108 @@ func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (I
 		return Issue{}, fmt.Errorf("linear returned no issue for identifier %q", identifier)
 	}
 	return *resp.Issue, nil
+}
+
+// FetchLabeledIssues returns every issue carrying the named label, across all
+// teams the API key can see. This is the label-mode counterpart of
+// FetchTriggerIssues.
+func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Issue, error) {
+	query := `query($label: String!) {
+	  teams { nodes { issues(filter: { labels: { name: { eq: $label } } }, orderBy: updatedAt, first: 20) {
+	    nodes { id identifier title description url project { name } }
+	  } } }
+	}`
+
+	var resp struct {
+		Teams struct {
+			Nodes []struct {
+				Issues struct {
+					Nodes []Issue `json:"nodes"`
+				} `json:"issues"`
+			} `json:"nodes"`
+		} `json:"teams"`
+	}
+
+	if err := c.Do(ctx, query, map[string]any{"label": labelName}, &resp); err != nil {
+		return nil, err
+	}
+
+	var out []Issue
+	for _, team := range resp.Teams.Nodes {
+		out = append(out, team.Issues.Nodes...)
+	}
+	return out, nil
+}
+
+// ResolveLabelID looks up the ID for a label by name. Returns an error listing
+// available labels if the name is not found.
+func (c *Client) ResolveLabelID(ctx context.Context, labelName string) (string, error) {
+	query := `{ issueLabels(first: 250) { nodes { id name } } }`
+
+	var resp struct {
+		IssueLabels struct {
+			Nodes []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"nodes"`
+		} `json:"issueLabels"`
+	}
+	if err := c.Do(ctx, query, nil, &resp); err != nil {
+		return "", err
+	}
+
+	var available []string
+	for _, l := range resp.IssueLabels.Nodes {
+		if l.Name == labelName {
+			return l.ID, nil
+		}
+		available = append(available, l.Name)
+	}
+	return "", fmt.Errorf("label %q not found (available: %v)", labelName, available)
+}
+
+// RemoveLabel removes a single label from an issue. It fetches the issue's
+// current labels, filters out the target, and writes the remaining set back.
+func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error {
+	// Fetch current labels.
+	fetchQ := `query($id: String!) {
+	  issue(id: $id) { labels { nodes { id } } }
+	}`
+	var fetchResp struct {
+		Issue struct {
+			Labels struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.Do(ctx, fetchQ, map[string]any{"id": issueID}, &fetchResp); err != nil {
+		return fmt.Errorf("fetch labels for %s: %w", issueID, err)
+	}
+
+	var remaining []string
+	for _, l := range fetchResp.Issue.Labels.Nodes {
+		if l.ID != labelID {
+			remaining = append(remaining, l.ID)
+		}
+	}
+
+	mutation := `mutation($id: String!, $labelIds: [String!]!) {
+	  issueUpdate(id: $id, input: { labelIds: $labelIds }) { success }
+	}`
+	var resp struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+	if err := c.Do(ctx, mutation, map[string]any{"id": issueID, "labelIds": remaining}, &resp); err != nil {
+		return err
+	}
+	if !resp.IssueUpdate.Success {
+		return fmt.Errorf("issueUpdate reported success=false removing label from %s", issueID)
+	}
+	return nil
 }
 
 // Ping verifies the API key works by fetching the authenticated viewer.
