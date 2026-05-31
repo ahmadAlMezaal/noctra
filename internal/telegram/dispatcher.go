@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
@@ -35,8 +36,11 @@ func NewDispatcher() *Dispatcher {
 
 // Register adds a command handler. The name should not include the leading
 // slash — it's stripped during dispatch. Registering the same name twice
-// overwrites the previous handler.
+// overwrites the previous handler. Leading slashes and surrounding whitespace
+// are stripped from name for robustness.
 func (d *Dispatcher) Register(name, description string, handler HandlerFunc) {
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, "/")
 	d.commands[strings.ToLower(name)] = command{
 		handler:     handler,
 		description: description,
@@ -77,10 +81,19 @@ func (d *Dispatcher) unknownReply(name string) string {
 }
 
 func (d *Dispatcher) helpHandler(_ context.Context, _ string) string {
+	names := make([]string, 0, len(d.commands))
+	for name := range d.commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	var b strings.Builder
 	b.WriteString("*Nightshift Commands*\n\n")
-	for name, cmd := range d.commands {
-		b.WriteString(fmt.Sprintf("/%s — %s\n", name, cmd.description))
+	for _, name := range names {
+		cmd := d.commands[name]
+		fmt.Fprintf(&b, "/%s — %s\n",
+			notify.EscapeMarkdown(name),
+			notify.EscapeMarkdown(cmd.description))
 	}
 	return b.String()
 }

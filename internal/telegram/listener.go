@@ -40,10 +40,11 @@ type Listener struct {
 
 // New creates a Listener. The chatID is used for sender authorisation — only
 // messages from this chat are processed; everything else is silently ignored.
+// Leading/trailing whitespace is trimmed from chatID for robustness.
 func New(botToken, chatID string) *Listener {
 	return &Listener{
 		botToken:    botToken,
-		chatID:      chatID,
+		chatID:      strings.TrimSpace(chatID),
 		http:        &http.Client{Timeout: 45 * time.Second},
 		dispatcher:  NewDispatcher(),
 		pollTimeout: 30,

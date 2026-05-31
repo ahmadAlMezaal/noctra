@@ -110,7 +110,7 @@ func TestListener_GetUpdatesParses(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
@@ -134,10 +134,13 @@ func TestListener_RunProcessesAndStops(t *testing.T) {
 	callCount := 0
 	var mu sync.Mutex
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/sendMessage") {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 			return
 		}
 		if !strings.Contains(r.URL.Path, "/getUpdates") {
@@ -161,19 +164,19 @@ func TestListener_RunProcessesAndStops(t *testing.T) {
 					From: &User{Username: "user"},
 				}},
 			}
+		} else {
+			// First update processed; cancel to stop the loop promptly.
+			cancel()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
 	l := New("tok", "42")
 	l.pollTimeout = 0
 	l.baseURL = srv.URL + "/botTOK"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 
 	err := l.Run(ctx)
 	if err != nil {
