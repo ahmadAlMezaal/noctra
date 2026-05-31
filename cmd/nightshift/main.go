@@ -6,7 +6,9 @@
 //	nightshift setup      interactive .env + repos.json wizard
 //	nightshift cleanup    clean up stale branches and worktrees
 //	nightshift cleanup --force
+//	nightshift doctor     preflight dependency and config checks
 //	nightshift version
+//	nightshift --help
 package main
 
 import (
@@ -22,6 +24,7 @@ import (
 
 	"github.com/ahmadAlMezaal/nightshift/internal/cleanup"
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
 	"github.com/ahmadAlMezaal/nightshift/internal/setup"
 )
@@ -29,6 +32,23 @@ import (
 // version is the build version. Defaults to a dev marker for `go build`/`go
 // run`; release builds stamp the real tag via -ldflags "-X main.version=...".
 var version = "2.0.0-dev"
+
+// ANSI escape codes for the startup banner.
+const (
+	ansiAmber = "\033[1;33m"
+	ansiDim   = "\033[2m"
+	ansiReset = "\033[0m"
+)
+
+// bannerArt is the figlet "standard" font rendering of "Nightshift".
+// Defined as a regular string (not raw) because the font uses backticks.
+var bannerArt = "" +
+	"  _   _ _       _     _       _     _  __ _   \n" +
+	" | \\ | (_) __ _| |__ | |_ ___| |__ (_)/ _| |_ \n" +
+	" |  \\| | |/ _` | '_ \\| __/ __| '_ \\| | |_| __|\n" +
+	" | |\\  | | (_| | | | | |_\\__ \\ | | | |  _| |_ \n" +
+	" |_| \\_|_|\\__, |_| |_|\\__|___/_| |_|_|_|  \\__|\n" +
+	"           |___/                                \n"
 
 func main() {
 	if err := realMain(); err != nil {
@@ -50,24 +70,62 @@ func realMain() error {
 
 	switch cmd {
 	case "", "run":
+		printBanner()
 		return runPoll(scriptDir)
 	case "setup":
 		return runSetup(scriptDir)
 	case "cleanup":
 		force := len(os.Args) > 2 && os.Args[2] == "--force"
 		return runCleanup(scriptDir, force)
+	case "doctor":
+		printBanner()
+		return doctor.Run(scriptDir)
 	case "version", "--version", "-v":
+		printBanner()
 		fmt.Println("nightshift", version)
 		return nil
+	case "help", "--help", "-h":
+		printBanner()
+		printUsage()
+		return nil
 	default:
-		return fmt.Errorf("unknown subcommand %q (try: run, setup, cleanup, version)", cmd)
+		printUsage()
+		return fmt.Errorf("unknown subcommand %q", cmd)
 	}
 }
 
+// printBanner prints a styled ASCII "Nightshift" banner with a moon emoji,
+// the version, and a tagline. TTY-aware: skipped when stdout is not a
+// terminal (systemd, cron, piped) so service logs stay clean.
+func printBanner() {
+	if !isCharDevice(os.Stdout) {
+		return
+	}
+	fmt.Print(ansiAmber, bannerArt, ansiReset)
+	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
+}
+
+// printUsage prints the CLI usage/help screen.
+func printUsage() {
+	fmt.Println("Usage: nightshift [command]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  run       Start the poll loop (default)")
+	fmt.Println("  setup     Interactive configuration wizard")
+	fmt.Println("  cleanup   Clean up stale branches and worktrees")
+	fmt.Println("  doctor    Preflight dependency and config checks")
+	fmt.Println("  version   Print version information")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  --help, -h   Show this help message")
+	fmt.Println()
+	fmt.Printf("Config dir: %s (override by running from a checkout with .env)\n", config.DefaultConfigDir())
+}
+
 // resolveScriptDir picks the directory Nightshift treats as its "home" —
-// where .env, repos.json, and .agent-logs live. We prefer the current working
+// where .env, repos.json, and logs/ live. We prefer the current working
 // directory when it looks like a Nightshift checkout (for `go run`), and
-// otherwise fall back to the directory next to the binary.
+// otherwise fall back to the per-user config dir (~/.nightshift/).
 func resolveScriptDir() (string, error) {
 	if cwd, err := os.Getwd(); err == nil {
 		for _, marker := range []string{".env", "repos.json", ".env.example", "go.mod"} {
@@ -76,11 +134,7 @@ func resolveScriptDir() (string, error) {
 			}
 		}
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exe), nil
+	return config.DefaultConfigDir(), nil
 }
 
 func runPoll(scriptDir string) error {

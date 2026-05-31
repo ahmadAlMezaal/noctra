@@ -222,6 +222,9 @@ func Run(scriptDir string) error {
 	}
 
 	// ── Write files ────────────────────────────────────────────────────────────
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		return fmt.Errorf("create config dir %s: %w", scriptDir, err)
+	}
 	if err := writeEnvFile(envFile, envValues{
 		linearKey:   linearKey,
 		team:        team,
