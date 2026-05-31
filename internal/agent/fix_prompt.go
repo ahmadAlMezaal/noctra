@@ -27,6 +27,17 @@ type FeedbackItem struct {
 	Line int
 }
 
+// CIItem is one failing CI check rendered into a fix prompt.
+type CIItem struct {
+	// Name is the check / workflow name (e.g. "build", "lint").
+	Name string
+	// URL links to the check run (optional).
+	URL string
+	// Logs is the truncated failed-step log tail (may be empty if the logs
+	// couldn't be fetched — Claude can still reproduce locally).
+	Logs string
+}
+
 // FixPromptInput is everything BuildFixPrompt needs to assemble a prompt the
 // implementing agent can act on without re-reading the PR.
 type FixPromptInput struct {
@@ -36,6 +47,7 @@ type FixPromptInput struct {
 	PRNumber    int
 	PRURL       string
 	Feedback    []FeedbackItem
+	CI          []CIItem
 }
 
 // BuildFixPrompt renders a fix prompt for Claude when reviewers (or bots in
@@ -49,27 +61,41 @@ func BuildFixPrompt(in FixPromptInput) string {
 		desc = "No description provided."
 	}
 
-	var feedback strings.Builder
-	for i, f := range in.Feedback {
-		header := fmt.Sprintf("### %d) %s by @%s", i+1, sectionLabel(f.Kind, f.State), f.Author)
-		feedback.WriteString(header)
-		feedback.WriteByte('\n')
-		if f.Path != "" {
-			if f.Line > 0 {
-				fmt.Fprintf(&feedback, "on `%s:%d`\n", f.Path, f.Line)
-			} else {
-				fmt.Fprintf(&feedback, "on `%s`\n", f.Path)
+	var sections strings.Builder
+	if len(in.Feedback) > 0 {
+		sections.WriteString("## Review feedback to address\n\n")
+		for i, f := range in.Feedback {
+			fmt.Fprintf(&sections, "### %d) %s by @%s\n", i+1, sectionLabel(f.Kind, f.State), f.Author)
+			if f.Path != "" {
+				if f.Line > 0 {
+					fmt.Fprintf(&sections, "on `%s:%d`\n", f.Path, f.Line)
+				} else {
+					fmt.Fprintf(&sections, "on `%s`\n", f.Path)
+				}
 			}
+			if f.URL != "" {
+				fmt.Fprintf(&sections, "(%s)\n", f.URL)
+			}
+			sections.WriteByte('\n')
+			sections.WriteString(strings.TrimSpace(f.Body))
+			sections.WriteString("\n\n")
 		}
-		if f.URL != "" {
-			fmt.Fprintf(&feedback, "(%s)\n", f.URL)
+	}
+	if len(in.CI) > 0 {
+		sections.WriteString("## Failing CI checks to fix\n\n")
+		for i, c := range in.CI {
+			fmt.Fprintf(&sections, "### %d) %s\n", i+1, c.Name)
+			if c.URL != "" {
+				fmt.Fprintf(&sections, "(%s)\n", c.URL)
+			}
+			if logs := strings.TrimSpace(c.Logs); logs != "" {
+				fmt.Fprintf(&sections, "\n```\n%s\n```\n", logs)
+			}
+			sections.WriteByte('\n')
 		}
-		feedback.WriteByte('\n')
-		feedback.WriteString(strings.TrimSpace(f.Body))
-		feedback.WriteString("\n\n")
 	}
 
-	return fmt.Sprintf(`A reviewer has left feedback on the PR you opened for this Linear ticket. Address it on the same branch — your changes will be pushed as a follow-up commit.
+	return fmt.Sprintf(`There is new activity on the PR you opened for this Linear ticket — review feedback and/or failing CI. Address it on the same branch; your changes will be pushed as a follow-up commit.
 
 ## Ticket: %s — %s
 %s
@@ -77,21 +103,19 @@ func BuildFixPrompt(in FixPromptInput) string {
 ## PR
 #%d — %s
 
-## Feedback to address
+%s## Rules
 
-%s
-## Rules
-
-- Address ONLY the feedback listed above. Do not refactor unrelated code or pick up new work.
+- Address ONLY the feedback and CI failures listed above. Do not refactor unrelated code or pick up new work.
+- If CI is failing, reproduce it locally (run the relevant tests / linter), fix the root cause, and re-run to confirm it passes.
 - If a piece of feedback is wrong or inapplicable, briefly say so and skip it — do not silently ignore it.
 - Run the test suite and the linter (`+"`golangci-lint run`"+`, if configured) after your changes; fix anything you broke.
-- If you cannot address a piece of feedback because more context is needed, say BLOCKED: <reason> and stop.
+- If you cannot proceed because more context is needed, say BLOCKED: <reason> and stop.
 - Do NOT create a new PR, push a new branch, or close the existing PR — Nightshift handles that.
 
 ## When done
 
-Summarise which pieces of feedback you addressed and how, and call out any you deliberately skipped (with the reason).
-`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, feedback.String())
+Summarise what you addressed and how, and call out anything you deliberately skipped (with the reason).
+`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, sections.String())
 }
 
 func sectionLabel(kind, state string) string {

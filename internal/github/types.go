@@ -1,7 +1,7 @@
 // Package github wraps the `gh` CLI for the operations Nightshift's watcher
-// needs: listing PRs Nightshift authored, fetching their comments and reviews,
-// and (later) pulling check-run status. Stays thin — types mirror what `gh`
-// returns under --json, so decoding is JSON unmarshal straight onto these.
+// needs: listing PRs Nightshift authored, fetching their comments, reviews and
+// check-run status, and pulling failed-check logs. Stays thin — types mirror
+// what `gh` returns under --json, so decoding is JSON unmarshal onto these.
 package github
 
 import "time"
@@ -60,14 +60,73 @@ type ReviewComment struct {
 	Line      int       `json:"line"`
 }
 
+// Check is one entry in a PR's status-check rollup. `gh pr view --json
+// statusCheckRollup` returns a union of CheckRun (GitHub Actions etc.) and
+// StatusContext (legacy commit statuses); this struct captures both shapes —
+// the helpers below normalise across them.
+type Check struct {
+	Typename string `json:"__typename"`
+	// CheckRun fields.
+	Name         string `json:"name"`
+	Status       string `json:"status"`     // QUEUED | IN_PROGRESS | COMPLETED | PENDING
+	Conclusion   string `json:"conclusion"` // SUCCESS | FAILURE | TIMED_OUT | CANCELLED | ACTION_REQUIRED | NEUTRAL | SKIPPED | STARTUP_FAILURE
+	DetailsURL   string `json:"detailsUrl"`
+	WorkflowName string `json:"workflowName"`
+	// StatusContext fields.
+	Context   string `json:"context"`
+	State     string `json:"state"` // SUCCESS | FAILURE | ERROR | PENDING | EXPECTED
+	TargetURL string `json:"targetUrl"`
+}
+
+// CheckName is the display name regardless of check kind.
+func (c Check) CheckName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Context
+}
+
+// URL is the details/target link regardless of check kind.
+func (c Check) URL() string {
+	if c.DetailsURL != "" {
+		return c.DetailsURL
+	}
+	return c.TargetURL
+}
+
+// IsComplete reports whether the check has finished running (so its result is
+// final and worth acting on). Checks still in flight should be left alone.
+func (c Check) IsComplete() bool {
+	if c.Status != "" { // CheckRun
+		return c.Status == "COMPLETED"
+	}
+	// StatusContext has no status; PENDING/EXPECTED mean still in flight.
+	return c.State != "" && c.State != "PENDING" && c.State != "EXPECTED"
+}
+
+// IsFailure reports whether a completed check failed in a way worth fixing.
+func (c Check) IsFailure() bool {
+	switch c.Conclusion { // CheckRun
+	case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
+		return true
+	}
+	switch c.State { // StatusContext
+	case "FAILURE", "ERROR":
+		return true
+	}
+	return false
+}
+
 // Details is the full view of a PR Nightshift needs to decide whether to
 // re-engage and how. Mirrors the JSON shape `gh pr view --json ...` returns.
 type Details struct {
-	URL      string    `json:"url"`
-	Number   int       `json:"number"`
-	State    string    `json:"state"` // OPEN | CLOSED | MERGED
-	Comments []Comment `json:"comments"`
-	Reviews  []Review  `json:"reviews"`
+	URL               string    `json:"url"`
+	Number            int       `json:"number"`
+	State             string    `json:"state"` // OPEN | CLOSED | MERGED
+	HeadRefOid        string    `json:"headRefOid"`
+	Comments          []Comment `json:"comments"`
+	Reviews           []Review  `json:"reviews"`
+	StatusCheckRollup []Check   `json:"statusCheckRollup"`
 	// ReviewComments are inline review-thread comments, fetched separately
 	// from the REST API and merged in by GetPR (gh pr view omits them).
 	ReviewComments []ReviewComment `json:"-"`

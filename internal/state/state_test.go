@@ -28,6 +28,7 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 	if err := s.Update(prURL, func(r *PRState) {
 		r.TicketID = "ENG-42"
 		r.LastCommentAt = commentTs
+		r.LastCISHA = "abc123"
 		r.Iterations = 1
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -47,6 +48,9 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 	}
 	if got.Iterations != 1 {
 		t.Errorf("Iterations: got %d", got.Iterations)
+	}
+	if got.LastCISHA != "abc123" {
+		t.Errorf("LastCISHA: got %q", got.LastCISHA)
 	}
 }
 

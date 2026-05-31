@@ -1,6 +1,35 @@
 package github
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func TestTailString_KeepsValidUTF8(t *testing.T) {
+	// A run of 3-byte runes (★ = e2 98 85) so a raw byte cut would land
+	// mid-rune for most max values.
+	s := strings.Repeat("★", 100)
+	for _, max := range []int{10, 50, 101, 299} {
+		out := tailString(s, max)
+		if !utf8.ValidString(out) {
+			t.Errorf("tailString(max=%d) produced invalid UTF-8: %q", max, out)
+		}
+	}
+	// Short input is returned untouched.
+	if got := tailString("hi", 100); got != "hi" {
+		t.Errorf("short input: got %q", got)
+	}
+}
+
+func TestCheckLogs_NonActionsReturnsSentinel(t *testing.T) {
+	_, err := New().CheckLogs(context.Background(), Check{DetailsURL: "https://circleci.com/gh/me/repo/123"})
+	if !errors.Is(err, ErrNotActionsRun) {
+		t.Errorf("expected ErrNotActionsRun, got %v", err)
+	}
+}
 
 func TestDecodeReviewComments(t *testing.T) {
 	// Single merged array (modern gh).
@@ -78,6 +107,52 @@ func TestReviewCommentsAPIPath(t *testing.T) {
 		if got != c.want {
 			t.Errorf("reviewCommentsAPIPath(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestParseActionsRunURL(t *testing.T) {
+	cases := []struct {
+		in               string
+		owner, repo, run string
+		ok               bool
+	}{
+		{"https://github.com/me/auth/actions/runs/123/job/456", "me", "auth", "123", true},
+		{"https://github.com/me/auth/actions/runs/789", "me", "auth", "789", true},
+		{"https://github.com/me/auth/pull/12", "", "", "", false},
+		{"https://circleci.com/gh/me/auth/123", "", "", "", false},
+		{"", "", "", "", false},
+	}
+	for _, c := range cases {
+		o, r, run, ok := parseActionsRunURL(c.in)
+		if ok != c.ok || o != c.owner || r != c.repo || run != c.run {
+			t.Errorf("parseActionsRunURL(%q) = (%q,%q,%q,%v), want (%q,%q,%q,%v)",
+				c.in, o, r, run, ok, c.owner, c.repo, c.run, c.ok)
+		}
+	}
+}
+
+func TestCheckHelpers(t *testing.T) {
+	// Completed failing CheckRun.
+	fail := Check{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: "u"}
+	if !fail.IsComplete() || !fail.IsFailure() || fail.CheckName() != "build" || fail.URL() != "u" {
+		t.Errorf("failing CheckRun: %+v", fail)
+	}
+	// In-progress check is not complete.
+	if (Check{Name: "x", Status: "IN_PROGRESS"}).IsComplete() {
+		t.Error("IN_PROGRESS should not be complete")
+	}
+	// Passing CheckRun.
+	if (Check{Status: "COMPLETED", Conclusion: "SUCCESS"}).IsFailure() {
+		t.Error("SUCCESS should not be a failure")
+	}
+	// Legacy StatusContext failure.
+	sc := Check{Context: "ci/legacy", State: "FAILURE", TargetURL: "t"}
+	if !sc.IsComplete() || !sc.IsFailure() || sc.CheckName() != "ci/legacy" || sc.URL() != "t" {
+		t.Errorf("StatusContext: %+v", sc)
+	}
+	// Pending StatusContext is not complete.
+	if (Check{Context: "x", State: "PENDING"}).IsComplete() {
+		t.Error("PENDING StatusContext should not be complete")
 	}
 }
 

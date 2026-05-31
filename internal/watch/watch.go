@@ -41,16 +41,24 @@ type Event struct {
 	Line        int    // line number, populated for inline review comments
 }
 
+// CIFailure describes a head commit whose CI has completed with at least one
+// failing check and which Nightshift hasn't re-engaged on yet.
+type CIFailure struct {
+	SHA          string         // head commit the failures belong to
+	FailedChecks []github.Check // only the failing checks
+}
+
 // PRChanges packages everything the pipeline needs to act on one PR's worth
 // of new feedback. NewestComment / NewestReview are the cursors the caller
 // should write back into the state store *after* the iteration succeeds.
 type PRChanges struct {
 	PR            github.PR
 	Details       *github.Details
-	Events        []Event   // actionable (action!)
-	Skipped       []Event   // seen but filtered (log + ignore)
-	NewestComment time.Time // greatest CreatedAt across all comments
-	NewestReview  time.Time // greatest SubmittedAt across all reviews
+	Events        []Event    // actionable (action!)
+	Skipped       []Event    // seen but filtered (log + ignore)
+	NewestComment time.Time  // greatest CreatedAt across all comments
+	NewestReview  time.Time  // greatest SubmittedAt across all reviews
+	CIFailure     *CIFailure // non-nil when the head commit's CI failed and is unhandled
 }
 
 // Watcher couples the gh client with the state store and the trusted-reviewer
@@ -104,7 +112,7 @@ func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 		// still returned so the caller persists the advanced cursor.
 		cursorMoved := ch.NewestComment.After(cursor.LastCommentAt) ||
 			ch.NewestReview.After(cursor.LastReviewAt)
-		if len(ch.Events) > 0 || len(ch.Skipped) > 0 || cursorMoved {
+		if len(ch.Events) > 0 || len(ch.Skipped) > 0 || cursorMoved || ch.CIFailure != nil {
 			out = append(out, ch)
 		}
 	}
@@ -203,7 +211,35 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 		}
 	}
 
+	// CI: act at most once per head commit. Keyed by SHA, not timestamp —
+	// pushing a fix changes the SHA, so a fresh failure becomes eligible
+	// again (bounded by the iteration cap).
+	if d.HeadRefOid != "" && d.HeadRefOid != cursor.LastCISHA {
+		if failed := failedChecks(d.StatusCheckRollup); len(failed) > 0 {
+			out.CIFailure = &CIFailure{SHA: d.HeadRefOid, FailedChecks: failed}
+		}
+	}
+
 	return out
+}
+
+// failedChecks returns the failing checks, but only once every check has
+// completed — while any check is still running we return nil so the watcher
+// waits for the full picture rather than reacting to a transient red.
+func failedChecks(checks []github.Check) []github.Check {
+	if len(checks) == 0 {
+		return nil
+	}
+	var failed []github.Check
+	for _, c := range checks {
+		if !c.IsComplete() {
+			return nil
+		}
+		if c.IsFailure() {
+			failed = append(failed, c)
+		}
+	}
+	return failed
 }
 
 // actionable decides whether an event should be acted on. Humans are always

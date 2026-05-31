@@ -118,6 +118,76 @@ func TestDiff_OldInlineReviewCommentIsIgnored(t *testing.T) {
 	}
 }
 
+func TestDiff_CIFailureOnNewHeadCommit(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	details := &github.Details{
+		State:      "OPEN",
+		HeadRefOid: "abc123",
+		StatusCheckRollup: []github.Check{
+			{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "test", Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: "u"},
+		},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if ch.CIFailure == nil {
+		t.Fatal("expected a CI failure")
+	}
+	if ch.CIFailure.SHA != "abc123" {
+		t.Errorf("SHA: got %q", ch.CIFailure.SHA)
+	}
+	if len(ch.CIFailure.FailedChecks) != 1 || ch.CIFailure.FailedChecks[0].CheckName() != "test" {
+		t.Errorf("failed checks: %+v", ch.CIFailure.FailedChecks)
+	}
+}
+
+func TestDiff_CIFailureAlreadyHandledForSHA(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	details := &github.Details{
+		State:             "OPEN",
+		HeadRefOid:        "abc123",
+		StatusCheckRollup: []github.Check{{Name: "test", Status: "COMPLETED", Conclusion: "FAILURE"}},
+	}
+	// Cursor already at this SHA — must not re-fire.
+	ch := w.diff(pr, details, state.PRState{LastCISHA: "abc123"})
+	if ch.CIFailure != nil {
+		t.Error("CI failure for an already-handled SHA should not re-fire")
+	}
+}
+
+func TestDiff_CIStillRunningIsIgnored(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	details := &github.Details{
+		State:      "OPEN",
+		HeadRefOid: "abc123",
+		StatusCheckRollup: []github.Check{
+			{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "test", Status: "IN_PROGRESS"}, // still running
+		},
+	}
+	ch := w.diff(pr, details, state.PRState{})
+	if ch.CIFailure != nil {
+		t.Error("should wait until all checks complete before acting on CI")
+	}
+}
+
+func TestDiff_CIAllGreenIsNoFailure(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	details := &github.Details{
+		State:             "OPEN",
+		HeadRefOid:        "abc123",
+		StatusCheckRollup: []github.Check{{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	ch := w.diff(pr, details, state.PRState{})
+	if ch.CIFailure != nil {
+		t.Error("all-green CI should not produce a failure")
+	}
+}
+
 func TestDiff_OldCommentIsIgnored(t *testing.T) {
 	w := newTestWatcher(t, nil)
 	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
