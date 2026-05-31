@@ -1,0 +1,30 @@
+# Nightshift Telegram Listener — systemd user service
+#
+# Install:
+#   cp nightshift-listener.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now nightshift-listener
+#
+# Logs:
+#   journalctl --user-unit=nightshift-listener.service -f
+#
+# This service runs alongside the main nightshift.service. Both use the
+# same binary — this one invokes the "listener" subcommand.
+
+[Unit]
+Description=Nightshift Telegram Listener
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/nightshift/nightshift listener
+Restart=always
+RestartSec=10
+
+# Limit restart burst so a bad token doesn't hammer Telegram.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target

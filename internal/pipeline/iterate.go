@@ -13,6 +13,7 @@ import (
 
 	"github.com/ahmadAlMezaal/nightshift/internal/agent"
 	"github.com/ahmadAlMezaal/nightshift/internal/github"
+	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
 	"github.com/ahmadAlMezaal/nightshift/internal/state"
 	"github.com/ahmadAlMezaal/nightshift/internal/watch"
@@ -172,7 +173,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
 
 	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
-	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", identifier, engagementSummary(ch), ch.PR.Number))
+	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
 
 	// On every failure path below we record the iteration before returning.
 	// Otherwise the cursor never advances and the next poll re-discovers the
@@ -339,8 +340,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		sha := gitHeadShort(ctx, wt.Path)
 		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
+		// Completion heads-up (always — mirrors the 🔄 start ping and the
+		// ✅ "PR ready" ping the main ticket flow sends on success).
+		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
+			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
+		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
+			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}
 
 	p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
@@ -389,7 +396,7 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 	if iterations >= p.cfg.MaxPRIterations {
 		p.telegram.Send(ctx, fmt.Sprintf(
 			"🛑 *%s* — PR #%d hit iteration cap (%d attempts). Needs human attention.",
-			identifier, prNumber, iterations))
+			notify.EscapeMarkdown(identifier), prNumber, iterations))
 		if issueID != "" {
 			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
 				"🛑 **Nightshift: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Nightshift won't re-engage on this PR again unless you reset the iteration count in `~/.nightshift-state.json` or close the PR.",

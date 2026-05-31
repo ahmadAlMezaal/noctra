@@ -12,6 +12,18 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 )
 
+// NonTransientError signals a failure that is deterministic and cannot
+// resolve without human intervention — e.g. a missing repos.json mapping
+// or a ticket with no Linear project and no REPO_PATH fallback. The
+// pipeline uses this to skip the ticket on future polls instead of
+// retrying every cycle and burning the dispatch budget.
+type NonTransientError struct {
+	Err error
+}
+
+func (e *NonTransientError) Error() string { return e.Err.Error() }
+func (e *NonTransientError) Unwrap() error { return e.Err }
+
 // Resolved describes the local repository and base branch a ticket should
 // be implemented against.
 type Resolved struct {
@@ -74,12 +86,12 @@ func (r *Resolver) Resolve(ctx context.Context, project string) (Resolved, error
 	}
 
 	if project == "" {
-		return Resolved{}, errors.New(
-			"this ticket has no Linear project, and no REPO_PATH fallback is configured")
+		return Resolved{}, &NonTransientError{Err: errors.New(
+			"this ticket has no Linear project, and no REPO_PATH fallback is configured")}
 	}
-	return Resolved{}, fmt.Errorf(
+	return Resolved{}, &NonTransientError{Err: fmt.Errorf(
 		"no repo is mapped for the project %q in repos.json, and no REPO_PATH fallback is configured",
-		project)
+		project)}
 }
 
 // checkRemoteAccess runs `git ls-remote` to verify the host can reach the

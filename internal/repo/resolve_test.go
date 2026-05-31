@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,58 @@ func TestResolve_NoMatchAndNoFallback(t *testing.T) {
 	_, err = r.Resolve(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "no Linear project") {
 		t.Fatalf("expected empty-project error, got %v", err)
+	}
+}
+
+func TestResolve_NoMatchReturnsNonTransient(t *testing.T) {
+	r := &Resolver{
+		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
+		ReposBase:  t.TempDir(),
+		MainBranch: "main",
+	}
+
+	// Unmapped project, no fallback → NonTransientError.
+	_, err := r.Resolve(context.Background(), "Missing Project")
+	if err == nil {
+		t.Fatal("expected error for unmapped project")
+	}
+	var nte *NonTransientError
+	if !errors.As(err, &nte) {
+		t.Fatalf("expected NonTransientError, got %T: %v", err, err)
+	}
+	if !strings.Contains(nte.Error(), "no repo is mapped") {
+		t.Errorf("unexpected message: %q", nte.Error())
+	}
+
+	// Empty project, no fallback → NonTransientError.
+	_, err = r.Resolve(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty project")
+	}
+	if !errors.As(err, &nte) {
+		t.Fatalf("expected NonTransientError, got %T: %v", err, err)
+	}
+	if !strings.Contains(nte.Error(), "no Linear project") {
+		t.Errorf("unexpected message: %q", nte.Error())
+	}
+}
+
+func TestResolve_FallbackToRepoPathIsNotNonTransient(t *testing.T) {
+	fallback := fakeGitRepo(t)
+	r := &Resolver{
+		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
+		ReposBase:  t.TempDir(),
+		RepoPath:   fallback,
+		MainBranch: "main",
+	}
+
+	// Unmapped project WITH a valid fallback → success, no error at all.
+	res, err := r.Resolve(context.Background(), "Unmapped Project")
+	if err != nil {
+		t.Fatalf("expected success with fallback, got %v", err)
+	}
+	if res.Path != fallback {
+		t.Errorf("Path: got %q, want %q", res.Path, fallback)
 	}
 }
 
