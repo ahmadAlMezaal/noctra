@@ -1,14 +1,19 @@
 # Nightshift
 
-Autonomous Linear-to-PR agent in Go. Polls Linear for tickets in a trigger state, dispatches Claude Code to implement them, creates PRs, and moves tickets to review. Optionally (`AUTO_ITERATE_PRS=true`) it also watches the PRs it opened and pushes follow-up commits in response to review feedback and CI failures.
+Autonomous Linear-to-PR agent in Go. Polls Linear for tickets in a trigger state or with a trigger label, dispatches Claude Code to implement them, creates PRs, and moves tickets to review. Optionally (`AUTO_ITERATE_PRS=true`) it also watches the PRs it opened and pushes follow-up commits in response to review feedback and CI failures.
 
 ## Architecture
 
 ```
-poll loop → linear.FetchTriggerIssues → pipeline.process (bounded goroutine)
+poll loop → linear.FetchTriggerIssues / FetchLabeledIssues → pipeline.process (bounded goroutine)
   → repo.Resolve → repo.CreateWorktree → agent.Run → check output
   → (optional) review.Gate → commit/push → gh pr create → linear update
 ```
+
+### Trigger modes
+
+* `TRIGGER_MODE=state` (default): polls for tickets in the `TRIGGER_STATE` column (e.g. "Next"). Current behaviour, unchanged.
+* `TRIGGER_MODE=label`: polls for tickets carrying the `TRIGGER_LABEL` label (e.g. "nightshift"). Tagging a ticket with the label picks it up regardless of its column. The label is **removed** after dispatch so the ticket isn't re-polled; the In-Review state transition still applies. In label mode the trigger-state ID is not resolved (the in-review state is still required).
 
 Worktrees live at `~/.nightshift-worktrees/<IDENTIFIER>` so multiple tickets run concurrently without sharing a working directory.
 
@@ -47,7 +52,7 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 |---------|---------|
 | `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
 | `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
-| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `SetState`, `Comment` |
+| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues`, `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment` |
 | `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Claude Code runner (`exec`) with timeout; implement-prompt builder; `BuildFixPrompt` (review feedback + failing-CI prompt); log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |

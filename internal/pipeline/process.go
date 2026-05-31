@@ -295,7 +295,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	p.bumpSuccess()
 	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready: %s", id, notify.EscapeMarkdown(issue.Title), prURL))
 
-	// ── Move to In Review ────────────────────────────────────────────────────
+	// ── Move to In Review + remove trigger label ────────────────────────────
+	if p.cfg.TriggerMode == "label" && p.labelID != "" {
+		if err := p.linear.RemoveLabel(ctx, issue.ID, p.labelID); err != nil {
+			logger.Warn("could not remove trigger label", "err", err)
+		}
+	}
 	if err := p.linear.SetState(ctx, issue.ID, p.states.InReview); err != nil {
 		logger.Warn("could not set in-review state", "err", err)
 	}
@@ -310,10 +315,14 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 }
 
 // linearBackToTrigger moves a ticket back to the trigger state and posts the
-// given comment, swallowing API errors (the operation is best-effort).
+// given comment, swallowing API errors (the operation is best-effort). In
+// label mode the trigger label is already present (not removed until
+// success), so only the comment is posted.
 func (p *Pipeline) linearBackToTrigger(ctx context.Context, issueID, body string) {
-	if err := p.linear.SetState(ctx, issueID, p.states.Trigger); err != nil {
-		slog.Warn("linear SetState failed", "issue_id", issueID, "err", err)
+	if p.states.Trigger != "" {
+		if err := p.linear.SetState(ctx, issueID, p.states.Trigger); err != nil {
+			slog.Warn("linear SetState failed", "issue_id", issueID, "err", err)
+		}
 	}
 	if err := p.linear.Comment(ctx, issueID, body); err != nil {
 		slog.Warn("linear Comment failed", "issue_id", issueID, "err", err)
