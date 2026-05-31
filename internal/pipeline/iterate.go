@@ -67,15 +67,28 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	slog.Info("pr poll", "prs_with_changes", len(changes))
 
 	for _, ch := range changes {
+		identifier := identifierFromBranch(ch.PR.HeadRefName)
+		newComments, newReviews := countEvents(ch.Events)
+		ciFailed := ch.CIFailure != nil
+
 		// Even with no actionable events (all-APPROVED / all-skipped) and no
 		// CI failure, advance the cursor so we don't re-evaluate the same
 		// events on every poll.
-		if len(ch.Events) == 0 && ch.CIFailure == nil {
+		if len(ch.Events) == 0 && !ciFailed {
+			reason := "none"
+			if len(ch.Skipped) > 0 {
+				reason = "untrusted-bot"
+			}
+			slog.Info("pr poll detail",
+				"pr", ch.PR.Number, "id", identifier,
+				"new_comments", newComments, "new_reviews", newReviews,
+				"ci_failed", ciFailed,
+				"action", "skip", "reason", reason,
+			)
 			p.advanceCursor(ch)
 			continue
 		}
 
-		identifier := identifierFromBranch(ch.PR.HeadRefName)
 		if identifier == "" {
 			slog.Warn("pr poll: branch is not a Nightshift branch; skipping",
 				"branch", ch.PR.HeadRefName)
@@ -84,8 +97,12 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 
 		cursor := p.store.Get(ch.PR.URL)
 		if cursor.Iterations >= p.cfg.MaxPRIterations {
-			slog.Info("pr at iteration cap — skipping",
-				"pr", ch.PR.URL, "iterations", cursor.Iterations, "cap", p.cfg.MaxPRIterations)
+			slog.Info("pr poll detail",
+				"pr", ch.PR.Number, "id", identifier,
+				"new_comments", newComments, "new_reviews", newReviews,
+				"ci_failed", ciFailed,
+				"action", "skip", "reason", "cap",
+			)
 			// Advance cursor anyway so the same skipped events don't
 			// keep getting "discovered" forever.
 			p.advanceCursor(ch)
@@ -95,12 +112,22 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		p.mu.Lock()
 		if _, dupe := p.active[identifier]; dupe {
 			p.mu.Unlock()
-			slog.Info("pr iteration skipped — ticket already in progress", "id", identifier)
+			slog.Info("pr poll detail",
+				"pr", ch.PR.Number, "id", identifier,
+				"new_comments", newComments, "new_reviews", newReviews,
+				"ci_failed", ciFailed,
+				"action", "skip", "reason", "in-progress",
+			)
 			continue
 		}
 		if len(p.active) >= p.cfg.MaxConcurrent {
 			p.mu.Unlock()
-			slog.Info("pr iteration deferred — at capacity", "id", identifier)
+			slog.Info("pr poll detail",
+				"pr", ch.PR.Number, "id", identifier,
+				"new_comments", newComments, "new_reviews", newReviews,
+				"ci_failed", ciFailed,
+				"action", "skip", "reason", "at-capacity",
+			)
 			// continue, not return: this PR waits for the next tick, but
 			// later non-actionable PRs in this batch still need their cursors
 			// advanced.
@@ -109,6 +136,13 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		p.active[identifier] = struct{}{}
 		p.mu.Unlock()
 
+		slog.Info("pr poll detail",
+			"pr", ch.PR.Number, "id", identifier,
+			"new_comments", newComments, "new_reviews", newReviews,
+			"ci_failed", ciFailed,
+			"action", "iterate",
+		)
+
 		wg.Add(1)
 		go func(ch watch.PRChanges, id string) {
 			defer wg.Done()
@@ -116,6 +150,19 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 			p.iteratePR(ctx, ch, id)
 		}(ch, identifier)
 	}
+}
+
+// countEvents tallies actionable events by type for structured logging.
+func countEvents(events []watch.Event) (comments, reviews int) {
+	for _, ev := range events {
+		switch ev.Type {
+		case watch.EventComment:
+			comments++
+		case watch.EventReview:
+			reviews++
+		}
+	}
+	return
 }
 
 // iteratePR is one re-engagement on an open PR. Resolves the repo, resumes
@@ -153,6 +200,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
+	logger.Info("resume worktree", "path", wt.Path)
 	defer repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, identifier)
 
 	// Fetch ticket context from Linear so the fix prompt has Title + Description.
@@ -213,6 +261,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	_ = agent.AttemptHeader(logFile)
 	offset := agent.OffsetBefore(logFile)
 
+	logger.Info("running claude")
+
 	runErr := agent.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
@@ -241,7 +291,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	}
 
 	if blocked := agent.BlockedLine(output); blocked != "" {
-		logger.Info("claude blocked on review feedback", "line", blocked)
+		logger.Info("blocked", "reason", blocked)
 		if issueID != "" {
 			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
 				"🚧 **Nightshift: blocked on PR feedback**\n\n> %s\n\nLeft the PR as-is. Reply to the PR with clarification, then move the ticket to **%s** to retry.",
@@ -288,13 +338,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 			return
 		}
-		logger.Info("pushed follow-up commit", "branch", wt.Branch)
+		sha := gitHeadShort(ctx, wt.Path)
+		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
 		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
 			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
-		logger.Info("iteration produced no diff — feedback addressed without code edits, or Claude chose not to act")
+		logger.Info("no diff produced")
 		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
 			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}
@@ -305,7 +356,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 // recordIteration bumps the per-PR iteration counter, advances the comment +
 // review cursors, and fires the cap-hit notifications on the transition.
 func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, identifier string, prNumber int, issueID string) {
-	var iterations int
+	var (
+		iterations  int
+		lastComment time.Time
+		lastReview  time.Time
+		lastCISHA   string
+	)
 	if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 		if r.TicketID == "" {
 			r.TicketID = identifier
@@ -322,9 +378,20 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 		r.Iterations++
 		r.LastIteratedAt = time.Now()
 		iterations = r.Iterations
+		lastComment = r.LastCommentAt
+		lastReview = r.LastReviewAt
+		lastCISHA = r.LastCISHA
 	}); err != nil {
 		slog.Warn("pipeline: state update failed", "url", ch.PR.URL, "err", err)
+		return
 	}
+
+	slog.Info("cursor advanced",
+		"id", identifier, "pr", prNumber,
+		"last_comment", lastComment, "last_review", lastReview,
+		"last_ci_sha", lastCISHA,
+		"iterations", fmt.Sprintf("%d/%d", iterations, p.cfg.MaxPRIterations),
+	)
 
 	if iterations >= p.cfg.MaxPRIterations {
 		p.telegram.Send(ctx, fmt.Sprintf(
