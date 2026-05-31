@@ -139,6 +139,26 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 	return nil
 }
 
+// GetIssueByIdentifier fetches a single issue by its human-readable
+// identifier (e.g. "ENG-42"). Linear's API accepts identifiers in addition
+// to UUIDs for the `issue(id:)` argument.
+func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (Issue, error) {
+	query := `query($id: String!) {
+	  issue(id: $id) { id identifier title description url project { name } }
+	}`
+
+	var resp struct {
+		Issue *Issue `json:"issue"`
+	}
+	if err := c.Do(ctx, query, map[string]any{"id": identifier}, &resp); err != nil {
+		return Issue{}, err
+	}
+	if resp.Issue == nil {
+		return Issue{}, fmt.Errorf("linear returned no issue for identifier %q", identifier)
+	}
+	return *resp.Issue, nil
+}
+
 // Ping verifies the API key works by fetching the authenticated viewer.
 // Returns the viewer's display name on success.
 func (c *Client) Ping(ctx context.Context) (string, error) {

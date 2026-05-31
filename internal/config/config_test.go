@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // nightshiftEnvKeys are every env var Nightshift reads. Tests clear them all
@@ -18,6 +19,8 @@ var nightshiftEnvKeys = []string{
 	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_VERBOSE",
 	"GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
 	"REPOS_FILE", "REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
+	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
+	"TRUSTED_REVIEWERS", "STATE_FILE",
 }
 
 func isolateEnv(t *testing.T) {
@@ -195,6 +198,69 @@ REPO_PATH="`+notARepo+`"`)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("expected not-a-git-repo error, got %v", err)
+	}
+}
+
+func TestLoad_AutoIterateDefaults(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.AutoIteratePRs {
+		t.Errorf("AutoIteratePRs should default to false")
+	}
+	if cfg.MaxPRIterations != DefaultMaxPRIterations {
+		t.Errorf("MaxPRIterations: got %d, want %d", cfg.MaxPRIterations, DefaultMaxPRIterations)
+	}
+	if cfg.PRPollInterval != DefaultPRPollInterval {
+		t.Errorf("PRPollInterval: got %v, want %v", cfg.PRPollInterval, DefaultPRPollInterval)
+	}
+	if cfg.TrustedReviewers != nil {
+		t.Errorf("TrustedReviewers should default to nil (= humans only), got %v", cfg.TrustedReviewers)
+	}
+	if cfg.StateFile == "" {
+		t.Error("StateFile should have a default path")
+	}
+}
+
+func TestLoad_TrustedReviewersParsesCSV(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+TRUSTED_REVIEWERS="gemini-code-assist, coderabbit,humanreviewer"
+AUTO_ITERATE_PRS="true"
+MAX_PR_ITERATIONS="5"
+PR_POLL_INTERVAL="60"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.AutoIteratePRs {
+		t.Error("AutoIteratePRs should be true")
+	}
+	if cfg.MaxPRIterations != 5 {
+		t.Errorf("MaxPRIterations: got %d", cfg.MaxPRIterations)
+	}
+	if cfg.PRPollInterval != 60*time.Second {
+		t.Errorf("PRPollInterval: got %v", cfg.PRPollInterval)
+	}
+	want := []string{"gemini-code-assist", "coderabbit", "humanreviewer"}
+	if len(cfg.TrustedReviewers) != len(want) {
+		t.Fatalf("TrustedReviewers length: got %d, want %d (%v)", len(cfg.TrustedReviewers), len(want), cfg.TrustedReviewers)
+	}
+	for i, w := range want {
+		if cfg.TrustedReviewers[i] != w {
+			t.Errorf("TrustedReviewers[%d]: got %q, want %q", i, cfg.TrustedReviewers[i], w)
+		}
 	}
 }
 

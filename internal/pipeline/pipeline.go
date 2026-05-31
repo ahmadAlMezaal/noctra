@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/github"
 	"github.com/ahmadAlMezaal/nightshift/internal/linear"
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
 	"github.com/ahmadAlMezaal/nightshift/internal/review"
+	"github.com/ahmadAlMezaal/nightshift/internal/state"
+	"github.com/ahmadAlMezaal/nightshift/internal/watch"
 )
 
 // Pipeline holds the wiring shared by every ticket the agent processes.
@@ -26,6 +29,11 @@ type Pipeline struct {
 	telegram *notify.Telegram
 	review   *review.Gate
 	states   linear.StateIDs
+
+	// Auto-iterate plumbing — all nil when cfg.AutoIteratePRs is false.
+	store   *state.Store
+	gh      *github.Client
+	watcher *watch.Watcher
 
 	sessionStart time.Time
 
@@ -40,7 +48,7 @@ type Pipeline struct {
 
 // New constructs a Pipeline. It does not perform any I/O — call Run to start.
 func New(cfg *config.Config) *Pipeline {
-	return &Pipeline{
+	p := &Pipeline{
 		cfg:            cfg,
 		linear:         linear.New(cfg.LinearAPIKey),
 		resolver:       repo.FromConfig(cfg),
@@ -50,6 +58,29 @@ func New(cfg *config.Config) *Pipeline {
 		failedAttempts: map[string]int{},
 		sessionStart:   time.Now(),
 	}
+
+	// Auto-iterate is opt-in. When disabled, store/gh/watcher stay nil and
+	// the run loop never starts the PR-poller goroutine.
+	if cfg.AutoIteratePRs {
+		store, err := state.Open(cfg.StateFile)
+		if err != nil {
+			slog.Warn("auto-iterate: state store open failed; feature disabled",
+				"path", cfg.StateFile, "err", err)
+			return p
+		}
+		p.store = store
+		p.gh = github.New()
+
+		var repoURLs []string
+		if cfg.Registry != nil {
+			for _, name := range cfg.Registry.ProjectNames() {
+				repoURLs = append(repoURLs, cfg.Registry.Repos[name].URL)
+			}
+		}
+		p.watcher = watch.New(p.gh, store, repoURLs, cfg.TrustedReviewers)
+	}
+
+	return p
 }
 
 // Run blocks until ctx is canceled, the dispatch cap is hit, or a rate-limit
@@ -82,6 +113,14 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	// One poll right away so we don't sit idle for the first interval.
 	p.pollOnce(ctx, &wg)
+
+	// PR watcher runs on its own ticker if auto-iterate is enabled. Lives
+	// inside this Run so it shares the WaitGroup — graceful shutdown waits
+	// for in-flight iterations the same way it waits for fresh dispatches.
+	if p.watcher != nil {
+		wg.Add(1)
+		go p.runWatcher(ctx, &wg)
+	}
 
 	for {
 		select {
@@ -218,6 +257,11 @@ func (p *Pipeline) banner() {
 	if p.telegram.Enabled {
 		notifyMode = "Telegram"
 	}
+	autoIterMode := "Disabled"
+	if p.watcher != nil {
+		autoIterMode = fmt.Sprintf("On (cap %d, poll %s)",
+			p.cfg.MaxPRIterations, p.cfg.PRPollInterval)
+	}
 
 	repoSummary := p.cfg.RepoPath
 	if p.cfg.Registry != nil {
@@ -235,6 +279,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
 	fmt.Printf("   Watching:       %q column\n", p.cfg.TriggerState)
 	fmt.Printf("   Review:         %s\n", reviewMode)
+	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
