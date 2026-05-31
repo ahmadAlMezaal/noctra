@@ -47,6 +47,23 @@ func TestBuildFixPrompt_IncludesTicketContextAndAllFeedback(t *testing.T) {
 	}
 }
 
+func TestBuildFixPrompt_RendersInlineCommentLocation(t *testing.T) {
+	out := BuildFixPrompt(FixPromptInput{
+		Identifier: "ENG-42",
+		Title:      "Fix race",
+		Feedback: []FeedbackItem{{
+			Kind:   "comment",
+			Author: "alice",
+			Body:   "keep the mutex held",
+			Path:   "internal/state/state.go",
+			Line:   122,
+		}},
+	})
+	if !strings.Contains(out, "internal/state/state.go:122") {
+		t.Errorf("expected inline comment location in prompt\n---\n%s", out)
+	}
+}
+
 func TestBuildFixPrompt_HandlesMissingDescription(t *testing.T) {
 	out := BuildFixPrompt(FixPromptInput{
 		Identifier: "ENG-1",

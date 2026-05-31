@@ -37,6 +37,8 @@ type Event struct {
 	URL         string
 	At          time.Time
 	ReviewState string // populated when Type == EventReview
+	Path        string // file path, populated for inline review comments
+	Line        int    // line number, populated for inline review comments
 }
 
 // PRChanges packages everything the pipeline needs to act on one PR's worth
@@ -132,6 +134,32 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 			Body:   c.Body,
 			URL:    c.URL,
 			At:     c.CreatedAt,
+		}
+		if w.actionable(ev) {
+			out.Events = append(out.Events, ev)
+		} else {
+			out.Skipped = append(out.Skipped, ev)
+		}
+	}
+
+	// Inline review-thread comments share the comment cursor — they're
+	// "comments" too, and comment timestamps are globally ordered, so a new
+	// inline comment always sorts after anything seen in a prior poll.
+	for _, rc := range d.ReviewComments {
+		if !rc.CreatedAt.After(cursor.LastCommentAt) {
+			continue
+		}
+		if rc.CreatedAt.After(out.NewestComment) {
+			out.NewestComment = rc.CreatedAt
+		}
+		ev := Event{
+			Type:   EventComment,
+			Author: rc.Author,
+			Body:   rc.Body,
+			URL:    rc.URL,
+			At:     rc.CreatedAt,
+			Path:   rc.Path,
+			Line:   rc.Line,
 		}
 		if w.actionable(ev) {
 			out.Events = append(out.Events, ev)

@@ -77,7 +77,52 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	if err := json.Unmarshal(stdout, &d); err != nil {
 		return nil, fmt.Errorf("decode gh pr view %s: %w", prURL, err)
 	}
+
+	// Inline review-thread comments aren't returned by `gh pr view`; pull
+	// them from the REST API. Non-fatal: on failure we degrade to
+	// conversation comments + review summaries rather than skipping the PR.
+	if rc, err := c.listReviewComments(ctx, prURL); err != nil {
+		slog.Warn("github: fetch inline review comments failed", "url", prURL, "err", err)
+	} else {
+		d.ReviewComments = rc
+	}
 	return &d, nil
+}
+
+// listReviewComments fetches the inline review-thread comments for a PR via
+// the REST API (paginated — bots can leave many on one review).
+func (c *Client) listReviewComments(ctx context.Context, prURL string) ([]ReviewComment, error) {
+	apiPath, err := reviewCommentsAPIPath(prURL)
+	if err != nil {
+		return nil, err
+	}
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", apiPath)
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh api %s: %w (%s)", apiPath, err, strings.TrimSpace(stderr.String()))
+	}
+	var comments []ReviewComment
+	if err := json.Unmarshal(stdout, &comments); err != nil {
+		return nil, fmt.Errorf("decode review comments %s: %w", apiPath, err)
+	}
+	return comments, nil
+}
+
+// reviewCommentsAPIPath turns a PR URL into the REST path for its inline
+// review comments: https://github.com/owner/name/pull/12 →
+// repos/owner/name/pulls/12/comments.
+func reviewCommentsAPIPath(prURL string) (string, error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", fmt.Errorf("parse PR URL %q: %w", prURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" || parts[0] == "" || parts[1] == "" || parts[3] == "" {
+		return "", fmt.Errorf("unexpected PR URL shape: %q", prURL)
+	}
+	return fmt.Sprintf("repos/%s/%s/pulls/%s/comments", parts[0], parts[1], parts[3]), nil
 }
 
 // ExtractOwnerRepo reduces a git remote URL (SSH or HTTPS) to its `owner/name`

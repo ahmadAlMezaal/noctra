@@ -21,6 +21,10 @@ type FeedbackItem struct {
 	State string
 	// URL points back to the comment on GitHub (optional, comments only).
 	URL string
+	// Path / Line locate an inline review comment in the diff. Empty for
+	// conversation comments and reviews.
+	Path string
+	Line int
 }
 
 // FixPromptInput is everything BuildFixPrompt needs to assemble a prompt the
@@ -50,6 +54,13 @@ func BuildFixPrompt(in FixPromptInput) string {
 		header := fmt.Sprintf("### %d) %s by @%s", i+1, sectionLabel(f.Kind, f.State), f.Author)
 		feedback.WriteString(header)
 		feedback.WriteByte('\n')
+		if f.Path != "" {
+			if f.Line > 0 {
+				fmt.Fprintf(&feedback, "on `%s:%d`\n", f.Path, f.Line)
+			} else {
+				fmt.Fprintf(&feedback, "on `%s`\n", f.Path)
+			}
+		}
 		if f.URL != "" {
 			fmt.Fprintf(&feedback, "(%s)\n", f.URL)
 		}

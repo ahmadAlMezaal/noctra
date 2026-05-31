@@ -34,6 +34,30 @@ func TestExtractOwnerRepo(t *testing.T) {
 	}
 }
 
+func TestReviewCommentsAPIPath(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"https://github.com/me/auth/pull/12", "repos/me/auth/pulls/12/comments", false},
+		{"https://github.com/me/auth/pull/12/files", "repos/me/auth/pulls/12/comments", false},
+		{"https://github.com/me/auth/issues/12", "", true},
+		{"https://github.com/me/auth", "", true},
+		{"https://github.com/me", "", true},
+	}
+	for _, c := range cases {
+		got, err := reviewCommentsAPIPath(c.in)
+		if (err != nil) != c.wantErr {
+			t.Errorf("reviewCommentsAPIPath(%q): err=%v wantErr=%v", c.in, err, c.wantErr)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("reviewCommentsAPIPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestActorIsBot(t *testing.T) {
 	if (Actor{Type: "Bot"}).IsBot() != true {
 		t.Error("Bot type should report IsBot true")

@@ -163,6 +163,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			Body:   ev.Body,
 			URL:    ev.URL,
 			State:  ev.ReviewState,
+			Path:   ev.Path,
+			Line:   ev.Line,
 		})
 	}
 

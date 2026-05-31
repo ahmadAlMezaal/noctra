@@ -115,7 +115,9 @@ When a ticket comes in, Nightshift reads its project, finds the matching repo, a
 
 ## Auto-iterate on PR review feedback (optional)
 
-By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when a new review comment or `CHANGES_REQUESTED` review lands, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
+By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when new feedback lands, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
+
+It picks up all three kinds of feedback: top-level conversation comments, submitted reviews (`CHANGES_REQUESTED` / non-empty `COMMENTED`), and **inline review-thread comments** attached to specific lines — the latter are passed to Claude with their `file:line` location so it knows exactly where each note applies.
 
 ```env
 AUTO_ITERATE_PRS=true

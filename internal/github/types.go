@@ -45,6 +45,21 @@ type Review struct {
 	SubmittedAt time.Time `json:"submittedAt"`
 }
 
+// ReviewComment is an inline review-thread comment attached to a specific
+// file + line in the PR diff (e.g. a "Suggested change"). These are NOT
+// returned by `gh pr view`; they come from the REST API
+// repos/{owner}/{repo}/pulls/{n}/comments, hence the snake_case tags and the
+// nested `user` object instead of `author`.
+type ReviewComment struct {
+	ID        int64     `json:"id"`
+	Author    Actor     `json:"user"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+	URL       string    `json:"html_url"`
+	Path      string    `json:"path"`
+	Line      int       `json:"line"`
+}
+
 // Details is the full view of a PR Nightshift needs to decide whether to
 // re-engage and how. Mirrors the JSON shape `gh pr view --json ...` returns.
 type Details struct {
@@ -53,6 +68,9 @@ type Details struct {
 	State    string    `json:"state"` // OPEN | CLOSED | MERGED
 	Comments []Comment `json:"comments"`
 	Reviews  []Review  `json:"reviews"`
+	// ReviewComments are inline review-thread comments, fetched separately
+	// from the REST API and merged in by GetPR (gh pr view omits them).
+	ReviewComments []ReviewComment `json:"-"`
 }
 
 // IsOpen reports whether the PR is open (not closed or merged).

@@ -45,6 +45,79 @@ func TestDiff_NewCommentByHumanIsActionable(t *testing.T) {
 	}
 }
 
+func TestDiff_InlineReviewCommentByHumanIsActionable(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
+	details := &github.Details{
+		State: "OPEN",
+		ReviewComments: []github.ReviewComment{{
+			Author:    github.Actor{Login: "alice", Type: "User"},
+			Body:      "keep the mutex held here",
+			CreatedAt: time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+			Path:      "internal/state/state.go",
+			Line:      122,
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if len(ch.Events) != 1 {
+		t.Fatalf("expected 1 actionable event, got %d", len(ch.Events))
+	}
+	ev := ch.Events[0]
+	if ev.Type != EventComment || ev.Path != "internal/state/state.go" || ev.Line != 122 {
+		t.Errorf("event: %+v", ev)
+	}
+	if !ch.NewestComment.Equal(details.ReviewComments[0].CreatedAt) {
+		t.Errorf("NewestComment cursor: got %v", ch.NewestComment)
+	}
+}
+
+func TestDiff_UntrustedBotInlineCommentIsSkipped(t *testing.T) {
+	w := newTestWatcher(t, nil) // humans only
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	details := &github.Details{
+		State: "OPEN",
+		ReviewComments: []github.ReviewComment{{
+			Author:    github.Actor{Login: "gemini-code-assist", Type: "Bot"},
+			Body:      "There is a critical race condition",
+			CreatedAt: time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+			Path:      "internal/state/state.go",
+			Line:      122,
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if len(ch.Events) != 0 {
+		t.Errorf("untrusted bot inline comment should be skipped, got %d events", len(ch.Events))
+	}
+	if len(ch.Skipped) != 1 {
+		t.Errorf("expected 1 skipped event, got %d", len(ch.Skipped))
+	}
+	// Cursor must still advance past the skipped comment.
+	if !ch.NewestComment.Equal(details.ReviewComments[0].CreatedAt) {
+		t.Errorf("NewestComment cursor should advance past skipped comment: got %v", ch.NewestComment)
+	}
+}
+
+func TestDiff_OldInlineReviewCommentIsIgnored(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
+	at := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	details := &github.Details{
+		State: "OPEN",
+		ReviewComments: []github.ReviewComment{{
+			Author:    github.Actor{Login: "alice", Type: "User"},
+			Body:      "old inline comment",
+			CreatedAt: at,
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{LastCommentAt: at})
+	if len(ch.Events) != 0 {
+		t.Errorf("inline comment at-or-before cursor should be ignored, got %d events", len(ch.Events))
+	}
+}
+
 func TestDiff_OldCommentIsIgnored(t *testing.T) {
 	w := newTestWatcher(t, nil)
 	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
