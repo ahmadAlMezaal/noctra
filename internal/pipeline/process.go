@@ -40,9 +40,34 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	resolved, err := p.resolver.Resolve(ctx, issue.ProjectName())
 	if err != nil {
 		logger.Error("repo resolution failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID,
-			fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nMap this ticket's project in `repos.json` (or run `./nightshift setup`), then move it back to **%s**.",
-				err.Error(), p.cfg.TriggerState))
+
+		var nte *repo.NonTransientError
+		if errors.As(err, &nte) {
+			// Deterministic config error — will never succeed without
+			// human intervention. Skip on future polls and refund the
+			// dispatch so config mistakes don't burn the budget or shut
+			// the agent down. Only one comment + notification is posted.
+			p.skipPermanently(id)
+			if cerr := p.linear.Comment(ctx, issue.ID,
+				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nMap this ticket's project in `repos.json` (or run `./nightshift setup`), then restart Nightshift and move it back to **%s**.",
+					err.Error(), p.cfg.TriggerState)); cerr != nil {
+				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
+			}
+			p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — skipped (no repo mapping)", id))
+			return
+		}
+
+		// Transient failure — move back to trigger and retry (bounded).
+		attempts := p.bumpFailed(id)
+		var msg string
+		if attempts >= p.cfg.MaxRetries {
+			msg = fmt.Sprintf("❌ **Nightshift: repo resolution failed** (attempt %d/%d)\n\n%s\n\nMax retries reached. Ticket moved back to **%s** but will not be retried automatically.",
+				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState)
+		} else {
+			msg = fmt.Sprintf("❌ **Nightshift: repo resolution failed** (attempt %d/%d)\n\n%s\n\nTicket moved back to **%s**. Will retry on next poll cycle.",
+				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState)
+		}
+		p.linearBackToTrigger(ctx, issue.ID, msg)
 		return
 	}
 	logger.Info("repo resolved", "path", resolved.Path, "main", resolved.MainBranch)
