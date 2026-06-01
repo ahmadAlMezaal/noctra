@@ -60,10 +60,11 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 
 // handleKill terminates the Claude run for a specific ticket.
 func (p *Pipeline) handleKill(_ context.Context, args string) string {
-	if args == "" {
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
 		return "Usage: /kill <ticket>\n\nExample: /kill ENG-42"
 	}
-	identifier := normalizeIdentifier(strings.Fields(args)[0], p.cfg.LinearTeamKey)
+	identifier := normalizeIdentifier(fields[0], p.cfg.LinearTeamKey)
 	if identifier == "" {
 		return "Usage: /kill <ticket>\n\nExample: /kill ENG-42"
 	}

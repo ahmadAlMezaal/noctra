@@ -227,7 +227,7 @@ func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error
 	  issue(id: $id) { labels { nodes { id } } }
 	}`
 	var fetchResp struct {
-		Issue struct {
+		Issue *struct {
 			Labels struct {
 				Nodes []struct {
 					ID string `json:"id"`
@@ -237,6 +237,9 @@ func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error
 	}
 	if err := c.Do(ctx, fetchQ, map[string]any{"id": issueID}, &fetchResp); err != nil {
 		return fmt.Errorf("fetch labels for %s: %w", issueID, err)
+	}
+	if fetchResp.Issue == nil {
+		return fmt.Errorf("issue %s not found", issueID)
 	}
 
 	var remaining []string
@@ -271,7 +274,7 @@ func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	  issue(id: $id) { labels { nodes { id } } }
 	}`
 	var fetchResp struct {
-		Issue struct {
+		Issue *struct {
 			Labels struct {
 				Nodes []struct {
 					ID string `json:"id"`
@@ -281,6 +284,9 @@ func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	}
 	if err := c.Do(ctx, fetchQ, map[string]any{"id": issueID}, &fetchResp); err != nil {
 		return fmt.Errorf("fetch labels for %s: %w", issueID, err)
+	}
+	if fetchResp.Issue == nil {
+		return fmt.Errorf("issue %s not found", issueID)
 	}
 
 	ids := make([]string, 0, len(fetchResp.Issue.Labels.Nodes)+1)

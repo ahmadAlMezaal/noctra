@@ -42,11 +42,11 @@ type Pipeline struct {
 	sessionStart time.Time
 
 	mu                sync.Mutex
-	active            map[string]struct{}          // identifiers in-flight
+	active            map[string]struct{}           // identifiers in-flight
 	cancels           map[string]context.CancelFunc // per-ticket cancel (for /kill)
-	killed            map[string]struct{}          // tickets killed via /kill
-	failedAttempts    map[string]int               // per-ticket retry counter
-	skipped           map[string]struct{}          // non-transient failures — never re-dispatched
+	killed            map[string]struct{}           // tickets killed via /kill
+	failedAttempts    map[string]int                // per-ticket retry counter
+	skipped           map[string]struct{}           // non-transient failures — never re-dispatched
 	totalDispatches   int
 	successCount      int
 	failCount         int
