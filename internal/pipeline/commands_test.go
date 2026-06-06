@@ -403,6 +403,256 @@ func TestHandleRequeue_NoContext(t *testing.T) {
 	}
 }
 
+// ticketCountServer returns a Linear server that answers the ProjectIssueCounts
+// query with two states (Backlog x2, Next x1) and records the requested project.
+func ticketCountServer(t *testing.T, gotProject *string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if gotProject != nil {
+			if p, ok := req.Variables["project"].(string); ok {
+				*gotProject = p
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{
+					"nodes": []map[string]any{
+						{"state": map[string]any{"name": "Backlog", "type": "backlog", "position": 0.0}},
+						{"state": map[string]any{"name": "Backlog", "type": "backlog", "position": 0.0}},
+						{"state": map[string]any{"name": "Next", "type": "unstarted", "position": 1.0}},
+					},
+					"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+				},
+			},
+		})
+	}))
+	return srv
+}
+
+func TestHandleTickets_NamedProject(t *testing.T) {
+	var gotProject string
+	srv := ticketCountServer(t, &gotProject)
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{cfg: &config.Config{}, linear: client}
+	reply := p.handleTickets(context.Background(), "Nightshift")
+
+	if gotProject != "Nightshift" {
+		t.Errorf("queried project: got %q, want %q", gotProject, "Nightshift")
+	}
+	if !strings.Contains(reply, "Nightshift") {
+		t.Errorf("expected project name in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "3 total") {
+		t.Errorf("expected '3 total' in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "Backlog: 2") {
+		t.Errorf("expected 'Backlog: 2' in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "Next: 1") {
+		t.Errorf("expected 'Next: 1' in reply, got %q", reply)
+	}
+}
+
+func TestHandleTickets_AllRegisteredProjects(t *testing.T) {
+	srv := ticketCountServer(t, nil)
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{
+		cfg: &config.Config{
+			Registry: &config.RepoRegistry{
+				Repos: map[string]config.RepoEntry{
+					"Nightshift": {URL: "git@github.com:x/nightshift.git"},
+				},
+			},
+		},
+		linear: client,
+	}
+	reply := p.handleTickets(context.Background(), "")
+	if !strings.Contains(reply, "by project") {
+		t.Errorf("expected 'by project' header, got %q", reply)
+	}
+	if !strings.Contains(reply, "Nightshift") {
+		t.Errorf("expected registered project in reply, got %q", reply)
+	}
+}
+
+func TestHandleTickets_NoProjectsRegistered(t *testing.T) {
+	p := &Pipeline{cfg: &config.Config{}} // Registry is nil
+	reply := p.handleTickets(context.Background(), "")
+	if !strings.Contains(reply, "No projects registered") {
+		t.Errorf("expected 'No projects registered' in reply, got %q", reply)
+	}
+}
+
+func TestSplitProjectState(t *testing.T) {
+	p := &Pipeline{cfg: &config.Config{
+		Registry: &config.RepoRegistry{
+			Repos: map[string]config.RepoEntry{
+				"Nightshift":   {URL: "x"},
+				"Auth Service": {URL: "y"},
+			},
+		},
+	}}
+	tests := []struct {
+		args, wantProject, wantState string
+	}{
+		{"Nightshift", "Nightshift", ""},
+		{"Nightshift Next", "Nightshift", "Next"},
+		{"Nightshift In Review", "Nightshift", "In Review"},
+		{"nightshift next", "Nightshift", "next"},     // case-insensitive project match
+		{"Auth Service Done", "Auth Service", "Done"}, // multi-word project name
+		{"Unknown Project", "Unknown Project", ""},    // not in registry → whole string is project
+	}
+	for _, tt := range tests {
+		gotProject, gotState := p.splitProjectState(tt.args)
+		if gotProject != tt.wantProject || gotState != tt.wantState {
+			t.Errorf("splitProjectState(%q) = (%q, %q), want (%q, %q)",
+				tt.args, gotProject, gotState, tt.wantProject, tt.wantState)
+		}
+	}
+}
+
+func TestHandleTickets_ListMode(t *testing.T) {
+	var gotState string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if s, ok := req.Variables["state"].(string); ok {
+			gotState = s
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{
+					"nodes": []map[string]any{
+						{"id": "i1", "identifier": "ENG-7", "title": "Wire it up",
+							"state": map[string]any{"name": "Next", "type": "unstarted"}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{
+		cfg: &config.Config{
+			Registry: &config.RepoRegistry{
+				Repos: map[string]config.RepoEntry{"Nightshift": {URL: "x"}},
+			},
+		},
+		linear: client,
+	}
+	reply := p.handleTickets(context.Background(), "Nightshift Next")
+	if gotState != "Next" {
+		t.Errorf("expected state filter 'Next', got %q", gotState)
+	}
+	if !strings.Contains(reply, "ENG-7") || !strings.Contains(reply, "Wire it up") {
+		t.Errorf("expected listed ticket in reply, got %q", reply)
+	}
+}
+
+func TestHandleTicket(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"id": "u42", "identifier": "ENG-42", "title": "Fix login",
+					"description": "Some details about the login bug.",
+					"url":         "https://linear.app/eng/issue/ENG-42",
+					"project":     map[string]any{"name": "Nightshift"},
+					"state":       map[string]any{"name": "In Review", "type": "started"},
+					"assignee":    map[string]any{"name": "Ada Lovelace"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{cfg: &config.Config{LinearTeamKey: "ENG"}, linear: client}
+	reply := p.handleTicket(context.Background(), "42") // number-only → ENG-42
+	for _, want := range []string{"ENG-42", "Fix login", "In Review", "Nightshift", "Ada Lovelace"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("expected %q in reply, got %q", want, reply)
+		}
+	}
+}
+
+func TestHandleTicket_NoArgs(t *testing.T) {
+	p := &Pipeline{cfg: &config.Config{LinearTeamKey: "ENG"}}
+	if reply := p.handleTicket(context.Background(), ""); !strings.Contains(reply, "Usage") {
+		t.Errorf("expected usage, got %q", reply)
+	}
+}
+
+func TestHandleSearch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{
+					"nodes": []map[string]any{
+						{"id": "s1", "identifier": "ENG-9", "title": "Auth flow",
+							"state": map[string]any{"name": "Backlog", "type": "backlog"}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{cfg: &config.Config{}, linear: client}
+	reply := p.handleSearch(context.Background(), "auth")
+	if !strings.Contains(reply, "ENG-9") || !strings.Contains(reply, "Backlog") {
+		t.Errorf("expected search result in reply, got %q", reply)
+	}
+}
+
+func TestHandleSearch_NoArgs(t *testing.T) {
+	p := &Pipeline{cfg: &config.Config{}}
+	if reply := p.handleSearch(context.Background(), ""); !strings.Contains(reply, "Usage") {
+		t.Errorf("expected usage, got %q", reply)
+	}
+}
+
+func TestSnippet(t *testing.T) {
+	if got := snippet("  short  ", 280); got != "short" {
+		t.Errorf("snippet trim: got %q", got)
+	}
+	long := strings.Repeat("a", 300)
+	got := snippet(long, 280)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("expected ellipsis on truncation, got %q", got)
+	}
+	if len([]rune(got)) != 281 { // 280 runes + ellipsis
+		t.Errorf("expected 280 runes + ellipsis, got %d runes", len([]rune(got)))
+	}
+}
+
 func TestHandleStatus_UptimeFormat(t *testing.T) {
 	p := &Pipeline{
 		cfg: &config.Config{

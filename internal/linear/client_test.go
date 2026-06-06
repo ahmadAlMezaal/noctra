@@ -100,6 +100,276 @@ func TestFetchTriggerIssues_ParsesProject(t *testing.T) {
 	}
 }
 
+func TestProjectIssueCounts_AggregatesAndOrders(t *testing.T) {
+	// Issues arrive in arbitrary state order; the result must be grouped per
+	// state and sorted by board position (Backlog=0 → In Review=3).
+	state := func(name, typ string, pos float64) map[string]any {
+		return map[string]any{"state": map[string]any{"name": name, "type": typ, "position": pos}}
+	}
+	resp := map[string]any{
+		"data": map[string]any{
+			"issues": map[string]any{
+				"nodes": []map[string]any{
+					state("In Review", "started", 3),
+					state("Backlog", "backlog", 0),
+					state("Backlog", "backlog", 0),
+					state("Next", "unstarted", 1),
+					state("In Review", "started", 3),
+					state("Next", "unstarted", 1),
+					state("Next", "unstarted", 1),
+				},
+				"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+			},
+		},
+	}
+
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "project: { name: { eq: $project } }",
+		variables:  map[string]any{"project": "Nightshift"},
+	}, resp)
+
+	counts, err := client.ProjectIssueCounts(context.Background(), "Nightshift")
+	if err != nil {
+		t.Fatalf("ProjectIssueCounts: %v", err)
+	}
+	want := []StateCount{
+		{State: "Backlog", Type: "backlog", Position: 0, Count: 2},
+		{State: "Next", Type: "unstarted", Position: 1, Count: 3},
+		{State: "In Review", Type: "started", Position: 3, Count: 2},
+	}
+	if len(counts) != len(want) {
+		t.Fatalf("counts: got %d states, want %d (%+v)", len(counts), len(want), counts)
+	}
+	for i, w := range want {
+		if counts[i].State != w.State || counts[i].Count != w.Count {
+			t.Errorf("counts[%d]: got %+v, want %+v", i, counts[i], w)
+		}
+	}
+}
+
+func TestProjectIssueCounts_EmptyProject(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "issues(filter:",
+		variables:  map[string]any{"project": "Ghost"},
+	}, map[string]any{
+		"data": map[string]any{
+			"issues": map[string]any{
+				"nodes":    []map[string]any{},
+				"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+			},
+		},
+	})
+
+	counts, err := client.ProjectIssueCounts(context.Background(), "Ghost")
+	if err != nil {
+		t.Fatalf("ProjectIssueCounts: %v", err)
+	}
+	if len(counts) != 0 {
+		t.Errorf("expected no states for empty project, got %+v", counts)
+	}
+}
+
+func TestProjectIssueCounts_Paginates(t *testing.T) {
+	page := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got struct {
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.Unmarshal(body, &got)
+		page++
+		if page == 1 {
+			if _, ok := got.Variables["after"]; ok {
+				t.Errorf("first page should not send an after cursor, got %v", got.Variables["after"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issues": map[string]any{
+						"nodes": []map[string]any{
+							{"state": map[string]any{"name": "Next", "type": "unstarted", "position": 1.0}},
+						},
+						"pageInfo": map[string]any{"hasNextPage": true, "endCursor": "CURSOR1"},
+					},
+				},
+			})
+			return
+		}
+		if got.Variables["after"] != "CURSOR1" {
+			t.Errorf("second page after: got %v, want CURSOR1", got.Variables["after"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{
+					"nodes": []map[string]any{
+						{"state": map[string]any{"name": "Next", "type": "unstarted", "position": 1.0}},
+					},
+					"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+				},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	counts, err := client.ProjectIssueCounts(context.Background(), "Nightshift")
+	if err != nil {
+		t.Fatalf("ProjectIssueCounts: %v", err)
+	}
+	if page != 2 {
+		t.Errorf("expected 2 pages fetched, got %d", page)
+	}
+	if len(counts) != 1 || counts[0].Count != 2 {
+		t.Errorf("expected Next=2 across both pages, got %+v", counts)
+	}
+}
+
+func TestListProjectIssues_FiltersByState(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.Unmarshal(body, &got)
+		gotQuery = got.Query
+		if got.Variables["project"] != "Nightshift" {
+			t.Errorf("project var: got %v", got.Variables["project"])
+		}
+		if got.Variables["state"] != "Next" {
+			t.Errorf("state var: got %v", got.Variables["state"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{
+					"nodes": []map[string]any{
+						{
+							"id": "i1", "identifier": "ENG-7", "title": "Wire it up",
+							"url":   "https://linear.app/x/issue/ENG-7",
+							"state": map[string]any{"name": "Next", "type": "unstarted"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	issues, err := client.ListProjectIssues(context.Background(), "Nightshift", "Next", 25)
+	if err != nil {
+		t.Fatalf("ListProjectIssues: %v", err)
+	}
+	if !strings.Contains(gotQuery, "state: { name: { eq: $state } }") {
+		t.Errorf("query should filter by state when given, got: %s", gotQuery)
+	}
+	if len(issues) != 1 || issues[0].Identifier != "ENG-7" {
+		t.Fatalf("issues: %+v", issues)
+	}
+	if issues[0].StateName() != "Next" {
+		t.Errorf("state: got %q", issues[0].StateName())
+	}
+}
+
+func TestListProjectIssues_NoStateOmitsFilter(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got struct {
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal(body, &got)
+		gotQuery = got.Query
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"issues": map[string]any{"nodes": []map[string]any{}}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	if _, err := client.ListProjectIssues(context.Background(), "Nightshift", "", 25); err != nil {
+		t.Fatalf("ListProjectIssues: %v", err)
+	}
+	if strings.Contains(gotQuery, "$state") {
+		t.Errorf("query should not declare $state when no state given, got: %s", gotQuery)
+	}
+}
+
+func TestSearchIssues_MatchesTitleOrDescription(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "containsIgnoreCase: $q",
+		variables:  map[string]any{"q": "auth"},
+	}, map[string]any{
+		"data": map[string]any{
+			"issues": map[string]any{
+				"nodes": []map[string]any{
+					{
+						"id": "s1", "identifier": "ENG-9", "title": "Auth flow",
+						"url":   "https://linear.app/x/issue/ENG-9",
+						"state": map[string]any{"name": "Backlog", "type": "backlog"},
+					},
+				},
+			},
+		},
+	})
+
+	issues, err := client.SearchIssues(context.Background(), "auth", 15)
+	if err != nil {
+		t.Fatalf("SearchIssues: %v", err)
+	}
+	if len(issues) != 1 || issues[0].Identifier != "ENG-9" {
+		t.Fatalf("issues: %+v", issues)
+	}
+}
+
+func TestGetIssueByIdentifier_LoadsStateAndAssignee(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "assignee { name }",
+		variables:  map[string]any{"id": "ENG-42"},
+	}, map[string]any{
+		"data": map[string]any{
+			"issue": map[string]any{
+				"id": "u42", "identifier": "ENG-42", "title": "Fix login",
+				"url":      "https://linear.app/x/issue/ENG-42",
+				"project":  map[string]any{"name": "Nightshift"},
+				"state":    map[string]any{"name": "In Review", "type": "started"},
+				"assignee": map[string]any{"name": "Ada Lovelace"},
+			},
+		},
+	})
+
+	issue, err := client.GetIssueByIdentifier(context.Background(), "ENG-42")
+	if err != nil {
+		t.Fatalf("GetIssueByIdentifier: %v", err)
+	}
+	if issue.StateName() != "In Review" {
+		t.Errorf("state: got %q", issue.StateName())
+	}
+	if issue.AssigneeName() != "Ada Lovelace" {
+		t.Errorf("assignee: got %q", issue.AssigneeName())
+	}
+}
+
 func TestPing_ReturnsViewerName(t *testing.T) {
 	client := fakeServer(t, struct {
 		authHeader string

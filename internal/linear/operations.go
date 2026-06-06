@@ -3,6 +3,7 @@ package linear
 import (
 	"context"
 	"fmt"
+	"sort"
 )
 
 // StateIDs holds the resolved workflow-state IDs Nightshift moves tickets
@@ -101,6 +102,98 @@ func (c *Client) FetchTriggerIssues(ctx context.Context, stateName string) ([]Is
 	return out, nil
 }
 
+// StateCount is the number of issues sitting in one workflow state for a
+// project, with the state's type ("backlog", "started", "completed", …) and
+// board position so callers can render the states in workflow order.
+type StateCount struct {
+	State    string
+	Type     string
+	Position float64
+	Count    int
+}
+
+// ProjectIssueCounts returns, for the named Linear project, how many issues sit
+// in each workflow state — ordered by board position (Backlog → Done). It pages
+// through every issue in the project. An unknown project, or one with no
+// issues, yields an empty slice and no error.
+func (c *Client) ProjectIssueCounts(ctx context.Context, projectName string) ([]StateCount, error) {
+	query := `query($project: String!, $after: String) {
+	  issues(filter: { project: { name: { eq: $project } } }, first: 250, after: $after) {
+	    nodes { state { name type position } }
+	    pageInfo { hasNextPage endCursor }
+	  }
+	}`
+
+	type agg struct {
+		typ      string
+		position float64
+		count    int
+	}
+	byState := map[string]*agg{}
+
+	after := ""
+	for {
+		var resp struct {
+			Issues struct {
+				Nodes []struct {
+					State *struct {
+						Name     string  `json:"name"`
+						Type     string  `json:"type"`
+						Position float64 `json:"position"`
+					} `json:"state"`
+				} `json:"nodes"`
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"issues"`
+		}
+
+		vars := map[string]any{"project": projectName}
+		if after != "" {
+			vars["after"] = after
+		}
+		if err := c.Do(ctx, query, vars, &resp); err != nil {
+			return nil, err
+		}
+
+		for _, n := range resp.Issues.Nodes {
+			if n.State == nil {
+				continue
+			}
+			a := byState[n.State.Name]
+			if a == nil {
+				a = &agg{typ: n.State.Type, position: n.State.Position}
+				byState[n.State.Name] = a
+			}
+			a.count++
+		}
+
+		if !resp.Issues.PageInfo.HasNextPage || resp.Issues.PageInfo.EndCursor == "" {
+			break
+		}
+		after = resp.Issues.PageInfo.EndCursor
+	}
+
+	out := make([]StateCount, 0, len(byState))
+	for name, a := range byState {
+		out = append(out, StateCount{State: name, Type: a.typ, Position: a.position, Count: a.count})
+	}
+	sortStateCounts(out)
+	return out, nil
+}
+
+// sortStateCounts orders states by board position (ascending), falling back to
+// state name so the output is deterministic when positions collide.
+func sortStateCounts(s []StateCount) {
+	sort.SliceStable(s, func(i, j int) bool {
+		if s[i].Position != s[j].Position {
+			return s[i].Position < s[j].Position
+		}
+		return s[i].State < s[j].State
+	})
+}
+
 // SetState moves an issue to the given workflow state ID.
 func (c *Client) SetState(ctx context.Context, issueID, stateID string) error {
 	mutation := `mutation($id: String!, $stateId: String!) {
@@ -146,7 +239,7 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 // to UUIDs for the `issue(id:)` argument.
 func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (Issue, error) {
 	query := `query($id: String!) {
-	  issue(id: $id) { id identifier title description url project { name } }
+	  issue(id: $id) { id identifier title description url project { name } state { name type } assignee { name } }
 	}`
 
 	var resp struct {
@@ -159,6 +252,64 @@ func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (I
 		return Issue{}, fmt.Errorf("linear returned no issue for identifier %q", identifier)
 	}
 	return *resp.Issue, nil
+}
+
+// ListProjectIssues returns up to limit issues in the named project, most
+// recently updated first, optionally restricted to a single workflow state.
+// stateName is matched exactly (case-sensitive, as Linear stores it); an empty
+// stateName lists every state.
+func (c *Client) ListProjectIssues(ctx context.Context, projectName, stateName string, limit int) ([]Issue, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+
+	filter := "project: { name: { eq: $project } }"
+	varDecl := "$project: String!, $limit: Int!"
+	vars := map[string]any{"project": projectName, "limit": limit}
+	if stateName != "" {
+		filter += ", state: { name: { eq: $state } }"
+		varDecl += ", $state: String!"
+		vars["state"] = stateName
+	}
+
+	query := fmt.Sprintf(`query(%s) {
+	  issues(filter: { %s }, orderBy: updatedAt, first: $limit) {
+	    nodes { id identifier title url project { name } state { name type } }
+	  }
+	}`, varDecl, filter)
+
+	var resp struct {
+		Issues struct {
+			Nodes []Issue `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.Do(ctx, query, vars, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Issues.Nodes, nil
+}
+
+// SearchIssues returns up to limit issues whose title or description contains
+// the given term (case-insensitive), most recently updated first.
+func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Issue, error) {
+	if limit <= 0 {
+		limit = 15
+	}
+	query := `query($q: String!, $limit: Int!) {
+	  issues(filter: { or: [ { title: { containsIgnoreCase: $q } }, { description: { containsIgnoreCase: $q } } ] }, orderBy: updatedAt, first: $limit) {
+	    nodes { id identifier title url project { name } state { name type } }
+	  }
+	}`
+
+	var resp struct {
+		Issues struct {
+			Nodes []Issue `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.Do(ctx, query, map[string]any{"q": term, "limit": limit}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Issues.Nodes, nil
 }
 
 // FetchLabeledIssues returns every issue carrying the named label, across all
