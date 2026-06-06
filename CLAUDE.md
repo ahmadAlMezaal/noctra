@@ -61,7 +61,7 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 | `internal/github` | Thin `gh` CLI wrapper: `ListNightshiftPRs`, `GetPR` (comments + reviews + inline review comments via REST + `statusCheckRollup`), `CheckLogs` (failed-step logs via `gh run view`) |
 | `internal/state` | File-backed PR cursor store (`~/.nightshift-state.json`): per-PR comment/review timestamps + CI head-SHA + iteration count; atomic, mutex-guarded |
 | `internal/watch` | Side-effect-free classifier: diffs a PR's feedback + CI status against the cursor, applies trusted-reviewer rules, emits actionable events + `CIFailure` |
-| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`); Telegram command handlers — `/status`, `/tickets`, `/ticket`, `/search`, `/kill`, `/requeue` (`commands.go`) |
+| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`); Telegram command handlers — `/status`, `/tickets`, `/ticket`, `/search-tickets` (alias `/find`), `/kill`, `/requeue` (`commands.go`) |
 | `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 | `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repos.json |

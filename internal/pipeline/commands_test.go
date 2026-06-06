@@ -474,18 +474,22 @@ func TestHandleTickets_AllRegisteredProjects(t *testing.T) {
 		cfg: &config.Config{
 			Registry: &config.RepoRegistry{
 				Repos: map[string]config.RepoEntry{
-					"Nightshift": {URL: "git@github.com:x/nightshift.git"},
+					"Nightshift":   {URL: "git@github.com:x/nightshift.git"},
+					"Auth Service": {URL: "git@github.com:x/auth.git"},
 				},
 			},
 		},
 		linear: client,
 	}
+	// Two projects exercise the concurrent fan-out (run under -race).
 	reply := p.handleTickets(context.Background(), "")
 	if !strings.Contains(reply, "by project") {
 		t.Errorf("expected 'by project' header, got %q", reply)
 	}
-	if !strings.Contains(reply, "Nightshift") {
-		t.Errorf("expected registered project in reply, got %q", reply)
+	for _, want := range []string{"Nightshift", "Auth Service"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("expected %q in reply, got %q", want, reply)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
@@ -18,7 +19,8 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("status", "Show active runs and session stats", p.handleStatus)
 	d.Register("tickets", "Linear ticket counts by state, or list a state (e.g. /tickets Nightshift Next)", p.handleTickets)
 	d.Register("ticket", "Show a ticket's details (e.g. /ticket ENG-42)", p.handleTicket)
-	d.Register("search", "Search Linear tickets by text (e.g. /search auth login)", p.handleSearch)
+	d.Register("search-tickets", "Search Linear tickets by text (e.g. /search-tickets auth login)", p.handleSearch)
+	d.Register("find", "Alias for /search-tickets", p.handleSearch)
 	d.Register("kill", "Kill a running ticket (e.g. /kill ENG-42)", p.handleKill)
 	d.Register("requeue", "Re-queue a ticket with context (e.g. /requeue ENG-42 use Auth0)", p.handleRequeue)
 }
@@ -75,13 +77,31 @@ func (p *Pipeline) handleTickets(ctx context.Context, args string) string {
 		if len(names) == 0 {
 			return "No projects registered in repos.json.\n\nUsage: /tickets <project> [state]"
 		}
+
+		// Each project is an independent paginated query — fan them out so the
+		// reply latency is the slowest single project, not their sum. Goroutines
+		// write to distinct slice indices (no shared-state race), preserving the
+		// sorted project order.
+		results := make([]string, len(names))
+		var wg sync.WaitGroup
+		for i, name := range names {
+			wg.Add(1)
+			go func(idx int, project string) {
+				defer wg.Done()
+				var pb strings.Builder
+				p.writeProjectCounts(ctx, &pb, project)
+				results[idx] = pb.String()
+			}(i, name)
+		}
+		wg.Wait()
+
 		var b strings.Builder
 		b.WriteString("*Linear tickets by project*\n\n")
-		for i, name := range names {
+		for i, text := range results {
 			if i > 0 {
 				b.WriteString("\n")
 			}
-			p.writeProjectCounts(ctx, &b, name)
+			b.WriteString(text)
 		}
 		return b.String()
 	}
@@ -177,7 +197,7 @@ func (p *Pipeline) handleTicket(ctx context.Context, args string) string {
 func (p *Pipeline) handleSearch(ctx context.Context, args string) string {
 	term := strings.TrimSpace(args)
 	if term == "" {
-		return "Usage: /search <terms>\n\nExample: /search auth login"
+		return "Usage: /search-tickets <terms>\n\nExample: /search-tickets auth login"
 	}
 
 	issues, err := p.linear.SearchIssues(ctx, term, 15)
