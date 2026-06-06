@@ -52,7 +52,7 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 |---------|---------|
 | `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
 | `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
-| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues`, `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment` |
+| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues`, `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
 | `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Claude Code runner (`exec`) with timeout; implement-prompt builder; `BuildFixPrompt` (review feedback + failing-CI prompt); log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |
@@ -61,7 +61,7 @@ If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH
 | `internal/github` | Thin `gh` CLI wrapper: `ListNightshiftPRs`, `GetPR` (comments + reviews + inline review comments via REST + `statusCheckRollup`), `CheckLogs` (failed-step logs via `gh run view`) |
 | `internal/state` | File-backed PR cursor store (`~/.nightshift-state.json`): per-PR comment/review timestamps + CI head-SHA + iteration count; atomic, mutex-guarded |
 | `internal/watch` | Side-effect-free classifier: diffs a PR's feedback + CI status against the cursor, applies trusted-reviewer rules, emits actionable events + `CIFailure` |
-| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`) |
+| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`); Telegram command handlers — `/status`, `/tickets`, `/ticket`, `/search-tickets` (alias `/find`), `/kill`, `/requeue` (`commands.go`) |
 | `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 | `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repos.json |
