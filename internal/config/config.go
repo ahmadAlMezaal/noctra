@@ -134,7 +134,7 @@ func Load(scriptDir string) (*Config, error) {
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),
 
-		AgentBackend:  strings.ToLower(getenv(fileEnv, "AGENT_BACKEND", DefaultAgentBackend)),
+		AgentBackend:  strings.ToLower(strings.TrimSpace(getenv(fileEnv, "AGENT_BACKEND", DefaultAgentBackend))),
 		UseAgentTeams: getbool(fileEnv, "USE_AGENT_TEAMS", false),
 
 		TelegramEnabled:  getbool(fileEnv, "TELEGRAM_ENABLED", false),
@@ -233,7 +233,10 @@ func (c *Config) AgentCLI() string {
 // RequiredCLIs returns the external commands Nightshift relies on for the
 // configured backend: the always-on base set plus the selected agent CLI.
 func (c *Config) RequiredCLIs() []string {
-	return append(append([]string(nil), baseCLIs...), c.AgentCLI())
+	clis := make([]string, 0, len(baseCLIs)+1)
+	clis = append(clis, baseCLIs...)
+	clis = append(clis, c.AgentCLI())
+	return clis
 }
 
 // CheckCLIs returns the subset of RequiredCLIs that are missing from PATH.
