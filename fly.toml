@@ -1,0 +1,27 @@
+# Fly.io — run Nightshift as an always-on worker (no public ports).
+#
+#   fly apps create nightshift            # pick your own app name (edit `app` below)
+#   fly volumes create nightshift_data --size 1 --region iad
+#   fly secrets set LINEAR_API_KEY=... AGENT_BACKEND=claude \
+#       ANTHROPIC_API_KEY=... GH_TOKEN=... \
+#       REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
+#   fly deploy
+#
+# Secrets become env vars in the container. REPOS_JSON replaces a mounted
+# repos.json (Fly has no file mounts). Use HTTPS git URLs so GH_TOKEN works.
+
+app = "nightshift"
+primary_region = "iad"
+
+[build]
+  image = "ghcr.io/ahmadalmezaal/nightshift:latest"
+
+# Persists the repos cache, worktrees, logs, and PR cursor across restarts.
+[[mounts]]
+  source = "nightshift_data"
+  destination = "/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"

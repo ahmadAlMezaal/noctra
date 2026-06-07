@@ -44,6 +44,8 @@ The target repo is chosen **per-ticket** from the ticket's Linear **project**, n
 
 If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH` from `.env` if set, otherwise it skips the ticket with a Linear comment.
 
+The registry can also be supplied inline via the **`REPOS_JSON`** env var (same shape as `repos.json`) — it takes precedence over `REPOS_FILE` and exists for PaaS deploys (Fly/Render/Railway) that can't mount a file. `config.ParseRepoRegistry` parses it; `config.Load` chooses env-vs-file.
+
 `./nightshift setup` is the interactive wizard that generates `.env` and `repos.json`. `repos.example.json` is the checked-in template.
 
 ## Coding-agent backend (`AGENT_BACKEND`)
@@ -123,7 +125,7 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
 
 ## Docker
 
-`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + both agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) — Nightshift shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_FILE`/`REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section.
+`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + both agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) — Nightshift shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_FILE`/`REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section. Cloud deploy templates consuming this image live at the repo root: `fly.toml`, `render.yaml`, `railway.json`, and `deploy/digitalocean-cloud-init.yaml` (all use `REPOS_JSON` since PaaS has no file mounts).
 
 ## Operating (systemd)
 

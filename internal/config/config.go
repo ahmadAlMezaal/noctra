@@ -172,7 +172,14 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".nightshift-state.json"))
 
-	cfg.Registry, err = LoadRepoRegistry(reposFile)
+	// REPOS_JSON supplies the project→repo registry inline (instead of a
+	// repos.json file) — needed for PaaS deploys (Fly/Render/Railway) that have
+	// no file mounts. When set, it takes precedence over REPOS_FILE.
+	if inline := getenv(fileEnv, "REPOS_JSON", ""); inline != "" {
+		cfg.Registry, err = ParseRepoRegistry([]byte(inline))
+	} else {
+		cfg.Registry, err = LoadRepoRegistry(reposFile)
+	}
 	if err != nil {
 		return nil, err
 	}
