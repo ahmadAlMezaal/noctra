@@ -37,18 +37,25 @@ Nightshift is a single Go binary. Beyond Go for the build, it shells out to a fe
 | Tool | Install | Purpose |
 |------|---------|---------|
 | Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
-| `claude` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) | AI implementation engine |
+| `claude` **or** `codex` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) / `npm i -g @openai/codex` | AI implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
 | `gh` CLI | `brew install gh` | PR creation |
 | `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
 | Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) | Optional review gate |
 
+You only need the CLI for the backend you select with `AGENT_BACKEND` — `claude` (default) or `codex`. `nightshift doctor` checks for the right one.
+
 **Authentication:**
 
 ```bash
-claude          # authenticate Claude Code
-gh auth login   # authenticate gh
+# Authenticate whichever agent backend you use (one-time, on the host):
+claude              # Claude Code  (subscription login, or set ANTHROPIC_API_KEY)
+codex login         # OpenAI Codex (subscription login, or set OPENAI_API_KEY)
+
+gh auth login       # authenticate gh
 ```
+
+Nightshift never stores or manages agent credentials — it inherits whatever the selected CLI is already logged into.
 
 ---
 
@@ -79,7 +86,8 @@ Run `nightshift version` to confirm the build.
 # 1. With nightshift on your PATH (or ./nightshift if built from source)
 
 # 2. Run the interactive setup wizard
-#    Prompts for Linear, optional Gemini/Telegram, and your repos —
+#    Prompts for the agent backend (Claude/Codex), Linear,
+#    optional Gemini/Telegram, and your repos —
 #    then generates .env and repos.json for you.
 ./nightshift setup
 
@@ -306,9 +314,9 @@ Nightshift is only as good as your tickets. See [docs/WRITING-GOOD-TICKETS.md](d
 
 ## Security
 
-### The `--dangerously-skip-permissions` flag
+### Unattended, no-confirmation execution
 
-Nightshift runs `claude` with `--dangerously-skip-permissions`. This allows Claude to read, write, and execute commands in your repository without asking for confirmation on each action.
+Nightshift runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-permissions`, or `codex exec --dangerously-bypass-approvals-and-sandbox` for the Codex backend. Either way, the agent can read, write, and execute commands in your repository without asking for confirmation on each action.
 
 **Only use Nightshift on repositories where you accept this risk:**
 - ✅ Personal projects and side projects
@@ -345,7 +353,7 @@ Nightshift creates PRs — it doesn't merge them. You review and merge manually.
 
 ### How much does it cost?
 
-**Claude:** Nightshift uses the `claude` CLI, which runs on your Claude Code subscription (not the API). Agent Teams mode uses more tokens per ticket since multiple agents are active simultaneously.
+**Agent backend:** With `AGENT_BACKEND=claude` (default), Nightshift uses the `claude` CLI on your Claude Code subscription (not the API); Agent Teams mode uses more tokens per ticket since multiple agents run simultaneously. With `AGENT_BACKEND=codex`, it uses the `codex` CLI on your ChatGPT subscription (or `OPENAI_API_KEY`). Either way it's the CLI's own auth/billing — Nightshift doesn't add API costs of its own for implementation.
 
 **Gemini:** Uses the Gemini API with pay-per-token pricing. Reviews are cheap — approximately $0.01–$0.05 per ticket with `gemini-2.5-pro`. You can check current pricing at [Google AI Studio](https://aistudio.google.com/pricing).
 
