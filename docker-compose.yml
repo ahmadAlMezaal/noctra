@@ -1,0 +1,16 @@
+# One-command Nightshift via Docker.
+#
+#   1. Create .env  (copy .env.example, fill in keys — see "Docker" in the README)
+#   2. Put your repos.json in ./data/repos.json  (use HTTPS git URLs so GH_TOKEN works)
+#   3. docker compose up -d
+#
+# Pull the published image, or uncomment `build: .` to build from this checkout.
+services:
+  nightshift:
+    image: ghcr.io/ahmadalmezaal/nightshift:latest
+    # build: .
+    env_file: .env
+    volumes:
+      # Persists repos.json + the repos cache, worktrees, logs, and PR cursor.
+      - ./data:/data
+    restart: unless-stopped

@@ -98,6 +98,35 @@ That's it. Move tickets to your trigger state (default: "Next") — or set `TRIG
 
 Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
 
+### Docker (any host — no Go, no Pi)
+
+A prebuilt image is published to GHCR with `git`, `gh`, and both agent CLIs baked in. Runs anywhere Docker does — your laptop, a $4 VPS, Railway/Fly/Render.
+
+```bash
+# 1. Config: keys via .env, repos via ./data/repos.json
+cp .env.example .env            # fill in LINEAR_API_KEY, AGENT_BACKEND, agent + GitHub keys
+mkdir -p data && cp repos.example.json data/repos.json   # use HTTPS git URLs
+
+# 2. Run
+docker run -d --name nightshift --env-file .env -v "$PWD/data:/data" \
+  ghcr.io/ahmadalmezaal/nightshift:latest
+docker logs -f nightshift       # watch it pick up tickets
+```
+
+Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compose.yml)).
+
+**Container auth** differs from a logged-in laptop — there's no interactive login, so use API keys / tokens in `.env`:
+
+| Env var | For |
+|---------|-----|
+| `LINEAR_API_KEY` | Linear (required) |
+| `AGENT_BACKEND` | `claude` or `codex` |
+| `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` | the agent backend you chose |
+| `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope) |
+| `GIT_USER_NAME` / `GIT_USER_EMAIL` | commit identity (defaults to a `Nightshift` bot) |
+
+`GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. Use **HTTPS** git URLs in `repos.json` so `GH_TOKEN` authenticates clones/pushes (SSH would need a mounted key).
+
 ### Raspberry Pi
 
 Easiest: download the prebuilt **`linux_arm64`** (Pi 4 / 5, 64-bit OS) or **`linux_armv7`** (Pi 3 / 32-bit OS) archive from the [Releases page](https://github.com/ahmadAlMezaal/nightshift/releases) — no Go toolchain on the Pi needed.
