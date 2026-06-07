@@ -2,7 +2,15 @@
 
 > Move tickets to Next. Go to sleep. Wake up to PRs.
 
+[![CI](https://github.com/ahmadAlMezaal/nightshift/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmadAlMezaal/nightshift/actions/workflows/ci.yml)
+[![Docker](https://github.com/ahmadAlMezaal/nightshift/actions/workflows/docker.yml/badge.svg)](https://github.com/ahmadAlMezaal/nightshift/actions/workflows/docker.yml)
+[![Release](https://img.shields.io/github/v/release/ahmadAlMezaal/nightshift?sort=semver)](https://github.com/ahmadAlMezaal/nightshift/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
+
 Nightshift picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code or OpenAI Codex** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
+
+<!-- TODO(maintainer): drop a ~20s demo GIF here — drag a ticket to "Next" → PR appears — e.g. ![demo](docs/demo.gif) -->
 
 ---
 
@@ -26,6 +34,40 @@ Nightshift:
 
 You: Wake up → Review 3 PRs → Merge   (check on it from Telegram any time)
 ```
+
+```mermaid
+flowchart LR
+    L[Linear ticket in Next] --> N[Nightshift poll loop]
+    N --> W[git worktree per ticket]
+    W --> A[Agent: Claude or Codex]
+    A --> G{Gemini review?}
+    G -->|pass / disabled| PR[gh pr create]
+    G -->|issues found| A
+    PR --> R[Linear: In Review]
+    PR -.->|AUTO_ITERATE_PRS| WATCH[watch PR feedback + CI]
+    WATCH -.-> A
+    N -.->|alerts + commands| TG[Telegram]
+```
+
+---
+
+## Quickstart
+
+The fastest path — local, ~5 minutes:
+
+```bash
+go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
+claude            # or: codex login   — authenticate your agent once
+gh auth login     # GitHub access for PRs
+nightshift setup  # interactive: backend, Linear key, repos → writes .env + repos.json
+nightshift        # start polling
+```
+
+Drag a Linear ticket into **Next** → Nightshift clones the repo, runs the agent in an isolated worktree, opens a PR, and moves the ticket to **In Review**.
+
+> ⚠️ **The one thing newcomers trip on:** a ticket's Linear **project** must map, in `repos.json`, to the repo where its code lives. A wrong mapping means the agent runs in the wrong repo, makes no changes, and the ticket bounces back. See [Repositories](#repositories).
+
+**No hardware?** Skip to [Docker](#docker-any-host--no-go-no-pi) or [Cloud (Fly/Render/Railway/DO)](#cloud-fly--render--railway--digitalocean) — same idea, with API-key auth and repos supplied via `REPOS_JSON`.
 
 ---
 
@@ -389,6 +431,12 @@ A Claude-only experimental mode (`USE_AGENT_TEAMS=true`) where a lead Claude age
 ```
 
 Cleanup iterates every registered repo, deletes merged branches, force-deletes unmerged `nightshift/*` branches that don't have an open PR, prunes worktrees, and clears agent logs older than 7 days.
+
+---
+
+## Contributing
+
+PRs welcome — bug fixes, new deploy targets, or new agent / project-management / git backends. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup (`make build` / `test` / `vet`) and the project layout, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Fun fact: Nightshift implements many of its own tickets.
 
 ---
 
