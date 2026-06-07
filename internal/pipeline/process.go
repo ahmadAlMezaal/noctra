@@ -139,12 +139,17 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	output := agent.ReadAfter(logFile, offset)
 
 	// ── Rate limit ───────────────────────────────────────────────────────────
-	if p.agent.HasRateLimit(output) {
+	// Only ever classified on a FAILED run (see rateLimited): scanning the
+	// transcript of a *successful* run caused false positives where an agent
+	// legitimately writing the words "rate limit" into a file got its completed
+	// work discarded (ENG-178 — Codex built the Nightshift landing page, whose
+	// copy advertises "rate-limit detection"; three good runs were thrown away).
+	if rateLimited(p.agent, runErr, output) {
 		logger.Warn("usage/rate limit detected — triggering shutdown")
 		p.bumpFailed(id)
 		p.flagRateLimit()
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"🛑 **Nightshift: Rate limit detected**\n\nClaude hit a usage or rate limit while working on this ticket.\n\nTicket moved back to **%s**. Nightshift is shutting down to avoid further limit hits.",
+			"🛑 **Nightshift: Rate limit detected**\n\nThe agent hit a usage or rate limit while working on this ticket.\n\nTicket moved back to **%s**. Nightshift is shutting down to avoid further limit hits.",
 			p.cfg.TriggerState))
 		p.mu.Lock()
 		s, f, t := p.successCount, p.failCount, p.totalDispatches
@@ -159,10 +164,10 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// ── Non-zero exit ────────────────────────────────────────────────────────
 	if runErr != nil {
 		attempts := p.bumpFailed(id)
-		logger.Warn("claude exited with error",
+		logger.Warn("agent exited with error",
 			"err", runErr, "attempt", attempts, "max", p.cfg.MaxRetries)
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"❌ **Nightshift: Agent failed** (attempt %d/%d)\n\nClaude exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
+			"❌ **Nightshift: Agent failed** (attempt %d/%d)\n\nThe agent exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
 			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
 		p.telegram.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
 			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries))

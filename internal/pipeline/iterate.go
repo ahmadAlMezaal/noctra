@@ -295,13 +295,16 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	}
 
 	output := agent.ReadAfter(logFile, offset)
-	if p.agent.HasRateLimit(output) {
+	// Rate limit is only classified on a failed run (see rateLimited), so a
+	// successful iteration whose transcript merely mentions "rate limit" (file
+	// content / diff) doesn't trigger a false shutdown.
+	if rateLimited(p.agent, runErr, output) {
 		logger.Warn("rate limit detected during iteration")
 		p.flagRateLimit()
 		return
 	}
 	if runErr != nil {
-		logger.Error("claude run failed", "err", runErr)
+		logger.Error("agent run failed", "err", runErr)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
