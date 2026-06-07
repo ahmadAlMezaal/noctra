@@ -28,14 +28,20 @@ func TestNew_SelectsBackend(t *testing.T) {
 	}
 }
 
-func TestBackend_CLIName(t *testing.T) {
+func TestBackend_CLIAndLabel(t *testing.T) {
 	claude, _ := New("claude")
 	if claude.CLI() != "claude" {
 		t.Errorf("claude CLI = %q, want claude", claude.CLI())
 	}
+	if claude.Label() != "Claude Code" {
+		t.Errorf("claude Label = %q, want \"Claude Code\"", claude.Label())
+	}
 	codex, _ := New("codex")
 	if codex.CLI() != "codex" {
 		t.Errorf("codex CLI = %q, want codex", codex.CLI())
+	}
+	if codex.Label() != "OpenAI Codex" {
+		t.Errorf("codex Label = %q, want \"OpenAI Codex\"", codex.Label())
 	}
 }
 

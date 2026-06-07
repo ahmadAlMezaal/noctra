@@ -38,6 +38,9 @@ type RunOptions struct {
 type Backend interface {
 	// Name is the canonical backend identifier ("claude" / "codex").
 	Name() string
+	// Label is the human-friendly backend name for banners / logs
+	// (e.g. "Claude Code", "OpenAI Codex").
+	Label() string
 	// CLI is the executable Nightshift requires on PATH for this backend.
 	CLI() string
 	// Run invokes the CLI in opts.Workdir, streaming stdout+stderr to

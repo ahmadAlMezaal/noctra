@@ -121,6 +121,15 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
 
 `go vet ./...` should be clean.
 
+## Operating (systemd)
+
+Day-2 operations are wrapped by the `Makefile` (run `make help` to list targets); the README "Operating the service" section documents them for users. The important ones:
+
+- `make update` — pull `main`, rebuild to a side file, **atomic-swap** the binary (safe while the old process is still executing), then `systemctl --user restart nightshift`. This is the upgrade path on the Pi.
+- `make start` / `stop` / `restart` / `status` / `logs` — thin `systemctl --user` wrappers (`logs` tails `journalctl --user-unit=nightshift.service -f`).
+
+The startup banner (`pipeline.banner`) prints the resolved runtime config — repos, watched trigger, **agent backend** (`p.agent.Label()` + CLI), review gate, auto-iterate, notifications — so a restart's `make logs` output shows exactly what's live. Keep new operationally-significant config visible there.
+
 ## Releasing
 
 Releases are automated with GoReleaser (`.goreleaser.yaml`) via `.github/workflows/release.yml`, triggered by pushing a `v*` tag. It cross-compiles linux `amd64`/`arm64`/`armv7` + darwin `amd64`/`arm64`, archives them with checksums, and publishes a GitHub Release. `main.version` is a `var` (not const) so the tag is stamped in via `-ldflags "-X main.version=..."`. Validate config changes locally with `goreleaser check` and `goreleaser release --snapshot --clean --skip=publish`.

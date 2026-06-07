@@ -15,8 +15,9 @@ import (
 // If a future Codex release renames flags, only codexArgs needs to change.
 type codexBackend struct{}
 
-func (codexBackend) Name() string { return "codex" }
-func (codexBackend) CLI() string  { return "codex" }
+func (codexBackend) Name() string  { return "codex" }
+func (codexBackend) Label() string { return "OpenAI Codex" }
+func (codexBackend) CLI() string   { return "codex" }
 
 // Run invokes `codex exec` in opts.Workdir. UseAgentTeams is Claude-only and
 // is ignored here.

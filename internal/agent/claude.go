@@ -10,8 +10,9 @@ import (
 // print mode. This is Nightshift's default and original backend.
 type claudeBackend struct{}
 
-func (claudeBackend) Name() string { return "claude" }
-func (claudeBackend) CLI() string  { return "claude" }
+func (claudeBackend) Name() string  { return "claude" }
+func (claudeBackend) Label() string { return "Claude Code" }
+func (claudeBackend) CLI() string   { return "claude" }
 
 // Run invokes `claude --print` in opts.Workdir. When UseAgentTeams is set the
 // experimental agent-teams flag is exported into the child environment.
