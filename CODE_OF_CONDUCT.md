@@ -6,6 +6,6 @@ In short: be respectful, welcoming, and collaborative. We want participation in 
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, report it to the project maintainer, [@ahmadAlMezaal](https://github.com/ahmadAlMezaal) (via GitHub direct message or a private report). All reports will be reviewed and handled confidentially.
+If you experience or witness unacceptable behavior, report it privately to the project maintainer, [@ahmadAlMezaal](https://github.com/ahmadAlMezaal), at **ahmad.hmazaal@gmail.com**. All reports will be reviewed and handled confidentially.
 
 Maintainers are responsible for clarifying standards and may take appropriate, fair corrective action in response to behavior they deem inappropriate, following the Contributor Covenant's enforcement guidelines.
