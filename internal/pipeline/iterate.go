@@ -263,7 +263,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	_ = agent.AttemptHeader(logFile)
 	offset := agent.OffsetBefore(logFile)
 
-	logger.Info("running agent", "backend", p.agent.Name())
+	logger.Info("running agent", "backend", p.agent.Name(), "log", logFile)
 
 	runErr := p.agent.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
