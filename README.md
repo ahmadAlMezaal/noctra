@@ -113,6 +113,25 @@ git tag v2.0.0 && git push origin v2.0.0
 
 ---
 
+## Operating the service
+
+Running Nightshift as a long-lived `systemd --user` service? The `Makefile` wraps the day-to-day operations so you don't have to remember the raw `systemctl` / build incantations (run `make help` to list everything):
+
+| Command | What it does |
+|---------|--------------|
+| `make update`  | **Pull latest, rebuild, restart.** Builds to a side file and atomically swaps the binary, so a failed build never leaves you without one and the swap is safe while the old process is still running. This is how you upgrade. |
+| `make restart` | Restart the service **without** rebuilding |
+| `make start` / `make stop` | Start / stop the service |
+| `make status`  | Show service status |
+| `make logs`    | Tail live logs (`journalctl --user-unit=nightshift.service -f`) |
+| `make build-pi`| Cross-compile an `arm64` binary for a Raspberry Pi |
+
+**Upgrading is just `make update` on the host** — it pulls `main`, rebuilds, and restarts in one step.
+
+The startup banner (visible in `make logs` right after a restart) prints the live configuration — including the active **Agent** backend (Claude Code or OpenAI Codex), the review gate, auto-iterate, and notification settings — so you can confirm at a glance what a freshly-restarted instance is actually running.
+
+---
+
 ## Repositories
 
 Nightshift picks the target repo **per-ticket**, from the ticket's Linear **project** — so you never have to edit config to switch projects.

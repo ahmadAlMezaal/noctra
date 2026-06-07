@@ -385,6 +385,10 @@ func (p *Pipeline) banner() {
 	if p.telegram.Enabled {
 		notifyMode = "Telegram"
 	}
+	agentMode := fmt.Sprintf("%s (%s)", p.agent.Label(), p.agent.CLI())
+	if p.cfg.UseAgentTeams {
+		agentMode += " + agent teams"
+	}
 	autoIterMode := "Disabled"
 	if p.watcher != nil {
 		autoIterMode = fmt.Sprintf("On (cap %d, poll %s)",
@@ -410,6 +414,7 @@ func (p *Pipeline) banner() {
 	} else {
 		fmt.Printf("   Watching:       %q column\n", p.cfg.TriggerState)
 	}
+	fmt.Printf("   Agent:          %s\n", agentMode)
 	fmt.Printf("   Review:         %s\n", reviewMode)
 	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
