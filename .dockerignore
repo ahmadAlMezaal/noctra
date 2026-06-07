@@ -1,0 +1,17 @@
+# Keep the build context small: only Go source + go.mod are needed to build.
+.git
+.github
+*.md
+docs/
+data/
+logs/
+*.log
+.env
+.env.local
+repos.json
+# Built artifacts (the image builds its own binary)
+nightshift
+nightshift.new
+nightshift-pi
+nightshift-arm64
+.DS_Store
