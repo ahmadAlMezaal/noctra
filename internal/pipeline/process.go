@@ -176,11 +176,15 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	// ── BLOCKED ──────────────────────────────────────────────────────────────
+	// Count the attempt: the ticket is left in the trigger state, so without a
+	// retry cap it would be re-dispatched every poll until the dispatch budget
+	// is gone. After MaxRetries it's skipped until restart / human input.
 	if blocked := agent.BlockedLine(output); blocked != "" {
-		logger.Info("blocked", "line", blocked)
+		attempts := p.bumpFailed(id)
+		logger.Info("blocked", "line", blocked, "attempt", attempts, "max", p.cfg.MaxRetries)
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"🚧 **Nightshift needs your input**\n\nClaude got blocked on this ticket:\n\n> %s\n\nPlease clarify in the ticket comments, then move back to **%s** to retry.",
-			blocked, p.cfg.TriggerState))
+			"🚧 **Nightshift needs your input** (attempt %d/%d)\n\nThe agent got blocked on this ticket:\n\n> %s\n\nClarify in the ticket comments, then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Nightshift restarts.",
+			attempts, p.cfg.MaxRetries, blocked, p.cfg.TriggerState, p.cfg.MaxRetries))
 		p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
@@ -204,10 +208,15 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		return
 	}
 	if !dirty && !committed {
-		logger.Warn("no changes made")
+		// Count the attempt — otherwise this re-queues to the trigger state every
+		// poll and burns the whole dispatch budget on one unprogressable ticket
+		// (e.g. a vague description, already-done work, or a ticket pointed at the
+		// wrong repo). After MaxRetries it's skipped until restart.
+		attempts := p.bumpFailed(id)
+		logger.Warn("no changes made", "attempt", attempts, "max", p.cfg.MaxRetries)
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"💭 **Nightshift: No code changes made**\n\nClaude completed the session without modifying any files. This usually means the ticket description is too vague or needs more context.\n\nAdd more detail to the ticket description and move back to **%s** to retry.",
-			p.cfg.TriggerState))
+			"💭 **Nightshift: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project maps to the wrong repo.\n\nAdd more detail (or check the project → repo mapping in `repos.json`), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Nightshift restarts.",
+			attempts, p.cfg.MaxRetries, p.cfg.TriggerState, p.cfg.MaxRetries))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
