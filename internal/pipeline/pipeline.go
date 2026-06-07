@@ -195,11 +195,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 		case <-ticker.C:
 			p.mu.Lock()
-			rateLimited := p.rateLimitDetected
+			rlDetected := p.rateLimitDetected
 			atCap := p.totalDispatches >= p.cfg.MaxDispatches
 			p.mu.Unlock()
 
-			if rateLimited {
+			if rlDetected {
 				slog.Info("🛑 rate limit detected — shutting down")
 				wg.Wait()
 				p.summary(ctx)
@@ -374,6 +374,16 @@ func (p *Pipeline) flagRateLimit() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.rateLimitDetected = true
+}
+
+// rateLimited reports whether a run should be treated as having hit a usage /
+// rate limit. A genuine limit makes the agent CLI FAIL, so this is only true
+// for a failed run whose output carries the backend's rate-limit markers. A
+// successful run is never rate-limited — even if its transcript mentions the
+// words (e.g. an agent editing a file that documents rate-limit handling).
+// Without the runErr gate, such a run had its completed work discarded (ENG-178).
+func rateLimited(b agent.Backend, runErr error, output string) bool {
+	return runErr != nil && b.HasRateLimit(output)
 }
 
 func (p *Pipeline) banner() {
