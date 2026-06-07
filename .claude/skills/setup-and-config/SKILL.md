@@ -112,11 +112,20 @@ MAX_CONCURRENT=3
 POLL_INTERVAL=30
 ```
 
+Safety guards:
+
+```env
+MAX_DISPATCHES=10
+MAX_RETRIES=3
+AGENT_TIMEOUT_MINUTES=45
+```
+
 Quality controls:
 
 ```env
 USE_AGENT_TEAMS=false
 GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-pro
 MAX_REVIEW_RETRIES=1
 ```
 
@@ -186,4 +195,3 @@ Confirm:
 3. Linear API access works.
 4. Repo URLs are reachable.
 5. State or label names match Linear exactly.
-
