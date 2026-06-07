@@ -29,14 +29,20 @@ func TestNew_SelectsBackend(t *testing.T) {
 }
 
 func TestBackend_CLIAndLabel(t *testing.T) {
-	claude, _ := New("claude")
+	claude, err := New("claude")
+	if err != nil {
+		t.Fatalf("New(\"claude\") error: %v", err)
+	}
 	if claude.CLI() != "claude" {
 		t.Errorf("claude CLI = %q, want claude", claude.CLI())
 	}
 	if claude.Label() != "Claude Code" {
 		t.Errorf("claude Label = %q, want \"Claude Code\"", claude.Label())
 	}
-	codex, _ := New("codex")
+	codex, err := New("codex")
+	if err != nil {
+		t.Fatalf("New(\"codex\") error: %v", err)
+	}
 	if codex.CLI() != "codex" {
 		t.Errorf("codex CLI = %q, want codex", codex.CLI())
 	}
