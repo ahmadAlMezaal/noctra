@@ -93,6 +93,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	logger.Info("running agent",
 		"backend", p.agent.Name(),
+		"log", logFile,
 		"timeout", p.cfg.AgentTimeout,
 		"agent_teams", p.cfg.UseAgentTeams)
 

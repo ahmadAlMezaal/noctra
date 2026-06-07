@@ -6,8 +6,12 @@
 BINARY := nightshift
 PKG    := ./cmd/nightshift
 
+# Where per-ticket agent transcripts live. Defaults to ./logs (the config dir
+# when running from a repo checkout); override if you set LOG_DIR in .env.
+LOG_DIR ?= logs
+
 .DEFAULT_GOAL := help
-.PHONY: help build test vet run setup cleanup build-pi update start stop restart status logs
+.PHONY: help build test vet run setup cleanup build-pi update start stop restart status logs tail watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} \
@@ -65,5 +69,16 @@ restart: ## Restart the systemd service (does not rebuild)
 status: ## Show service status
 	systemctl --user status nightshift
 
-logs: ## Tail live logs (Ctrl+C to stop)
+logs: ## Tail Nightshift's own service logs (Ctrl+C to stop)
 	journalctl --user-unit=nightshift.service -f
+
+# ── Agent transcripts (what Claude/Codex is actually doing) ─────────────────
+
+tail: ## Tail one ticket's agent transcript (make tail TICKET=ENG-42)
+	@test -n "$(TICKET)" || { echo "usage: make tail TICKET=ENG-42"; exit 1; }
+	tail -f "$(LOG_DIR)/$(TICKET).log"
+
+watch: ## Tail the most recently active agent transcript
+	@f="$$(ls -t $(LOG_DIR)/*.log 2>/dev/null | head -1)"; \
+	test -n "$$f" || { echo "no agent logs in $(LOG_DIR)/"; exit 1; }; \
+	echo "tailing $$f"; tail -f "$$f"
