@@ -2,7 +2,7 @@
 
 > Move tickets to Next. Go to sleep. Wake up to PRs.
 
-Nightshift picks up your Linear tickets, implements them with Claude Code Agent Teams, and creates PRs — all while you sleep.
+Nightshift picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code or OpenAI Codex** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
 ---
 
@@ -12,20 +12,19 @@ Nightshift picks up your Linear tickets, implements them with Claude Code Agent 
 You: Move 3 tickets to "Next" → Run nightshift → Go to sleep
 
 Nightshift:
-  1. Polls Linear, finds tickets in "Next"
-  2. Creates isolated git worktree per ticket
-  3. Spins up Claude Code with Agent Teams:
-     → Lead agent reads the ticket and plans the approach
-     → Teammate agents implement different parts in parallel
-     → Code is reviewed before committing
+  1. Polls Linear, finds tickets in "Next" (or carrying a trigger label)
+  2. Creates an isolated git worktree per ticket
+  3. Dispatches your agent backend (Claude Code or OpenAI Codex):
+     → Reads the ticket, plans, implements, and self-reviews
+     → (Claude + USE_AGENT_TEAMS) a lead agent delegates to teammates in parallel
   4. (If Gemini key provided) Multi-model review gate:
      → Sends diff + ticket to Gemini for independent review
-     → If issues found → Claude gets a fix pass → Gemini re-reviews
+     → If issues found → the agent gets a fix pass → Gemini re-reviews
   5. Pushes branch, creates PR via gh CLI
   6. Moves ticket to "In Review", comments PR link on Linear
-  7. Picks up next ticket
+  7. Picks up next ticket — and (optionally) keeps iterating on PR feedback + CI
 
-You: Wake up → Review 3 PRs → Merge
+You: Wake up → Review 3 PRs → Merge   (check on it from Telegram any time)
 ```
 
 ---
@@ -37,7 +36,7 @@ Nightshift is a single Go binary. Beyond Go for the build, it shells out to a fe
 | Tool | Install | Purpose |
 |------|---------|---------|
 | Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
-| `claude` **or** `codex` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) / `npm i -g @openai/codex` | AI implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
+| `claude` **or** `codex` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude) or `npm i -g @openai/codex` (Codex) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
 | `gh` CLI | `brew install gh` | PR creation |
 | `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
@@ -95,7 +94,7 @@ Run `nightshift version` to confirm the build.
 ./nightshift
 ```
 
-That's it. Move tickets to your trigger state (default: "Next") and watch them become PRs.
+That's it. Move tickets to your trigger state (default: "Next") — or set `TRIGGER_MODE=label` to pick up any ticket carrying a label instead — and watch them become PRs.
 
 Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
 
@@ -136,7 +135,25 @@ Running Nightshift as a long-lived `systemd --user` service? The `Makefile` wrap
 
 **Upgrading is just `make update` on the host** — it pulls `main`, rebuilds, and restarts in one step.
 
-The startup banner (visible in `make logs` right after a restart) prints the live configuration — including the active **Agent** backend (Claude Code or OpenAI Codex), the review gate, auto-iterate, and notification settings — so you can confirm at a glance what a freshly-restarted instance is actually running.
+The startup banner (visible in `make logs` right after a restart) prints the live configuration — active agent backend, review gate, auto-iterate, notifications — so you can confirm at a glance what a freshly-restarted instance is running.
+
+---
+
+## Control it from Telegram
+
+Set `TELEGRAM_ENABLED=true` with a bot token + chat ID (the wizard walks you through it) and Nightshift both sends status updates **and** takes commands — a two-way control channel for when you're away from your desk:
+
+| Command | What it does |
+|---------|--------------|
+| `/status` | Active runs + session stats |
+| `/tickets [project] [state]` | Ticket counts by state, or list one state |
+| `/ticket ENG-42` | Show a ticket's details |
+| `/search-tickets <text>` *(alias `/find`)* | Search Linear tickets by text |
+| `/requeue ENG-42 [context]` | Re-queue a blocked/failed ticket, optionally with extra context |
+| `/kill ENG-42` | Stop a running ticket |
+| `/help` | List all commands |
+
+Only your configured chat can issue commands. `TELEGRAM_VERBOSE=true` also pings on every dispatch (otherwise: terminal events only).
 
 ---
 
@@ -166,11 +183,11 @@ When a ticket comes in, Nightshift reads its project, finds the matching repo, a
 
 ## Auto-iterate on PR feedback (optional)
 
-By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and Nightshift will also poll the PRs it created — when new feedback lands **or CI fails**, it re-engages Claude **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
+By default Nightshift's job ends when the PR is created. Set `AUTO_ITERATE_PRS=true` and it also polls the PRs it created — when new feedback lands **or CI fails**, it re-engages the agent **on the same branch** and pushes a follow-up commit. The PR just updates; no new PR, no lost context.
 
-It picks up all three kinds of review feedback: top-level conversation comments, submitted reviews (`CHANGES_REQUESTED` / non-empty `COMMENTED`), and **inline review-thread comments** attached to specific lines — the latter are passed to Claude with their `file:line` location so it knows exactly where each note applies.
+It picks up all three kinds of review feedback: top-level conversation comments, submitted reviews (`CHANGES_REQUESTED` / non-empty `COMMENTED`), and **inline review-thread comments** — the latter passed with their `file:line` location so the agent knows exactly where each note applies.
 
-It also watches **CI**: once every check on the head commit has completed and at least one failed, Nightshift fetches the failed-step logs and asks Claude to reproduce and fix them. CI is keyed by commit SHA, so it acts at most once per commit — pushing a fix that fails again counts as the next iteration (bounded by the cap). Review feedback and CI fixes share the same per-PR iteration budget and, when both are pending, are addressed in a single re-engagement.
+It also watches **CI**: once every check on the head commit has completed and at least one failed, Nightshift fetches the failed-step logs and asks the agent to reproduce and fix them. CI is keyed by commit SHA, so it acts at most once per commit. Review feedback and CI fixes share one per-PR iteration budget and, when both are pending, are handled in a single re-engagement.
 
 ```env
 AUTO_ITERATE_PRS=true
@@ -196,87 +213,36 @@ Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` a
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LINEAR_API_KEY` | *(required)* | Your Linear personal API key |
-| `LINEAR_TEAM_KEY` | `ENG` | Your Linear team identifier (the prefix before ticket numbers, e.g., `ENG` for `ENG-42`) |
-| `TRIGGER_STATE` | `Next` | Linear column to watch for new work |
-| `IN_PROGRESS_STATE` | `In Progress` | State set when Nightshift picks up a ticket |
-| `IN_REVIEW_STATE` | `In Review` | State set after PR is created |
-| `REPO_PATH` | *(empty)* | Optional fallback repo for tickets whose Linear project is not in `repos.json` |
-| `MAIN_BRANCH` | `main` | Default base branch (repos.json entries may override per-repo) |
-| `MAX_CONCURRENT` | `3` | Maximum tickets processed simultaneously |
+| `LINEAR_TEAM_KEY` | `ENG` | Team identifier — the prefix before ticket numbers (e.g. `ENG` for `ENG-42`) |
+| `AGENT_BACKEND` | `claude` | Coding agent: `claude` or `codex` |
+| `TRIGGER_MODE` | `state` | Pick up work by `state` (column) or `label` |
+| `TRIGGER_STATE` | `Next` | Column to watch (state mode) |
+| `TRIGGER_LABEL` | *(empty)* | Label to watch (label mode); removed after dispatch |
+| `IN_REVIEW_STATE` | `In Review` | State set after the PR is created |
+| `REPO_PATH` | *(empty)* | Fallback repo for tickets whose project isn't in `repos.json` |
+| `MAIN_BRANCH` | `main` | Default base branch (per-repo override in `repos.json`) |
+| `MAX_CONCURRENT` | `3` | Max tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
-| `USE_AGENT_TEAMS` | `false` | Enable Claude Code Agent Teams (multi-agent parallelism) |
-| `GEMINI_API_KEY` | *(empty)* | Gemini API key — leave empty to skip the review gate |
-| `GEMINI_MODEL` | `gemini-2.5-pro` | Gemini model to use for code review |
-| `MAX_REVIEW_RETRIES` | `1` | Fix passes Claude gets after Gemini flags issues |
+| `USE_AGENT_TEAMS` | `false` | Claude-only: enable Agent Teams (multi-agent parallelism) |
+| `GEMINI_API_KEY` | *(empty)* | Enables the review gate; empty = skip it |
+| `MAX_REVIEW_RETRIES` | `1` | Fix passes after Gemini flags issues |
 
-State names are **case-sensitive** and must match your Linear board exactly.
-
----
-
-## Modes
-
-### Single agent *(default)*
-
-One Claude session per ticket, no team coordination. Fastest, cheapest, and works on any platform including Linux/Raspberry Pi.
-
-**Best for:** simple bug fixes, small isolated changes, getting started.
-
-```env
-USE_AGENT_TEAMS=false
-GEMINI_API_KEY=   # leave empty
-```
+Telegram + auto-iterate vars are covered in their own sections below. State/label names are **case-sensitive** — match your Linear board exactly.
 
 ---
 
-### Agent Teams + Gemini review
+## Quality knobs
 
-Claude implements the ticket with a coordinated team of agents. Gemini independently reviews the diff before the PR is created. Claude gets a fix pass if issues are found.
+Two independent toggles shape each run; default is both off (single agent, no review gate) — the simplest, cheapest setup.
 
-**Best for:** production repos, tickets with clear acceptance criteria, when you want the highest quality output.
+| Knob | Off (default) | On |
+|------|---------------|-----|
+| `USE_AGENT_TEAMS` *(Claude only)* | one agent session per ticket — fast, cheap, runs anywhere incl. Raspberry Pi | a lead Claude agent delegates implementation/tests/review to teammates in parallel — better on complex tickets |
+| `GEMINI_API_KEY` | no external review | Gemini reviews the diff before the PR; the agent gets fix passes if it fails |
 
-```env
-USE_AGENT_TEAMS=true
-GEMINI_API_KEY=your_key_here
-```
+### The Gemini review gate
 
-### Agent Teams only
-
-Claude implements with a team but skips the external review step.
-
-**Best for:** when you trust Claude's output, want faster runs, or don't have a Gemini key.
-
-```env
-USE_AGENT_TEAMS=true
-GEMINI_API_KEY=   # leave empty
-```
-
----
-
-## The Gemini Review Gate
-
-### Why a second model?
-
-The implementing model has blind spots reviewing its own work — it tends to miss the same things it missed during implementation. A different model architecture catches different categories of bugs, security issues, and requirement gaps.
-
-### What it does
-
-After Claude finishes implementation, Nightshift takes the `git diff` and the original ticket description and sends them to Gemini with a structured review prompt. Gemini responds with a `VERDICT: PASS` or `VERDICT: FAIL` followed by review comments.
-
-### What happens on FAIL
-
-The review feedback is given back to Claude with instructions to fix the specific issues. Claude gets `MAX_REVIEW_RETRIES` fix passes. After each pass, Gemini re-reviews the updated diff.
-
-If Gemini still hasn't passed after all retries, the PR is created anyway — but the body includes the unresolved review comments so you know exactly what to check before merging.
-
-### Cost
-
-The Gemini review gate uses the Gemini API (not a subscription). A typical diff review uses roughly 10,000–50,000 tokens depending on diff size.
-
-With `gemini-2.5-pro` pricing, a review costs approximately **$0.01–$0.05**. Very cheap for what you get.
-
-### Disabling the review gate
-
-Leave `GEMINI_API_KEY` empty and Nightshift skips the review gate entirely. You can add it later — no other config changes required.
+A second model has different blind spots than the one that wrote the code, so it catches bugs the implementer misses. When `GEMINI_API_KEY` is set, Nightshift sends the `git diff` + ticket to Gemini, which returns `VERDICT: PASS`/`FAIL` + comments. On FAIL the agent gets `MAX_REVIEW_RETRIES` fix passes (Gemini re-reviews each); if it still fails, the PR is created anyway with the unresolved comments in the body. Uses the Gemini API (~$0.01–$0.05/ticket with `gemini-2.5-pro`). Leave the key empty to skip it — addable later with no other changes.
 
 ---
 
@@ -290,11 +256,11 @@ Leave `GEMINI_API_KEY` empty and Nightshift skips the review gate entirely. You 
 ```
 
 - **Next** → Nightshift picks up the ticket
-- **In Progress** → Claude is working on it
+- **In Progress** → the agent is working on it
 - **In Review** → PR created, waiting for your review
 - **Done** → You merge the PR (Nightshift doesn't touch this)
 
-If Claude gets stuck or makes no changes, the ticket is moved back to **Next** with a comment explaining why.
+If the agent gets stuck or makes no changes, the ticket is moved back to **Next** with a comment explaining why.
 
 ---
 
@@ -302,7 +268,7 @@ If Claude gets stuck or makes no changes, the ticket is moved back to **Next** w
 
 Nightshift is only as good as your tickets. See [docs/WRITING-GOOD-TICKETS.md](docs/WRITING-GOOD-TICKETS.md) for a full guide.
 
-**The one-line rule:** Claude needs to know *what* to change, *where* to change it, and *how you'll know it's done*.
+**The one-line rule:** the agent needs to know *what* to change, *where* to change it, and *how you'll know it's done*.
 
 **Good ticket:**
 > Login endpoint returns 500 when refresh token is expired. Should return 401 and clear the session cookie. See `auth.controller.ts` line 42. Tests in `auth.controller.spec.ts`. Acceptance: existing tests pass, new test covers the expired token case.
@@ -349,35 +315,25 @@ If `GEMINI_API_KEY` is configured, your git diffs and ticket descriptions are se
 
 ### Is this safe to run on my production repo?
 
-Nightshift creates PRs — it doesn't merge them. You review and merge manually. The risk is in what Claude writes during implementation, not in what Nightshift does with it. Use PR review as your safety gate. For extra isolation, run in a container.
+Nightshift creates PRs — it doesn't merge them. You review and merge manually. The risk is in what the agent writes during implementation, not in what Nightshift does with it. Use PR review as your safety gate. For extra isolation, run in a container.
 
 ### How much does it cost?
 
-**Agent backend:** With `AGENT_BACKEND=claude` (default), Nightshift uses the `claude` CLI on your Claude Code subscription (not the API); Agent Teams mode uses more tokens per ticket since multiple agents run simultaneously. With `AGENT_BACKEND=codex`, it uses the `codex` CLI on your ChatGPT subscription (or `OPENAI_API_KEY`). Either way it's the CLI's own auth/billing — Nightshift doesn't add API costs of its own for implementation.
+**Agent backend:** With `AGENT_BACKEND=claude` (default) it uses the `claude` CLI on your Claude Code subscription; with `codex`, the `codex` CLI on your ChatGPT subscription (or `OPENAI_API_KEY`). Either way it's the CLI's own auth/billing — Nightshift adds no implementation API costs of its own. (Agent Teams uses more tokens per ticket since multiple agents run at once.)
 
-**Gemini:** Uses the Gemini API with pay-per-token pricing. Reviews are cheap — approximately $0.01–$0.05 per ticket with `gemini-2.5-pro`. You can check current pricing at [Google AI Studio](https://aistudio.google.com/pricing).
+**Gemini:** Only if you enable the review gate — pay-per-token, ~$0.01–$0.05/ticket with `gemini-2.5-pro` ([pricing](https://aistudio.google.com/pricing)).
 
 ### Can I run multiple repos simultaneously?
 
 Yes — that's built in. Register each repo in `repos.json` (mapped to its Linear project) and a single Nightshift instance routes every ticket to the right repo automatically. Tickets for different repos run concurrently up to `MAX_CONCURRENT`. See [Repositories](#repositories).
 
-### What if Claude gets stuck?
+### What if the agent gets stuck?
 
-Claude will output `BLOCKED: <reason>` and stop. Nightshift detects this, posts a comment on the Linear ticket explaining the blocker, and moves the ticket back to your trigger state. Reply to the ticket with more context and re-queue it.
+It outputs `BLOCKED: <reason>` and stops. Nightshift posts the blocker as a Linear comment and moves the ticket back to your trigger state. Add context and re-queue it (from the ticket or via `/requeue` on Telegram).
 
 ### What are Agent Teams?
 
-Claude Code Agent Teams is an experimental feature where a lead Claude agent spawns and coordinates teammate agents that work in parallel. The lead agent plans the approach, delegates subtasks (core implementation, tests, review), and synthesizes the results. It can significantly speed up complex tickets.
-
-Enable with `USE_AGENT_TEAMS=true` in `.env` (disabled by default). Requires a recent version of the `claude` CLI.
-
-### Why Gemini for review and not another Claude instance?
-
-Different model = different blind spots. If Claude's implementation missed something, Claude reviewing itself is likely to miss the same thing — the same training and architecture produces the same failure modes. Gemini's different architecture catches different categories of issues, making the review genuinely additive rather than redundant.
-
-### What if I don't have a Gemini key?
-
-No problem — leave `GEMINI_API_KEY` empty and Nightshift skips the review gate entirely. Your tickets still get implemented and PRs get created. You can add the key later without any other changes.
+A Claude-only experimental mode (`USE_AGENT_TEAMS=true`) where a lead Claude agent delegates subtasks (implementation, tests, review) to teammates in parallel — faster on complex tickets, more tokens. Requires a recent `claude` CLI. Not applicable to the Codex backend.
 
 ### The agent crashed mid-task. How do I clean up?
 
@@ -393,10 +349,10 @@ Cleanup iterates every registered repo, deletes merged branches, force-deletes u
 ## Credits
 
 Built with:
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — the AI implementation engine
-- [Claude Code Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) — multi-agent parallelism
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — implementation engine (default) + [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams)
+- [OpenAI Codex](https://github.com/openai/codex) — alternative implementation engine (`AGENT_BACKEND=codex`)
 - [Gemini](https://aistudio.google.com) by Google — independent code review
-- Inspired by Damian Galarza's agent loop patterns and the broader Claude Code automation community
+- Inspired by Damian Galarza's agent loop patterns and the broader agentic-coding community
 
 ---
 
