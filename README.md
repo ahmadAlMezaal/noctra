@@ -127,6 +127,23 @@ Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compo
 
 `GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. Use **HTTPS** git URLs in `repos.json` so `GH_TOKEN` authenticates clones/pushes (SSH would need a mounted key).
 
+### Cloud (Fly · Render · Railway · DigitalOcean)
+
+Always-on, no hardware. Each template deploys the GHCR image; set the same secrets as the Docker table above. Since these platforms can't mount a `repos.json` file, supply the registry inline via **`REPOS_JSON`** (the same JSON, as an env var):
+
+```bash
+REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
+```
+
+| Platform | File | Deploy |
+|----------|------|--------|
+| **Fly.io** | [`fly.toml`](fly.toml) | `fly volumes create nightshift_data --size 1` → `fly secrets set …` → `fly deploy` |
+| **Render** | [`render.yaml`](render.yaml) | New → Blueprint → pick repo → fill secret env vars |
+| **Railway** | [`railway.json`](railway.json) | New → Deploy from repo (builds the Dockerfile); add a `/data` volume + variables |
+| **DigitalOcean** | [`deploy/digitalocean-cloud-init.yaml`](deploy/digitalocean-cloud-init.yaml) | Paste into a droplet's *User data* (read the secrets warning in the file) |
+
+All four persist `/data` (Fly volume / Render disk / Railway volume / droplet disk) so restarts keep state.
+
 ### Raspberry Pi
 
 Easiest: download the prebuilt **`linux_arm64`** (Pi 4 / 5, 64-bit OS) or **`linux_armv7`** (Pi 3 / 32-bit OS) archive from the [Releases page](https://github.com/ahmadAlMezaal/nightshift/releases) — no Go toolchain on the Pi needed.

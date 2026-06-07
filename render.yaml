@@ -1,0 +1,30 @@
+# Render Blueprint — run Nightshift as a background worker.
+#
+#   1. Push this repo (or your fork) to GitHub.
+#   2. Render Dashboard → New → Blueprint → pick the repo.
+#   3. Fill in the secret env vars (marked sync:false) when prompted.
+#
+# A worker has no public URL. The disk persists /data (repos cache, worktrees,
+# logs, PR cursor). REPOS_JSON supplies the registry inline (no file mount).
+services:
+  - type: worker
+    name: nightshift
+    runtime: image
+    image:
+      url: ghcr.io/ahmadalmezaal/nightshift:latest
+    plan: starter
+    disk:
+      name: nightshift-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: AGENT_BACKEND
+        value: claude
+      - key: LINEAR_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY   # or OPENAI_API_KEY for AGENT_BACKEND=codex
+        sync: false
+      - key: GH_TOKEN
+        sync: false
+      - key: REPOS_JSON          # {"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}
+        sync: false

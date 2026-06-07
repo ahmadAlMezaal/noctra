@@ -1,0 +1,34 @@
+#cloud-config
+# DigitalOcean (or any cloud-init host) — boots a ~$4/mo droplet that runs
+# Nightshift in Docker, auto-restarting and surviving reboots.
+#
+# Paste this into the droplet's "User data" field at creation
+# (Create Droplet → Advanced → Add Initialization scripts).
+#
+# ⚠️  SECURITY: user-data is readable from the droplet's metadata endpoint, so
+# the keys below are visible to anything on the box. For anything real, leave
+# the REPLACE_ME values out and instead SSH in after boot and run the same
+# `docker run` with your secrets, or use a secrets manager.
+
+package_update: true
+packages:
+  - docker.io
+
+runcmd:
+  - systemctl enable --now docker
+  # `--now` returns before dockerd is fully ready; wait so `docker run` doesn't
+  # intermittently fail to reach the daemon.
+  - until docker info >/dev/null 2>&1; do sleep 1; done
+  - mkdir -p /opt/nightshift/data
+  - |
+    docker run -d --name nightshift --restart unless-stopped \
+      -e LINEAR_API_KEY="REPLACE_ME" \
+      -e AGENT_BACKEND="claude" \
+      -e ANTHROPIC_API_KEY="REPLACE_ME" \
+      -e GH_TOKEN="REPLACE_ME" \
+      -e REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}' \
+      -v /opt/nightshift/data:/data \
+      ghcr.io/ahmadalmezaal/nightshift:latest
+  # Logs:    docker logs -f nightshift
+  # Upgrade: docker pull ghcr.io/ahmadalmezaal/nightshift:latest && \
+  #          docker rm -f nightshift && <re-run the docker run above>

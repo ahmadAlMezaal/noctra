@@ -31,13 +31,32 @@ func LoadRepoRegistry(path string) (*RepoRegistry, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+	return parseRepoRegistry(data, path)
+}
 
+// ParseRepoRegistry parses an inline repos.json document (e.g. from the
+// REPOS_JSON env var). Used for PaaS deploys — Fly/Render/Railway can't mount a
+// file, so the registry is supplied as an environment variable instead.
+func ParseRepoRegistry(data []byte) (*RepoRegistry, error) {
+	return parseRepoRegistry(data, "REPOS_JSON")
+}
+
+// parseRepoRegistry unmarshals registry JSON. source is used only for error
+// messages (a file path or "REPOS_JSON").
+func parseRepoRegistry(data []byte, source string) (*RepoRegistry, error) {
 	var r RepoRegistry
 	if err := json.Unmarshal(data, &r); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse %s: %w", source, err)
 	}
 	if r.Repos == nil {
-		return nil, fmt.Errorf("%s has no \"repos\" object", path)
+		return nil, fmt.Errorf("%s has no \"repos\" object", source)
+	}
+	// Fail fast on a missing URL — otherwise it surfaces much later as a
+	// confusing clone error when a ticket for that project comes in.
+	for name, entry := range r.Repos {
+		if entry.URL == "" {
+			return nil, fmt.Errorf("%s: repo %q has an empty \"url\"", source, name)
+		}
 	}
 	return &r, nil
 }

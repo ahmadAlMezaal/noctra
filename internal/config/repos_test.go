@@ -6,6 +6,50 @@ import (
 	"testing"
 )
 
+func TestParseRepoRegistry(t *testing.T) {
+	r, err := ParseRepoRegistry([]byte(`{"repos":{"Web App":{"url":"https://github.com/me/web.git"}}}`))
+	if err != nil {
+		t.Fatalf("ParseRepoRegistry: %v", err)
+	}
+	e, ok := r.Lookup("Web App")
+	if !ok || e.URL != "https://github.com/me/web.git" {
+		t.Errorf("Lookup: got %+v ok=%v", e, ok)
+	}
+	if _, err := ParseRepoRegistry([]byte(`not json`)); err == nil {
+		t.Error("expected error on invalid JSON")
+	}
+	if _, err := ParseRepoRegistry([]byte(`{}`)); err == nil {
+		t.Error("expected error when \"repos\" object is missing")
+	}
+	if _, err := ParseRepoRegistry([]byte(`{"repos":{"Web App":{"url":""}}}`)); err == nil {
+		t.Error("expected error when a repo has an empty url")
+	}
+}
+
+func TestLoad_ReposJSONEnvTakesPrecedence(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("REPOS_JSON", `{"repos":{"Inline Project":{"url":"https://github.com/me/inline.git"}}}`)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	// A repos.json file exists but REPOS_JSON should win.
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos":{"File Project":{"url":"https://github.com/me/file.git"}}}`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := cfg.Registry.Lookup("Inline Project"); !ok {
+		t.Error("REPOS_JSON registry should be loaded")
+	}
+	if _, ok := cfg.Registry.Lookup("File Project"); ok {
+		t.Error("repos.json file should be ignored when REPOS_JSON is set")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
 func TestLoadRepoRegistry(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "repos.json")
