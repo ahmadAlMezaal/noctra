@@ -91,7 +91,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		UseTeams:    p.cfg.UseAgentTeams,
 	})
 
-	logger.Info("running claude",
+	logger.Info("running agent",
+		"backend", p.agent.Name(),
 		"timeout", p.cfg.AgentTimeout,
 		"agent_teams", p.cfg.UseAgentTeams)
 
@@ -99,7 +100,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// BLOCKED / rate-limit checks only inspect this attempt's output.
 	offset := agent.OffsetBefore(logFile)
 
-	runErr := agent.Run(ctx, agent.RunOptions{
+	runErr := p.agent.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -137,7 +138,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	output := agent.ReadAfter(logFile, offset)
 
 	// ── Rate limit ───────────────────────────────────────────────────────────
-	if agent.HasRateLimit(output) {
+	if p.agent.HasRateLimit(output) {
 		logger.Warn("usage/rate limit detected — triggering shutdown")
 		p.bumpFailed(id)
 		p.flagRateLimit()
@@ -248,8 +249,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 - Do not change anything else.
 - Run tests after fixing to make sure nothing broke.`, r.Body)
 
-				logger.Info("asking claude to fix review issues")
-				if err := agent.Run(ctx, agent.RunOptions{
+				logger.Info("asking the agent to fix review issues")
+				if err := p.agent.Run(ctx, agent.RunOptions{
 					Workdir:       wt.Path,
 					Prompt:        fixPrompt,
 					LogFile:       logFile,

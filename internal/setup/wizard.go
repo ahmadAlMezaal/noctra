@@ -54,10 +54,10 @@ func Run(scriptDir string) error {
 
 	w.chooseTracker()
 	fmt.Println()
-	w.chooseEngine()
+	agentBackend := w.chooseEngine(existingEnv["AGENT_BACKEND"])
 	fmt.Println()
 
-	w.printCLIStatus()
+	w.printCLIStatus(agentBackend)
 	fmt.Println()
 
 	// ── Linear ─────────────────────────────────────────────────────────────────
@@ -196,6 +196,7 @@ func Run(scriptDir string) error {
 	fmt.Println()
 	fmt.Printf("  LINEAR_API_KEY        = %s\n", mask(linearKey))
 	fmt.Printf("  LINEAR_TEAM_KEY       = %s\n", team)
+	fmt.Printf("  AGENT_BACKEND         = %s\n", agentBackend)
 	fmt.Printf("  TRIGGER_MODE          = %s\n", triggerMode)
 	if triggerMode == "label" {
 		fmt.Printf("  TRIGGER_LABEL         = %s\n", triggerLabel)
@@ -246,6 +247,7 @@ func Run(scriptDir string) error {
 	if err := writeEnvFile(envFile, envValues{
 		linearKey:    linearKey,
 		team:         team,
+		agentBackend: agentBackend,
 		triggerMode:  triggerMode,
 		trigger:      trigger,
 		triggerLabel: triggerLabel,
@@ -481,29 +483,42 @@ func (w *wizard) chooseTriggerMode(existing string) string {
 	}
 }
 
-func (w *wizard) chooseEngine() {
-	fmt.Println("Implementation engine:")
-	fmt.Println("  1) Claude Code")
-	fmt.Println("  2) Gemini           (coming soon)")
+// chooseEngine asks which coding-agent backend to dispatch tickets with and
+// returns the canonical backend name ("claude" / "codex") for AGENT_BACKEND.
+func (w *wizard) chooseEngine(existing string) string {
+	fmt.Println("Coding-agent engine:")
+	fmt.Println("  1) Claude Code      (claude CLI)")
+	fmt.Println("  2) OpenAI Codex     (codex CLI — run `codex login` once on the host)")
+	fallback := "1"
+	if strings.EqualFold(existing, "codex") {
+		fallback = "2"
+	}
 	for {
-		s := w.askEx("Choose", askOpts{fallback: "1"})
+		s := w.askEx("Choose", askOpts{fallback: fallback})
 		if w.eof {
-			return
+			if strings.EqualFold(existing, "codex") {
+				return "codex"
+			}
+			return "claude"
 		}
 		switch s {
 		case "1":
-			return
+			return "claude"
 		case "2":
-			fmt.Println("  ⏳ Gemini as an engine isn't supported yet — Claude Code only for now.")
+			return "codex"
 		default:
 			fmt.Println("  Enter 1 or 2.")
 		}
 	}
 }
 
-func (w *wizard) printCLIStatus() {
+func (w *wizard) printCLIStatus(agentBackend string) {
 	fmt.Println("Required CLIs:")
-	for _, cmd := range config.RequiredCLIs() {
+	clis := []string{"git", "gh", config.AgentCLIs()[agentBackend]}
+	for _, cmd := range clis {
+		if cmd == "" {
+			continue
+		}
 		if _, err := exec.LookPath(cmd); err == nil {
 			fmt.Printf("  ✅ %s\n", cmd)
 		} else {
@@ -664,6 +679,7 @@ func copyFile(src, dst string) error {
 
 type envValues struct {
 	linearKey, team                              string
+	agentBackend                                 string
 	triggerMode, trigger, triggerLabel, review   string
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
@@ -702,6 +718,10 @@ LINEAR_TEAM_KEY="%s"
 %s
 MAIN_BRANCH="%s"
 
+# Coding-agent backend: "claude" (default) or "codex".
+# codex requires the OpenAI Codex CLI on PATH + a one-time 'codex login'.
+AGENT_BACKEND="%s"
+
 MAX_CONCURRENT="%s"
 POLL_INTERVAL="30"
 USE_AGENT_TEAMS="false"
@@ -733,6 +753,7 @@ TRUSTED_REVIEWERS="%s"
 		time.Now().Format(time.RFC3339),
 		v.linearKey, v.team, triggerLines, v.review,
 		repoPathLine, v.mainBranch,
+		v.agentBackend,
 		v.concurrency,
 		v.dispatches, v.retries, v.timeoutMin,
 		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,

@@ -142,7 +142,7 @@ func runPoll(scriptDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := requireCLIs(); err != nil {
+	if err := requireCLIs(cfg); err != nil {
 		return err
 	}
 
@@ -162,7 +162,7 @@ func runCleanup(scriptDir string, force bool) error {
 	if err != nil {
 		return err
 	}
-	if err := requireCLIs(); err != nil {
+	if err := requireCLIs(cfg); err != nil {
 		return err
 	}
 
@@ -216,10 +216,10 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 }
 
 // requireCLIs fails fast if any of the external commands Nightshift needs
-// (git/gh/claude) aren't on PATH. Surfaces all missing ones at once so the
-// user can install them in a single round.
-func requireCLIs() error {
-	missing := config.CheckCLIs()
+// (git/gh + the selected agent backend's CLI) aren't on PATH. Surfaces all
+// missing ones at once so the user can install them in a single round.
+func requireCLIs(cfg *config.Config) error {
+	missing := cfg.CheckCLIs()
 	if len(missing) == 0 {
 		return nil
 	}

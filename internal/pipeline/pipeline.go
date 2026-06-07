@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ahmadAlMezaal/nightshift/internal/agent"
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 	"github.com/ahmadAlMezaal/nightshift/internal/github"
 	"github.com/ahmadAlMezaal/nightshift/internal/linear"
@@ -29,6 +30,7 @@ type Pipeline struct {
 	resolver *repo.Resolver
 	telegram *notify.Telegram
 	review   *review.Gate
+	agent    agent.Backend // selected coding-agent CLI (claude / codex)
 	states   linear.StateIDs
 
 	// Label-mode trigger — resolved at startup when cfg.TriggerMode == "label".
@@ -55,12 +57,22 @@ type Pipeline struct {
 
 // New constructs a Pipeline. It does not perform any I/O — call Run to start.
 func New(cfg *config.Config) *Pipeline {
+	// config.Validate already guarantees a known backend; fall back to Claude
+	// defensively if a caller skipped validation.
+	backend, err := agent.New(cfg.AgentBackend)
+	if err != nil {
+		slog.Warn("unknown agent backend; falling back to claude",
+			"backend", cfg.AgentBackend, "err", err)
+		backend, _ = agent.New(config.DefaultAgentBackend)
+	}
+
 	p := &Pipeline{
 		cfg:            cfg,
 		linear:         linear.New(cfg.LinearAPIKey),
 		resolver:       repo.FromConfig(cfg),
 		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
 		review:         review.New(cfg.GeminiAPIKey, cfg.GeminiModel),
+		agent:          backend,
 		active:         map[string]struct{}{},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},

@@ -56,22 +56,17 @@ func ReadAfter(logFile string, offset int64) string {
 	return string(b)
 }
 
-var (
-	blockedRe   = regexp.MustCompile(`(?im)^BLOCKED:\s*(.*)$`)
-	rateLimitRe = regexp.MustCompile(`(?i)rate.limit|usage.limit|exceeded.*limit|too many requests`)
-)
+// blockedRe matches the "BLOCKED: <reason>" line every backend's prompt asks
+// the agent to print when it needs human input — so it is backend-agnostic.
+// Rate-limit detection, by contrast, depends on the CLI's error phrasing and
+// lives on each Backend (see HasRateLimit).
+var blockedRe = regexp.MustCompile(`(?im)^BLOCKED:\s*(.*)$`)
 
 // BlockedLine returns the first "BLOCKED: …" line in output (case-insensitive
 // at the start of a line) or "" if none.
 func BlockedLine(output string) string {
 	m := blockedRe.FindString(output)
 	return m
-}
-
-// HasRateLimit reports whether output contains any of the rate / usage limit
-// markers Claude emits.
-func HasRateLimit(output string) bool {
-	return rateLimitRe.MatchString(output)
 }
 
 // ExtractSummary returns Claude's final attempt's summary, stripping the

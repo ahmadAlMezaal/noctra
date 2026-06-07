@@ -28,8 +28,20 @@ func Run(scriptDir string) error {
 
 	var checks []check
 
+	// Load config first so the CLI check knows which agent backend (and thus
+	// which agent CLI) is required. If config can't load, fall back to the
+	// default backend's CLI set so we still surface useful diagnostics.
+	cfg, loadErr := config.Load(scriptDir)
+
 	// ── Required CLIs ────────────────────────────────────────────────────────
-	for _, cli := range config.RequiredCLIs() {
+	var clis []string
+	if loadErr == nil {
+		clis = cfg.RequiredCLIs()
+	} else {
+		// Config didn't load — check git/gh plus the default backend's CLI.
+		clis = []string{"git", "gh", config.AgentCLIs()[config.DefaultAgentBackend]}
+	}
+	for _, cli := range clis {
 		checks = append(checks, checkCLI(cli))
 	}
 
@@ -37,7 +49,6 @@ func Run(scriptDir string) error {
 	checks = append(checks, checkGHAuth())
 
 	// ── Config + Linear ──────────────────────────────────────────────────────
-	cfg, loadErr := config.Load(scriptDir)
 	if loadErr != nil {
 		checks = append(checks, check{
 			name:   "config",
@@ -88,6 +99,7 @@ func checkCLI(name string) check {
 			"git":    "Install git: https://git-scm.com/downloads",
 			"gh":     "Install GitHub CLI: https://cli.github.com",
 			"claude": "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
+			"codex":  "Install Codex CLI: npm i -g @openai/codex, then run `codex login`",
 		}
 		return check{
 			name:   name,
