@@ -29,7 +29,7 @@ func TestOffsetBefore_AndReadAfter_OnlyExposesNewContent(t *testing.T) {
 	if BlockedLine(tail) != "" {
 		t.Errorf("BLOCKED from old attempt should not be detected, got %q", BlockedLine(tail))
 	}
-	if HasRateLimit(tail) {
+	if (claudeBackend{}).HasRateLimit(tail) {
 		t.Errorf("rate-limit should not be detected in clean tail")
 	}
 }
@@ -39,22 +39,6 @@ func TestBlockedLine_DetectsNewBlocked(t *testing.T) {
 	got := BlockedLine(tail)
 	if !strings.Contains(got, "Missing API credentials") {
 		t.Errorf("BlockedLine: got %q", got)
-	}
-}
-
-func TestHasRateLimit(t *testing.T) {
-	cases := map[string]bool{
-		"All good":                                     false,
-		"Error: rate limit exceeded":                   true,
-		"Error: too many requests":                     true,
-		"Hit a usage limit on the API":                 true,
-		"You have exceeded the daily request limit":    true,
-		"nothing wrong here, just chatting about apis": false,
-	}
-	for in, want := range cases {
-		if got := HasRateLimit(in); got != want {
-			t.Errorf("HasRateLimit(%q) = %v, want %v", in, got, want)
-		}
 	}
 }
 

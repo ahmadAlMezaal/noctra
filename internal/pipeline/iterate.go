@@ -263,9 +263,9 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	_ = agent.AttemptHeader(logFile)
 	offset := agent.OffsetBefore(logFile)
 
-	logger.Info("running claude")
+	logger.Info("running agent", "backend", p.agent.Name())
 
-	runErr := agent.Run(ctx, agent.RunOptions{
+	runErr := p.agent.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -295,7 +295,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	}
 
 	output := agent.ReadAfter(logFile, offset)
-	if agent.HasRateLimit(output) {
+	if p.agent.HasRateLimit(output) {
 		logger.Warn("rate limit detected during iteration")
 		p.flagRateLimit()
 		return

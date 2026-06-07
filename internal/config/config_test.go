@@ -425,6 +425,70 @@ TRIGGER_MODE="state"
 	}
 }
 
+func TestLoad_AgentBackendDefaultsToClaude(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AgentBackend != "claude" {
+		t.Errorf("AgentBackend: got %q, want \"claude\"", cfg.AgentBackend)
+	}
+	if cfg.AgentCLI() != "claude" {
+		t.Errorf("AgentCLI: got %q, want \"claude\"", cfg.AgentCLI())
+	}
+	if got := cfg.RequiredCLIs(); got[len(got)-1] != "claude" {
+		t.Errorf("RequiredCLIs should end with the agent CLI, got %v", got)
+	}
+}
+
+func TestLoad_AgentBackendCodexLowercased(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+AGENT_BACKEND="Codex"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AgentBackend != "codex" {
+		t.Errorf("AgentBackend should be lowercased, got %q", cfg.AgentBackend)
+	}
+	if cfg.AgentCLI() != "codex" {
+		t.Errorf("AgentCLI: got %q, want \"codex\"", cfg.AgentCLI())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass with codex backend: %v", err)
+	}
+}
+
+func TestValidate_InvalidAgentBackendRejected(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+AGENT_BACKEND="gemini"
+`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "AGENT_BACKEND") {
+		t.Fatalf("expected AGENT_BACKEND error, got %v", err)
+	}
+}
+
 // initBareRepo creates a minimal-looking git repo (just a .git directory) so
 // isGitRepo returns true without us shelling out to git in tests.
 func initBareRepo(t *testing.T) string {

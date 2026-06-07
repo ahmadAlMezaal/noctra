@@ -10,11 +10,16 @@ import (
 	"time"
 )
 
-// requiredCLIs are the external commands Nightshift shells out to at runtime.
-// The setup wizard surfaces their presence as a friendly checklist;
-// Config.Validate treats absence as a hard error so `run` and `cleanup`
-// don't start in a broken state.
-var requiredCLIs = []string{"git", "gh", "claude"}
+// baseCLIs are the external commands Nightshift always shells out to,
+// regardless of which coding-agent backend is selected. The agent CLI itself
+// (claude / codex) is appended per-backend — see AgentCLI / RequiredCLIs.
+var baseCLIs = []string{"git", "gh"}
+
+// agentCLIs maps a backend name to the CLI binary it requires on PATH.
+var agentCLIs = map[string]string{
+	"claude": "claude",
+	"codex":  "codex",
+}
 
 // DefaultConfigDir returns the per-user config directory (~/.nightshift/).
 // This is where .env, repos.json, and logs/ live when Nightshift is installed
@@ -30,6 +35,7 @@ func DefaultConfigDir() string {
 // reference them.
 const (
 	DefaultLinearTeamKey    = "ENG"
+	DefaultAgentBackend     = "claude"
 	DefaultTriggerMode      = "state"
 	DefaultTriggerState     = "Next"
 	DefaultInReviewState    = "In Review"
@@ -62,6 +68,7 @@ type Config struct {
 	MainBranch string
 
 	// Agent
+	AgentBackend  string // coding-agent CLI: "claude" (default) or "codex"
 	MaxConcurrent int
 	PollInterval  time.Duration
 	UseAgentTeams bool
@@ -127,6 +134,7 @@ func Load(scriptDir string) (*Config, error) {
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),
 
+		AgentBackend:  strings.ToLower(strings.TrimSpace(getenv(fileEnv, "AGENT_BACKEND", DefaultAgentBackend))),
 		UseAgentTeams: getbool(fileEnv, "USE_AGENT_TEAMS", false),
 
 		TelegramEnabled:  getbool(fileEnv, "TELEGRAM_ENABLED", false),
@@ -181,6 +189,10 @@ func (c *Config) Validate() error {
 		errs = append(errs, "LINEAR_API_KEY is required — run ./nightshift setup or set it in .env")
 	}
 
+	if _, ok := agentCLIs[c.AgentBackend]; !ok {
+		errs = append(errs, fmt.Sprintf("AGENT_BACKEND must be \"claude\" or \"codex\", got %q", c.AgentBackend))
+	}
+
 	switch c.TriggerMode {
 	case "state":
 		// Default mode — no extra validation needed (trigger state is always set via default).
@@ -208,11 +220,30 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// CheckCLIs returns the subset of required CLIs that are missing from PATH.
-// The setup wizard uses this to print a friendly status section without
-// failing — `Validate` is the one that hard-errors.
-func CheckCLIs() (missing []string) {
-	for _, cmd := range requiredCLIs {
+// AgentCLI returns the CLI binary the configured backend requires on PATH.
+// Falls back to the default backend's CLI when AgentBackend is unset/unknown
+// so callers (e.g. the doctor pre-config scan) still get a sane value.
+func (c *Config) AgentCLI() string {
+	if cli, ok := agentCLIs[c.AgentBackend]; ok {
+		return cli
+	}
+	return agentCLIs[DefaultAgentBackend]
+}
+
+// RequiredCLIs returns the external commands Nightshift relies on for the
+// configured backend: the always-on base set plus the selected agent CLI.
+func (c *Config) RequiredCLIs() []string {
+	clis := make([]string, 0, len(baseCLIs)+1)
+	clis = append(clis, baseCLIs...)
+	clis = append(clis, c.AgentCLI())
+	return clis
+}
+
+// CheckCLIs returns the subset of RequiredCLIs that are missing from PATH.
+// `Validate` hard-errors on config; this is the softer PATH check used by
+// `run`/`cleanup` and the setup wizard's status block.
+func (c *Config) CheckCLIs() (missing []string) {
+	for _, cmd := range c.RequiredCLIs() {
 		if _, err := exec.LookPath(cmd); err != nil {
 			missing = append(missing, cmd)
 		}
@@ -220,9 +251,15 @@ func CheckCLIs() (missing []string) {
 	return missing
 }
 
-// RequiredCLIs returns the list of external commands Nightshift relies on.
-// Exposed so the wizard can render a status block without duplicating the list.
-func RequiredCLIs() []string { return append([]string(nil), requiredCLIs...) }
+// AgentCLIs returns the set of every backend's CLI binary, keyed by backend
+// name. Exposed so the doctor/wizard can render hints without a loaded Config.
+func AgentCLIs() map[string]string {
+	out := make(map[string]string, len(agentCLIs))
+	for k, v := range agentCLIs {
+		out[k] = v
+	}
+	return out
+}
 
 func isGitRepo(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
