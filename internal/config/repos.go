@@ -51,6 +51,13 @@ func parseRepoRegistry(data []byte, source string) (*RepoRegistry, error) {
 	if r.Repos == nil {
 		return nil, fmt.Errorf("%s has no \"repos\" object", source)
 	}
+	// Fail fast on a missing URL — otherwise it surfaces much later as a
+	// confusing clone error when a ticket for that project comes in.
+	for name, entry := range r.Repos {
+		if entry.URL == "" {
+			return nil, fmt.Errorf("%s: repo %q has an empty \"url\"", source, name)
+		}
+	}
 	return &r, nil
 }
 

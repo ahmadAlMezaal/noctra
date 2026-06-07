@@ -21,6 +21,9 @@ func TestParseRepoRegistry(t *testing.T) {
 	if _, err := ParseRepoRegistry([]byte(`{}`)); err == nil {
 		t.Error("expected error when \"repos\" object is missing")
 	}
+	if _, err := ParseRepoRegistry([]byte(`{"repos":{"Web App":{"url":""}}}`)); err == nil {
+		t.Error("expected error when a repo has an empty url")
+	}
 }
 
 func TestLoad_ReposJSONEnvTakesPrecedence(t *testing.T) {

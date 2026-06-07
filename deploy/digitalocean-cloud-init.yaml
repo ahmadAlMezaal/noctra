@@ -16,6 +16,9 @@ packages:
 
 runcmd:
   - systemctl enable --now docker
+  # `--now` returns before dockerd is fully ready; wait so `docker run` doesn't
+  # intermittently fail to reach the daemon.
+  - until docker info >/dev/null 2>&1; do sleep 1; done
   - mkdir -p /opt/nightshift/data
   - |
     docker run -d --name nightshift --restart unless-stopped \
