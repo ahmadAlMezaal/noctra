@@ -11,13 +11,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 )
 
+const defaultMode = "api"
+
+// ErrUnavailable means the selected Gemini backend is not usable on this host
+// (for example: CLI missing or not logged in). Callers should skip the optional
+// review gate instead of treating this like a failed review.
+var ErrUnavailable = errors.New("gemini review unavailable")
+
 // Result is the outcome of a single review pass.
 type Result struct {
 	Passed bool
+	// Skipped reports that the optional gate could not run because its selected
+	// backend is not available on this host.
+	Skipped bool
 	// Body is Gemini's review text — surfaced in the PR body if the gate
 	// did not pass.
 	Body string
@@ -25,6 +36,7 @@ type Result struct {
 
 // Gate is a Gemini-backed reviewer.
 type Gate struct {
+	Mode   string
 	APIKey string
 	Model  string
 	HTTP   *http.Client
@@ -32,10 +44,20 @@ type Gate struct {
 
 // New returns a Gate. model defaults to "gemini-2.5-pro" when empty.
 func New(apiKey, model string) *Gate {
+	return NewWithMode(defaultMode, apiKey, model)
+}
+
+// NewWithMode returns a Gate for either the Gemini API or Gemini CLI.
+func NewWithMode(mode, apiKey, model string) *Gate {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = defaultMode
+	}
 	if model == "" {
 		model = "gemini-2.5-pro"
 	}
 	return &Gate{
+		Mode:   mode,
 		APIKey: apiKey,
 		Model:  model,
 		HTTP:   &http.Client{Timeout: 120 * time.Second},
@@ -43,7 +65,12 @@ func New(apiKey, model string) *Gate {
 }
 
 // Enabled reports whether the gate is configured to run.
-func (g *Gate) Enabled() bool { return g != nil && g.APIKey != "" }
+func (g *Gate) Enabled() bool {
+	if g == nil {
+		return false
+	}
+	return g.Mode == "cli" || g.APIKey != ""
+}
 
 // Review sends a diff + ticket context to Gemini and returns its verdict.
 func (g *Gate) Review(ctx context.Context, ticketTitle, ticketDescription, diff string) (Result, error) {
@@ -51,7 +78,15 @@ func (g *Gate) Review(ctx context.Context, ticketTitle, ticketDescription, diff 
 		return Result{Passed: true, Body: "PASS (Gemini not configured)"}, nil
 	}
 
-	prompt := fmt.Sprintf(`You are a senior code reviewer. Review this diff against the ticket requirements.
+	prompt := buildPrompt(ticketTitle, ticketDescription, diff)
+	if g.Mode == "cli" {
+		return g.reviewCLI(ctx, prompt)
+	}
+	return g.reviewAPI(ctx, prompt)
+}
+
+func buildPrompt(ticketTitle, ticketDescription, diff string) string {
+	return fmt.Sprintf(`You are a senior code reviewer. Review this diff against the ticket requirements.
 
 ## Ticket: %s
 %s
@@ -73,7 +108,9 @@ Start your response with exactly one of:
 
 Then provide your review comments.`,
 		ticketTitle, ticketDescription, diff)
+}
 
+func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 	body, err := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"parts": []any{map[string]any{"text": prompt}}}},
 		"generationConfig": map[string]any{"temperature": 0.1, "maxOutputTokens": 4096},
@@ -119,5 +156,36 @@ Then provide your review comments.`,
 	}
 
 	text := parsed.Candidates[0].Content.Parts[0].Text
-	return Result{Passed: strings.Contains(strings.ToUpper(text), "VERDICT: PASS"), Body: text}, nil
+	return parseResult(text), nil
+}
+
+func (g *Gate) reviewCLI(ctx context.Context, prompt string) (Result, error) {
+	if _, err := exec.LookPath("gemini"); err != nil {
+		return Result{Skipped: true, Passed: true, Body: "Gemini CLI not found in PATH. Install it and run `gemini` once to log in."},
+			fmt.Errorf("%w: gemini CLI not found in PATH", ErrUnavailable)
+	}
+
+	cmd := exec.CommandContext(ctx, "gemini", "--model", g.Model, "--prompt", prompt)
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		msg := text
+		if msg == "" {
+			msg = err.Error()
+		}
+		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini CLI unavailable: %s", msg)},
+			fmt.Errorf("%w: gemini CLI failed: %s", ErrUnavailable, msg)
+	}
+	if text == "" {
+		return Result{}, errors.New("gemini CLI returned no output")
+	}
+	return parseResult(text), nil
+}
+
+func parseResult(text string) Result {
+	upper := strings.ToUpper(text)
+	return Result{
+		Passed: strings.Contains(upper, "VERDICT: PASS"),
+		Body:   text,
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/linear"
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
+	"github.com/ahmadAlMezaal/nightshift/internal/review"
 )
 
 // process is one ticket's full lifecycle: resolve repo → worktree → run
@@ -229,6 +230,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	// ── Gemini review gate (optional) ────────────────────────────────────────
 	reviewPassed := true
+	reviewSkipped := false
 	var reviewBody string
 	reviewAttempts := 0
 
@@ -239,12 +241,25 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			diff := gitDiff(ctx, wt.Path)
 			r, err := p.review.Review(ctx, issue.Title, issue.Description, diff)
 			if err != nil {
+				if errors.Is(err, review.ErrUnavailable) {
+					logger.Warn("gemini review gate skipped", "err", err)
+					reviewPassed = true
+					reviewSkipped = true
+					reviewBody = r.Body
+					break
+				}
 				logger.Warn("gemini review request failed", "err", err)
 				reviewPassed = false
 				reviewBody = err.Error()
 				break
 			}
 			reviewBody = r.Body
+			if r.Skipped {
+				reviewPassed = true
+				reviewSkipped = true
+				logger.Warn("gemini review gate skipped", "reason", r.Body)
+				break
+			}
 			if r.Passed {
 				reviewPassed = true
 				logger.Info("✅ gemini review passed")
@@ -320,8 +335,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	reviewSection := ""
 	if p.review.Enabled() {
-		if reviewPassed {
-			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s`)", p.cfg.GeminiModel)
+		if reviewSkipped {
+			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
+				p.review.Model, p.review.Mode, reviewBody)
+		} else if reviewPassed {
+			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
+				p.review.Model, p.review.Mode)
 		} else {
 			reviewSection = fmt.Sprintf(
 				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",

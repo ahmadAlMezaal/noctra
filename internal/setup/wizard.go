@@ -148,13 +148,27 @@ func Run(scriptDir string) error {
 
 	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
-	if existingEnv["GEMINI_API_KEY"] != "" {
+	geminiMode := existingEnv["GEMINI_MODE"]
+	if geminiMode == "" {
+		geminiMode = config.DefaultGeminiMode
+	}
+	if strings.EqualFold(geminiMode, "cli") || existingEnv["GEMINI_API_KEY"] != "" {
 		fmt.Println("Gemini review gate is currently enabled.")
 		if w.confirm("Keep it enabled?") {
-			geminiKey = w.askEx("Gemini API key", askOpts{existing: existingEnv["GEMINI_API_KEY"], secret: true})
+			geminiMode = w.chooseGeminiMode(geminiMode)
+			if geminiMode == "api" {
+				geminiKey = w.askEx("Gemini API key", askOpts{existing: existingEnv["GEMINI_API_KEY"], secret: true})
+			}
+		} else {
+			geminiMode = config.DefaultGeminiMode
 		}
 	} else if w.confirm("Enable the Gemini review gate?") {
-		geminiKey = w.askEx("Gemini API key", askOpts{secret: true})
+		geminiMode = w.chooseGeminiMode(geminiMode)
+		if geminiMode == "api" {
+			geminiKey = w.askEx("Gemini API key", askOpts{secret: true})
+		}
+	} else {
+		geminiMode = config.DefaultGeminiMode
 	}
 
 	// ── Optional: Telegram ─────────────────────────────────────────────────────
@@ -212,7 +226,12 @@ func Run(scriptDir string) error {
 	fmt.Printf("  MAX_DISPATCHES        = %d\n", dispatches)
 	fmt.Printf("  MAX_RETRIES           = %d\n", retries)
 	fmt.Printf("  AGENT_TIMEOUT_MINUTES = %d\n", timeoutMin)
-	fmt.Printf("  GEMINI_API_KEY        = %s\n", maskOrNone(geminiKey))
+	fmt.Printf("  GEMINI_MODE           = %s\n", geminiMode)
+	if geminiMode == "cli" {
+		fmt.Printf("  GEMINI_API_KEY        = (not used in cli mode)\n")
+	} else {
+		fmt.Printf("  GEMINI_API_KEY        = %s\n", maskOrNone(geminiKey))
+	}
 	fmt.Printf("  AUTO_ITERATE_PRS      = %s\n", autoIterate)
 	if autoIterate == "true" {
 		fmt.Printf("  MAX_PR_ITERATIONS     = %d\n", maxIter)
@@ -259,6 +278,7 @@ func Run(scriptDir string) error {
 		retries:      strconv.Itoa(retries),
 		timeoutMin:   strconv.Itoa(timeoutMin),
 		geminiKey:    geminiKey,
+		geminiMode:   geminiMode,
 		tgEnabled:    tgEnabled,
 		tgToken:      tgToken,
 		tgChat:       tgChat,
@@ -512,6 +532,33 @@ func (w *wizard) chooseEngine(existing string) string {
 	}
 }
 
+func (w *wizard) chooseGeminiMode(existing string) string {
+	fmt.Println("Gemini review mode:")
+	fmt.Println("  1) API — uses GEMINI_API_KEY from Google AI Studio")
+	fmt.Println("  2) CLI — uses the gemini CLI; run `gemini` once on the host to log in")
+	fallback := "1"
+	if strings.EqualFold(existing, "cli") {
+		fallback = "2"
+	}
+	for {
+		s := w.askEx("Choose", askOpts{fallback: fallback})
+		if w.eof {
+			if strings.EqualFold(existing, "cli") {
+				return "cli"
+			}
+			return "api"
+		}
+		switch s {
+		case "1":
+			return "api"
+		case "2":
+			return "cli"
+		default:
+			fmt.Println("  Enter 1 or 2.")
+		}
+	}
+}
+
 func (w *wizard) printCLIStatus(agentBackend string) {
 	fmt.Println("Required CLIs:")
 	clis := []string{"git", "gh", config.AgentCLIs()[agentBackend]}
@@ -683,7 +730,7 @@ type envValues struct {
 	triggerMode, trigger, triggerLabel, review   string
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
-	geminiKey                                    string
+	geminiMode, geminiKey                        string
 	tgEnabled, tgToken, tgChat, tgVerbose        string
 	autoIterate, maxIter, prPoll, trusted        string
 }
@@ -736,6 +783,9 @@ TELEGRAM_CHAT_ID="%s"
 # Also notify on every ticket dispatch (more chatty)
 TELEGRAM_VERBOSE="%s"
 
+# Gemini review gate: "api" uses GEMINI_API_KEY; "cli" shells out to gemini.
+# For cli mode, install Gemini CLI and run 'gemini' once on this host to log in.
+GEMINI_MODE="%s"
 GEMINI_API_KEY="%s"
 GEMINI_MODEL="gemini-2.5-pro"
 MAX_REVIEW_RETRIES="1"
@@ -757,7 +807,7 @@ TRUSTED_REVIEWERS="%s"
 		v.concurrency,
 		v.dispatches, v.retries, v.timeoutMin,
 		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
-		v.geminiKey,
+		v.geminiMode, v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
