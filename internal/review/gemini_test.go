@@ -16,13 +16,26 @@ case "$*" in
   *"--model gemini-test"*) ;;
   *) echo "missing model" >&2; exit 2 ;;
 esac
+case "$*" in
+  *"--prompt"*) echo "prompt should be sent on stdin" >&2; exit 2 ;;
+esac
+found=
+while IFS= read -r line; do
+  case "$line" in
+    *"DIFF_CONTENT"*) found=1 ;;
+  esac
+done
+if [ "$found" != "1" ]; then
+  echo "missing stdin prompt" >&2
+  exit 2
+fi
 echo "VERDICT: PASS"
 echo "Looks good."
 `)
 	t.Setenv("PATH", dir)
 
 	g := NewWithMode("cli", "", "gemini-test")
-	got, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	got, err := g.Review(context.Background(), "Ticket", "Description", "DIFF_CONTENT")
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -50,7 +63,7 @@ func TestReviewCLIMissingIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestReviewCLINonZeroIsUnavailable(t *testing.T) {
+func TestReviewCLIAuthFailureIsUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeGemini(t, dir, `#!/bin/sh
 echo "not logged in: run gemini first" >&2
@@ -65,6 +78,27 @@ exit 1
 	}
 	if !got.Skipped || !strings.Contains(got.Body, "not logged in") {
 		t.Fatalf("result = %+v, want skipped auth hint", got)
+	}
+}
+
+func TestReviewCLINonAuthFailureIsNotUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeGemini(t, dir, `#!/bin/sh
+echo "rate limit exceeded" >&2
+exit 1
+`)
+	t.Setenv("PATH", dir)
+
+	g := NewWithMode("cli", "", "gemini-test")
+	got, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if err == nil {
+		t.Fatal("Review returned nil error, want CLI failure")
+	}
+	if errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, should not be ErrUnavailable", err)
+	}
+	if got.Skipped || got.Passed {
+		t.Fatalf("result = %+v, want non-skipped failure", got)
 	}
 }
 

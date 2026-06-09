@@ -165,21 +165,49 @@ func (g *Gate) reviewCLI(ctx context.Context, prompt string) (Result, error) {
 			fmt.Errorf("%w: gemini CLI not found in PATH", ErrUnavailable)
 	}
 
-	cmd := exec.CommandContext(ctx, "gemini", "--model", g.Model, "--prompt", prompt)
+	cmd := exec.CommandContext(ctx, "gemini", "--model", g.Model)
+	cmd.Stdin = strings.NewReader(prompt)
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
+		if ctx.Err() != nil {
+			return Result{}, ctx.Err()
+		}
 		msg := text
 		if msg == "" {
 			msg = err.Error()
 		}
-		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini CLI unavailable: %s", msg)},
-			fmt.Errorf("%w: gemini CLI failed: %s", ErrUnavailable, msg)
+		if isCLIUnavailableMessage(msg) {
+			return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini CLI unavailable: %s", msg)},
+				fmt.Errorf("%w: gemini CLI failed: %s", ErrUnavailable, msg)
+		}
+		return Result{}, fmt.Errorf("gemini CLI failed: %s", msg)
 	}
 	if text == "" {
 		return Result{}, errors.New("gemini CLI returned no output")
 	}
 	return parseResult(text), nil
+}
+
+func isCLIUnavailableMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	authHints := []string{
+		"not logged in",
+		"login required",
+		"not authenticated",
+		"authentication required",
+		"auth required",
+		"no credentials",
+		"could not load credentials",
+		"run gemini first",
+		"run gemini once",
+	}
+	for _, hint := range authHints {
+		if strings.Contains(msg, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseResult(text string) Result {
