@@ -148,7 +148,7 @@ func Update(ctx context.Context, current string, restart bool) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	// Download the platform archive + the checksums file.
 	dl := exec.CommandContext(ctx, "gh", "release", "download", tag,
@@ -245,7 +245,7 @@ func extractBinary(archivePath string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
