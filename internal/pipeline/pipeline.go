@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -465,7 +466,9 @@ func (p *Pipeline) summary(ctx context.Context) {
 // (selfupdate.IsNewer returns false for empty/"dev"/"-dev"/"-snapshot"). When a
 // newer release exists it logs a line and, if Telegram is wired up, pings once.
 func (p *Pipeline) checkForUpdate(ctx context.Context) {
-	if Version == "" || Version == "dev" {
+	// Skip dev/snapshot builds entirely — including "1.2.3-dev"/"-snapshot" — so
+	// they don't make a pointless network call on every startup.
+	if Version == "" || strings.Contains(Version, "dev") || strings.Contains(Version, "snapshot") {
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
