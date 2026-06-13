@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 )
 
@@ -103,12 +104,15 @@ func Install(force, start bool) error {
 			fmt.Println("✓ Enabled and started nightshift.service")
 		}
 		// Lingering lets the user service keep running after logout / across reboots.
+		// user.Current() is more reliable than $USER, which can be empty in
+		// non-interactive shells / systemd / cron contexts.
 		if loginctl, lerr := exec.LookPath("loginctl"); lerr == nil {
-			user := os.Getenv("USER")
-			if out, err := exec.Command(loginctl, "enable-linger", user).CombinedOutput(); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️  could not enable lingering (%v): %s\n", err, out)
-			} else {
-				fmt.Println("✓ Enabled lingering (service survives logout)")
+			if u, uerr := user.Current(); uerr == nil {
+				if out, err := exec.Command(loginctl, "enable-linger", u.Username).CombinedOutput(); err != nil {
+					fmt.Fprintf(os.Stderr, "⚠️  could not enable lingering (%v): %s\n", err, out)
+				} else {
+					fmt.Println("✓ Enabled lingering (service survives logout)")
+				}
 			}
 		}
 	}

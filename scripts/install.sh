@@ -63,7 +63,7 @@ curl -fsSL "$BASE/checksums.txt" -o "$TMP/checksums.txt" \
 	|| err "download failed: $BASE/checksums.txt"
 
 # --- verify sha256 ----------------------------------------------------------
-want="$(grep " $ASSET\$" "$TMP/checksums.txt" | awk '{print $1}')"
+want="$(awk -v a="$ASSET" '$2 == a { print $1 }' "$TMP/checksums.txt")"
 [ -n "$want" ] || err "no checksum for $ASSET in checksums.txt"
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -81,7 +81,7 @@ tar -xzf "$TMP/$ASSET" -C "$TMP" nightshift \
 
 mkdir -p "$INSTALL_DIR"
 install -m 0755 "$TMP/nightshift" "$INSTALL_DIR/nightshift" 2>/dev/null \
-	|| { cp "$TMP/nightshift" "$INSTALL_DIR/nightshift" && chmod 0755 "$INSTALL_DIR/nightshift"; }
+	|| { rm -f "$INSTALL_DIR/nightshift" 2>/dev/null; cp "$TMP/nightshift" "$INSTALL_DIR/nightshift" && chmod 0755 "$INSTALL_DIR/nightshift"; }
 
 echo "✓ Installed nightshift to $INSTALL_DIR/nightshift"
 
