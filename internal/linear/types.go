@@ -5,13 +5,41 @@ package linear
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
-// Project is the Linear project a ticket belongs to. Nightshift uses the name
-// to look the target repo up in repos.json.
+// Project is the Linear project a ticket belongs to. Nightshift routes the
+// ticket to a repo either by a "Repo:" directive in Description (preferred) or,
+// failing that, by looking Name up in repos.json.
 type Project struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+var (
+	repoDirectiveRe   = regexp.MustCompile(`(?im)^\s*Repo:\s*(.+?)\s*$`)
+	branchDirectiveRe = regexp.MustCompile(`(?im)^\s*Branch:\s*(.+?)\s*$`)
+)
+
+// RepoDirective parses a "Repo: <owner/name | url>" line (and an optional
+// "Branch: <name>" line) from the project description, letting a Linear project
+// declare its target repo without a repos.json entry. Returns ("","") when no
+// Repo line is present. branch is ignored unless a repo is also given.
+func (p *Project) RepoDirective() (repo, branch string) {
+	if p == nil {
+		return "", ""
+	}
+	if m := repoDirectiveRe.FindStringSubmatch(p.Description); m != nil {
+		repo = strings.TrimSpace(m[1])
+	}
+	if repo == "" {
+		return "", ""
+	}
+	if m := branchDirectiveRe.FindStringSubmatch(p.Description); m != nil {
+		branch = strings.TrimSpace(m[1])
+	}
+	return repo, branch
 }
 
 // WorkflowState is the column a ticket sits in (e.g. "Next", "In Review") and

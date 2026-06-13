@@ -40,9 +40,15 @@ PR poll loop → github.ListNightshiftPRs → github.GetPR (comments+reviews+sta
 
 ## Multi-repo
 
-The target repo is chosen **per-ticket** from the ticket's Linear **project**, not from a single global path. `repos.json` (gitignored) maps a project name → `{ url, main_branch }`. `repo.Resolve` looks the project up, clones the repo on demand into `~/.nightshift-repos/<slug>` (lock-guarded against concurrent clone races via `mkdir(2)`), and returns the local path + main branch.
+The target repo is chosen **per-ticket**, not from a single global path. Resolution order:
 
-If a ticket's project has no registry entry, Nightshift falls back to `REPO_PATH` from `.env` if set, otherwise it skips the ticket with a Linear comment.
+1. **Linear project directive (no `repos.json` needed)** — if the ticket's Linear **project description** contains a `Repo: <owner/name | git URL>` line (optionally a `Branch: <name>` line), `repo.ResolveDirect` clones that repo directly. `linear.Project.RepoDirective` parses it; the trigger queries fetch `project { name description }` to make it available. An `owner/name` shorthand is expanded to a GitHub HTTPS URL (full `https://`/`git@` URLs are used verbatim, so non-GitHub hosts work). With no `Branch:`, the repo's actual default branch is read from `origin/HEAD` after clone (fallback `MAIN_BRANCH`).
+2. **`repos.json` registry (legacy / fallback)** — `repos.json` (gitignored) maps a project **name** → `{ url, main_branch }`. `repo.Resolve` looks the project up. Still fully supported; needed for repos you'd rather not declare in Linear.
+3. **`REPO_PATH`** — single-repo fallback when neither of the above matches; otherwise the ticket is skipped with a Linear comment.
+
+Both paths clone on demand into `~/.nightshift-repos/<slug>` (lock-guarded against concurrent clone races via `mkdir(2)`) and return the local path + base branch. The **auto-iterate** path resolves the same way: `matchPRtoProject` hits `repos.json` first, else `ResolveDirect` clones straight from the PR's own `owner/name` — so project-declared repos iterate too.
+
+The project-directive route means **`repos.json` is optional**: declare each project's repo in Linear and you can drop the file entirely.
 
 The registry can also be supplied inline via the **`REPOS_JSON`** env var (same shape as `repos.json`) — it takes precedence over `REPOS_FILE` and exists for PaaS deploys (Fly/Render/Railway) that can't mount a file. `config.ParseRepoRegistry` parses it; `config.Load` chooses env-vs-file.
 
@@ -65,8 +71,8 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 |---------|---------|
 | `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
 | `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
-| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues` (both fetch each issue's `comments` so human clarifications reach the agent — see `Issue.ClarificationComments`, which filters out Nightshift's own automated notices), `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
-| `internal/repo` | Project → repo slug + registry; clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
+| `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues` (both fetch each issue's `comments` so human clarifications reach the agent — see `Issue.ClarificationComments`, which filters out Nightshift's own automated notices; project descriptions are fetched too, parsed by `Project.RepoDirective` for `Repo:`/`Branch:` routing), `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
+| `internal/repo` | Repo resolution: `Resolve` (project name → `repos.json` entry) + `ResolveDirect` (explicit `owner/name`/URL from a Linear project's `Repo:` directive or a PR's own repo, with `origin/HEAD` default-branch detection); clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Pluggable coding-agent backends behind the `Backend` interface (`agent.New` selects `claude`/`codex` from `AGENT_BACKEND`); shared `exec` plumbing with timeout; per-backend invocation flags + rate-limit parsing (`claude.go` / `codex.go`); backend-agnostic implement-prompt builder, `BuildFixPrompt`, `BlockedLine`, and log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |

@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/nightshift/internal/github"
 )
 
 // NonTransientError signals a failure that is deterministic and cannot
@@ -92,6 +94,60 @@ func (r *Resolver) Resolve(ctx context.Context, project string) (Resolved, error
 	return Resolved{}, &NonTransientError{Err: fmt.Errorf(
 		"no repo is mapped for the project %q in repos.json, and no REPO_PATH fallback is configured",
 		project)}
+}
+
+// ResolveDirect locates (cloning on demand) a repo named explicitly — by a
+// Linear project's "Repo:" directive or, in the auto-iterate path, by a PR's own
+// repository — bypassing the repos.json registry entirely. ref may be an
+// "owner/name" shorthand (assumed GitHub) or a full https/ssh git URL. branch
+// overrides the base branch; when empty, the repo's actual default branch (read
+// after clone) is used, falling back to MainBranch.
+func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resolved, error) {
+	ownerRepo, err := github.ExtractOwnerRepo(ref)
+	if err != nil {
+		return Resolved{}, &NonTransientError{Err: fmt.Errorf(
+			"%q is not a valid owner/name or git URL: %w", ref, err)}
+	}
+
+	url := strings.TrimSpace(ref)
+	if !strings.Contains(url, "://") && !strings.HasPrefix(url, "git@") {
+		url = "https://github.com/" + ownerRepo
+	}
+
+	dest := filepath.Join(r.ReposBase, Slug(ownerRepo))
+	if !isGitRepo(dest) {
+		if err := os.MkdirAll(r.ReposBase, 0o755); err != nil {
+			return Resolved{}, fmt.Errorf("mkdir %s: %w", r.ReposBase, err)
+		}
+		if err := checkRemoteAccess(ctx, url); err != nil {
+			return Resolved{}, fmt.Errorf(
+				"cannot access %q — the host running Nightshift needs git auth for it "+
+					"(an SSH key, or `gh auth login` for HTTPS URLs): %w", url, err)
+		}
+		if err := ensureCloned(ctx, url, dest); err != nil {
+			return Resolved{}, fmt.Errorf("clone %s: %w", url, err)
+		}
+	}
+
+	if branch == "" {
+		branch = defaultBranch(ctx, dest, r.MainBranch)
+	}
+	return Resolved{Path: dest, MainBranch: branch}, nil
+}
+
+// defaultBranch reads the repo's default branch from origin/HEAD (set by clone),
+// falling back to fallback when it can't be determined.
+func defaultBranch(ctx context.Context, dir, fallback string) string {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return fallback
+	}
+	ref := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/")
+	if ref == "" {
+		return fallback
+	}
+	return ref
 }
 
 // checkRemoteAccess runs `git ls-remote` to verify the host can reach the

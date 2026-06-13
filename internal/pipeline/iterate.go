@@ -182,16 +182,26 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// same feedback, re-runs, and fails again — an infinite retry loop. The
 	// only exceptions are infra failures (timeout / rate-limit), handled
 	// further down, which intentionally retry.
-	project, err := p.matchPRtoProject(ch.PR.URL)
-	if err != nil {
-		logger.Error("could not match PR to a registered project", "err", err)
-		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
-		return
-	}
-
-	resolved, err := p.resolver.Resolve(ctx, project)
-	if err != nil {
-		logger.Error("repo resolve failed", "err", err)
+	// Resolve the repo this PR lives in. Prefer a repos.json entry (keeps the
+	// registered main-branch); otherwise clone the PR's repo directly by its
+	// owner/name — so project-declared repos (not in repos.json) iterate too.
+	var resolved repo.Resolved
+	if project, err := p.matchPRtoProject(ch.PR.URL); err == nil {
+		resolved, err = p.resolver.Resolve(ctx, project)
+		if err != nil {
+			logger.Error("repo resolve failed", "err", err)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+			return
+		}
+	} else if ownerRepo, e2 := prRepoOwnerRepo(ch.PR.URL); e2 == nil {
+		resolved, e2 = p.resolver.ResolveDirect(ctx, ownerRepo, "")
+		if e2 != nil {
+			logger.Error("repo resolve (direct) failed", "err", e2)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+			return
+		}
+	} else {
+		logger.Error("could not resolve PR repo", "match_err", err, "url_err", e2)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
