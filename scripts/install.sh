@@ -93,8 +93,23 @@ case ":$PATH:" in
 	*":$INSTALL_DIR:"*) ;;
 	*)
 		echo
-		echo "⚠️  $INSTALL_DIR is not on your PATH. Add it, e.g.:"
-		echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.profile && . ~/.profile"
+		echo "⚠️  $INSTALL_DIR is not on your PATH yet. Add it once:"
+		# fish has its own syntax and doesn't read POSIX profile/rc files.
+		case "${SHELL##*/}" in
+			fish)
+				echo "    fish_add_path $INSTALL_DIR"
+				;;
+			*)
+				case "${SHELL##*/}" in
+					zsh)  rc="$HOME/.zshrc" ;;
+					bash) rc="$HOME/.bashrc" ;;
+					*)    rc="$HOME/.profile" ;;
+				esac
+				echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc   # persist for new shells"
+				echo "    export PATH=\"$INSTALL_DIR:\$PATH\"                 # …and use it in this shell now"
+				echo "  (Debian/Raspberry Pi OS: opening a fresh login shell also picks it up automatically.)"
+				;;
+		esac
 		;;
 esac
 
