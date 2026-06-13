@@ -146,11 +146,15 @@ func TestRunJSON_Shape(t *testing.T) {
 }
 
 func TestRunJSON_ReturnsErrorOnFailure(t *testing.T) {
-	// A temp dir has no valid config, so the config check fails → non-nil error.
+	// Force a deterministic failure: clear LINEAR_API_KEY so an ambient key in
+	// the environment can't satisfy the Linear check, and point at an empty temp
+	// config dir. The Linear-key (or config-load) check then fails → non-nil
+	// error, regardless of which CLIs happen to be on PATH.
+	t.Setenv("LINEAR_API_KEY", "")
 	var buf bytes.Buffer
 	err := RunJSON(t.TempDir(), &buf)
 	if err == nil {
-		t.Error("expected an error when checks fail (no config in temp dir)")
+		t.Error("expected an error when a check fails")
 	}
 	// JSON must still have been written even on failure.
 	if buf.Len() == 0 {
