@@ -24,8 +24,9 @@ The setup wizard prompts for the agent backend, Linear API key, trigger configur
 
 ```bash
 cp .env.example .env
-cp repos.example.json repos.json
 ```
+
+Repos are routed per-ticket from the Linear project's description (`Repo: owner/name`, optional `Branch:`). A hand-written `repos.json` is an optional fallback.
 
 Then fill in the required values:
 
