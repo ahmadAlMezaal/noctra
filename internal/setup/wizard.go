@@ -306,34 +306,46 @@ func Run(scriptDir string) error {
 	return nil
 }
 
-// runManual copies .env.example → .env and repos.example.json → repos.json,
-// asking before overwriting either. The caller passes its own scanner so we
-// share the same input stream — constructing a second bufio.Scanner on
-// os.Stdin would risk losing bytes the first scanner already buffered.
+// runManual copies .env.example → .env, asking before overwriting it. The
+// caller passes its own scanner so we share the same input stream —
+// constructing a second bufio.Scanner on os.Stdin would risk losing bytes the
+// first scanner already buffered.
+//
+// Repos are no longer scaffolded from a template here: the recommended way to
+// route a ticket to its repo is the Linear project's `Repo:` directive (a
+// `Repo: owner/name` line in the project description). A hand-written
+// repos.json (or REPOS_JSON) remains an optional fallback for SSH/non-GitHub
+// URLs and PaaS inline config.
 func runManual(scriptDir string, in *bufio.Scanner) error {
-	pairs := []struct{ src, dst string }{
-		{filepath.Join(scriptDir, ".env.example"), filepath.Join(scriptDir, ".env")},
-		{filepath.Join(scriptDir, "repos.example.json"), filepath.Join(scriptDir, "repos.json")},
-	}
-	for _, p := range pairs {
-		if _, err := os.Stat(p.src); err != nil {
-			fmt.Printf("⚠️  Template not found: %s — skipping\n", p.src)
-			continue
-		}
-		if _, err := os.Stat(p.dst); err == nil {
-			fmt.Print(filepath.Base(p.dst), " already exists — overwrite? [y/N] ")
+	src := filepath.Join(scriptDir, ".env.example")
+	dst := filepath.Join(scriptDir, ".env")
+	if _, err := os.Stat(src); err != nil {
+		fmt.Printf("⚠️  Template not found: %s — skipping\n", src)
+	} else {
+		create := true
+		if _, err := os.Stat(dst); err == nil {
+			fmt.Print(filepath.Base(dst), " already exists — overwrite? [y/N] ")
 			if !in.Scan() || !yes(in.Text()) {
 				fmt.Println("   kept existing")
-				continue
+				create = false
 			}
 		}
-		if err := copyFile(p.src, p.dst); err != nil {
-			return fmt.Errorf("copy %s → %s: %w", p.src, p.dst, err)
+		if create {
+			if err := copyFile(src, dst); err != nil {
+				return fmt.Errorf("copy %s → %s: %w", src, dst, err)
+			}
+			fmt.Printf("📄 Created %s\n", dst)
 		}
-		fmt.Printf("📄 Created %s\n", p.dst)
 	}
 	fmt.Println()
-	fmt.Println("Edit those files with your values, then run: ./nightshift")
+	fmt.Println("Edit .env with your values, then run: ./nightshift")
+	fmt.Println()
+	fmt.Println("Repos are routed per-ticket from the Linear project's description:")
+	fmt.Println("  Repo: your-org/your-repo")
+	fmt.Println("  Branch: main   (optional — defaults to the repo's default branch)")
+	fmt.Println("As an optional fallback you can hand-write a repos.json (or set")
+	fmt.Println("REPOS_JSON) mapping a project name → repo URL — needed for SSH/")
+	fmt.Println("non-GitHub URLs or PaaS inline config.")
 	return nil
 }
 
@@ -438,7 +450,7 @@ func (w *wizard) confirm(prompt string) bool {
 func (w *wizard) chooseMode() string {
 	fmt.Println("How would you like to configure Nightshift?")
 	fmt.Println("  1) Interactive setup (guided prompts) — recommended")
-	fmt.Println("  2) Manual setup (copies .env.example & repos.example.json — you fill them in)")
+	fmt.Println("  2) Manual setup (copies .env.example — you fill it in)")
 	for {
 		s := w.askEx("Choose", askOpts{fallback: "1"})
 		if w.eof {
