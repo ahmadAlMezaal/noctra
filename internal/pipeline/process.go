@@ -89,6 +89,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		Identifier:  id,
 		Title:       issue.Title,
 		Description: issue.Description,
+		Comments:    issue.ClarificationComments(),
 		UseTeams:    p.cfg.UseAgentTeams,
 	})
 

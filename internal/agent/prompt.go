@@ -1,13 +1,21 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // BuildPromptInput is the data the prompt template needs about a ticket.
 type BuildPromptInput struct {
 	Identifier  string
 	Title       string
 	Description string
-	UseTeams    bool
+	// Comments are human clarifications from the ticket thread (already filtered
+	// of Nightshift's own automated notices). They are surfaced to the agent so
+	// that replying in the comments — what the BLOCKED notification tells a human
+	// to do — actually unblocks a retry.
+	Comments []string
+	UseTeams bool
 }
 
 // BuildPrompt returns the prompt sent to Claude for a ticket. Two flavors:
@@ -19,11 +27,17 @@ func BuildPrompt(in BuildPromptInput) string {
 		desc = "No description provided."
 	}
 
+	discussion := ""
+	if len(in.Comments) > 0 {
+		discussion = "\n\n## Ticket discussion (human clarifications — treat as authoritative, newest wins):\n" +
+			strings.Join(in.Comments, "\n\n")
+	}
+
 	if in.UseTeams {
 		return fmt.Sprintf(`You are a lead agent implementing a Linear ticket. You have a team of agents available.
 
 ## Ticket: %s — %s
-%s
+%s%s
 
 ## Your approach:
 1. First, read the codebase to understand the project structure, conventions, and testing patterns.
@@ -48,13 +62,13 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NIGHTSHIFT SUMMARY===
 <your summary here>
 ===END NIGHTSHIFT SUMMARY===
-`, in.Identifier, in.Title, desc)
+`, in.Identifier, in.Title, desc, discussion)
 	}
 
 	return fmt.Sprintf(`You are implementing a Linear ticket.
 
 ## Ticket: %s — %s
-%s
+%s%s
 
 ## Instructions:
 1. Read the codebase to understand the project structure and conventions.
@@ -75,5 +89,5 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NIGHTSHIFT SUMMARY===
 <your summary here>
 ===END NIGHTSHIFT SUMMARY===
-`, in.Identifier, in.Title, desc)
+`, in.Identifier, in.Title, desc, discussion)
 }
