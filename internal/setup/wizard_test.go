@@ -93,21 +93,23 @@ func TestAskEx_RequiredAcceptsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestRunManual_CopiesTemplates(t *testing.T) {
+func TestRunManual_CopiesEnvTemplate(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, ".env.example"), "FOO=bar\n")
-	writeTestFile(t, filepath.Join(dir, "repos.example.json"), "{\"repos\": {}}\n")
 
 	in := bufio.NewScanner(strings.NewReader(""))
 	if err := runManual(dir, in); err != nil {
 		t.Fatalf("runManual: %v", err)
 	}
 
-	for _, name := range []string{".env", "repos.json"} {
-		path := filepath.Join(dir, name)
-		if _, err := os.Stat(path); err != nil {
-			t.Errorf("%s should have been created: %v", name, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
+		t.Errorf(".env should have been created: %v", err)
+	}
+	// Repos are no longer scaffolded from a template — they're declared via the
+	// Linear project Repo: directive (repos.json is an optional hand-written
+	// fallback). runManual must not create one.
+	if _, err := os.Stat(filepath.Join(dir, "repos.json")); err == nil {
+		t.Error("repos.json should not be created by runManual")
 	}
 }
 

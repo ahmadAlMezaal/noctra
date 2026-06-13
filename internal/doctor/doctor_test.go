@@ -57,10 +57,15 @@ func TestCheckGHAuth_Runs(t *testing.T) {
 }
 
 func TestCheckRepos_NilRegistry(t *testing.T) {
+	// Missing repos.json is non-fatal: repos are routed via Linear project
+	// `Repo:` directives, so doctor must pass (with an informational note).
 	cfg := &config.Config{Registry: nil, RepoPath: ""}
 	c := checkRepos(cfg)
-	if c.ok {
-		t.Error("expected failure with no registry and no REPO_PATH")
+	if !c.ok {
+		t.Errorf("expected pass with no registry (directive-first routing); detail=%q", c.detail)
+	}
+	if !strings.Contains(c.detail, "directive") && !strings.Contains(c.detail, "Repo:") {
+		t.Errorf("expected detail to mention directive routing; got %q", c.detail)
 	}
 }
 

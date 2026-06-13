@@ -60,15 +60,21 @@ The fastest path — local, ~5 minutes:
 go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
 claude            # or: codex login   — authenticate your agent once
 gh auth login     # GitHub access for PRs
-nightshift setup  # interactive: backend, Linear key, repos → writes .env + repos.json
+nightshift setup  # interactive: backend, Linear key, repos → writes .env
 nightshift        # start polling
 ```
 
-Drag a Linear ticket into **Next** → Nightshift clones the repo, runs the agent in an isolated worktree, opens a PR, and moves the ticket to **In Review**.
+Tell each Linear **project** which repo it maps to by adding one line to the project's description:
 
-> ⚠️ **The one thing newcomers trip on:** a ticket's Linear **project** must map, in `repos.json`, to the repo where its code lives. A wrong mapping means the agent runs in the wrong repo, makes no changes, and the ticket bounces back. See [Repositories](#repositories).
+```
+Repo: your-org/your-repo
+```
 
-**No hardware?** Skip to [Docker](#docker-any-host--no-go-no-pi) or [Cloud (Fly/Render/Railway/DO)](#cloud-fly--render--railway--digitalocean) — same idea, with API-key auth and repos supplied via `REPOS_JSON`.
+Then drag a ticket into **Next** → Nightshift clones the repo, runs the agent in an isolated worktree, opens a PR, and moves the ticket to **In Review**.
+
+> ⚠️ **The one thing newcomers trip on:** a ticket's Linear **project** must point at the repo where its code lives — via a `Repo:` line in the project description (recommended), or a `repos.json` entry. A wrong/missing mapping means the agent runs in the wrong repo (or none), makes no changes, and the ticket bounces back. See [Repositories](#repositories).
+
+**No hardware?** Skip to [Docker](#docker-any-host--no-go-no-pi) or [Cloud (Fly/Render/Railway/DO)](#cloud-fly--render--railway--digitalocean) — same idea, with API-key auth.
 
 ---
 
@@ -129,32 +135,37 @@ Run `nightshift version` to confirm the build.
 
 # 2. Run the interactive setup wizard
 #    Prompts for the agent backend (Claude/Codex), Linear,
-#    optional Gemini/Telegram, and your repos —
-#    then generates .env and repos.json for you.
+#    and optional Gemini/Telegram — then generates .env for you.
 ./nightshift setup
 
-# 3. Start the poll loop
+# 3. Tell each Linear project which repo it maps to —
+#    add a "Repo:" line to the project's description (see Repositories).
+
+# 4. Start the poll loop
 ./nightshift
 ```
 
 That's it. Move tickets to your trigger state (default: "Next") — or set `TRIGGER_MODE=label` to pick up any ticket carrying a label instead — and watch them become PRs.
 
-Prefer editing config by hand? Copy `.env.example` → `.env` and `repos.example.json` → `repos.json` instead of running the wizard.
+Prefer editing config by hand? Copy `.env.example` → `.env` instead of running the wizard, and route repos via the project `Repo:` directive (see [Repositories](#repositories)).
 
 ### Docker (any host — no Go, no Pi)
 
 A prebuilt image is published to GHCR with `git`, `gh`, and both agent CLIs baked in. Runs anywhere Docker does — your laptop, a $4 VPS, Railway/Fly/Render.
 
 ```bash
-# 1. Config: keys via .env, repos via ./data/repos.json
+# 1. Config: keys via .env; repos routed per-ticket from each Linear
+#    project's "Repo: owner/name" directive (see Repositories).
 cp .env.example .env            # fill in LINEAR_API_KEY, AGENT_BACKEND, agent + GitHub keys
-mkdir -p data && cp repos.example.json data/repos.json   # use HTTPS git URLs
+mkdir -p data                   # /data holds the repos cache, worktrees, logs, PR cursor
 
 # 2. Run
 docker run -d --name nightshift --env-file .env -v "$PWD/data:/data" \
   ghcr.io/ahmadalmezaal/nightshift:latest
 docker logs -f nightshift       # watch it pick up tickets
 ```
+
+The project `Repo:` directive covers GitHub repos cloned over HTTPS (authenticated by `GH_TOKEN`). For SSH / non-GitHub URLs, drop an optional `repos.json` at `./data/repos.json` (mapping project name → URL) as a fallback.
 
 Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compose.yml)).
 
@@ -168,11 +179,11 @@ Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compo
 | `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope) |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | commit identity (defaults to a `Nightshift` bot) |
 
-`GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. Use **HTTPS** git URLs in `repos.json` so `GH_TOKEN` authenticates clones/pushes (SSH would need a mounted key).
+`GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. Stick to **HTTPS**-cloneable repos (a `Repo: owner/name` directive, or HTTPS URLs in any fallback `repos.json`) so `GH_TOKEN` authenticates clones/pushes — SSH would need a mounted key.
 
 ### Cloud (Fly · Render · Railway · DigitalOcean)
 
-Always-on, no hardware. Each template deploys the GHCR image; set the same secrets as the Docker table above. Since these platforms can't mount a `repos.json` file, supply the registry inline via **`REPOS_JSON`** (the same JSON, as an env var):
+Always-on, no hardware. Each template deploys the GHCR image; set the same secrets as the Docker table above. Route repos per-ticket with the project `Repo:` directive — no file to mount. For SSH / non-GitHub URLs (where these platforms can't mount a `repos.json` file), supply the fallback registry inline via **`REPOS_JSON`** (the same JSON, as an env var):
 
 ```bash
 REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
@@ -250,7 +261,25 @@ Only your configured chat can issue commands. `TELEGRAM_VERBOSE=true` also pings
 
 Nightshift picks the target repo **per-ticket**, from the ticket's Linear **project** — so you never have to edit config to switch projects.
 
-`repos.json` maps each Linear project name to a git repo:
+### Recommended: the project `Repo:` directive
+
+Add a `Repo:` line to the Linear **project's description** and Nightshift routes every ticket in that project to that repo. No config file, no wizard, no redeploy — it lives entirely in Linear:
+
+```
+In the Linear project's description:
+Repo: your-org/your-repo
+Branch: main   (optional — defaults to the repo's default branch)
+```
+
+- `Repo:` accepts `owner/name` (expanded to a GitHub HTTPS URL) **or** a full `https://…`/`ssh://…` git URL verbatim.
+- `Branch:` is optional; without it the repo's default branch is auto-detected from `origin/HEAD`.
+- When a ticket comes in, Nightshift reads its project description, finds the directive, and **clones the repo on demand** into `~/.nightshift-repos/` (nothing needs to be cloned up front).
+
+This is the primary way to map projects to repos — update the project description in Linear and you're done.
+
+### Optional fallback: `repos.json` / `REPOS_JSON`
+
+For projects without a `Repo:` directive — or repos that need an **SSH key, a GitLab/non-GitHub URL, or a custom clone URL** — you can map project names to repos in a `repos.json` file:
 
 ```json
 {
@@ -261,12 +290,18 @@ Nightshift picks the target repo **per-ticket**, from the ticket's Linear **proj
 }
 ```
 
-When a ticket comes in, Nightshift reads its project, finds the matching repo, and **clones it on demand** into `~/.nightshift-repos/` (nothing needs to be cloned up front). `main_branch` is optional and falls back to `MAIN_BRANCH` in `.env`.
+`main_branch` is optional and falls back to `MAIN_BRANCH` in `.env`. On PaaS hosts that can't mount a file, supply the same JSON inline via the **`REPOS_JSON`** env var (it takes precedence over the file).
 
-- **Register a repo once**, reference it forever — no per-session `.env` edits.
-- `repos.json` is gitignored (machine-specific). The wizard generates it; `repos.example.json` is the template.
-- **Auth:** the host running Nightshift needs git access to each repo — an SSH key, or `gh auth login` for HTTPS URLs. The setup wizard checks access (`git ls-remote`) before saving a repo, and Nightshift re-checks before cloning.
-- **Fallback:** a ticket whose project has no `repos.json` entry uses `REPO_PATH` from `.env` if set; otherwise it's skipped with a Linear comment. Single-repo `.env`-only setups keep working unchanged.
+**Resolution order** at dispatch — Nightshift uses the first that matches:
+
+1. The project's `Repo:` directive (recommended).
+2. A `repos.json` / `REPOS_JSON` entry keyed by the project name.
+3. `REPO_PATH` from `.env` (single-repo fallback) if set.
+4. Otherwise the ticket is skipped with a Linear comment.
+
+- `repos.json` is gitignored (machine-specific) and entirely optional — keep it for the SSH/non-GitHub/PaaS-inline cases above.
+- **Auth:** the host running Nightshift needs git access to each repo — an SSH key, or `gh auth login` (HTTPS) / `GH_TOKEN` for GitHub. Nightshift checks access before cloning; the wizard also verifies any `repos.json` entry (`git ls-remote`) before saving.
+- Single-repo `.env`-only setups (`REPO_PATH`) keep working unchanged.
 
 ---
 
@@ -297,7 +332,7 @@ Disabled by default; set `AUTO_ITERATE_PRS=true` to opt in, or run the wizard.
 
 ## Configuration
 
-Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` and `repos.example.json` → `repos.json` by hand.
+Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` by hand. Repos are routed per-ticket from each Linear project's `Repo:` directive (see [Repositories](#repositories)) — not from `.env`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -308,8 +343,8 @@ Run `./nightshift setup` to generate config, or copy `.env.example` → `.env` a
 | `TRIGGER_STATE` | `Next` | Column to watch (state mode) |
 | `TRIGGER_LABEL` | *(empty)* | Label to watch (label mode); removed after dispatch |
 | `IN_REVIEW_STATE` | `In Review` | State set after the PR is created |
-| `REPO_PATH` | *(empty)* | Fallback repo for tickets whose project isn't in `repos.json` |
-| `MAIN_BRANCH` | `main` | Default base branch (per-repo override in `repos.json`) |
+| `REPO_PATH` | *(empty)* | Last-resort fallback repo for tickets whose project has no `Repo:` directive or `repos.json` entry |
+| `MAIN_BRANCH` | `main` | Default base branch (overridden per-repo by the project `Branch:` directive or `repos.json` `main_branch`) |
 | `MAX_CONCURRENT` | `3` | Max tickets processed simultaneously |
 | `POLL_INTERVAL` | `30` | Seconds between Linear polls |
 | `USE_AGENT_TEAMS` | `false` | Claude-only: enable Agent Teams (multi-agent parallelism) |
@@ -418,7 +453,7 @@ Nightshift creates PRs — it doesn't merge them. You review and merge manually.
 
 ### Can I run multiple repos simultaneously?
 
-Yes — that's built in. Register each repo in `repos.json` (mapped to its Linear project) and a single Nightshift instance routes every ticket to the right repo automatically. Tickets for different repos run concurrently up to `MAX_CONCURRENT`. See [Repositories](#repositories).
+Yes — that's built in. Give each Linear project a `Repo:` directive in its description (or a `repos.json` entry) and a single Nightshift instance routes every ticket to the right repo automatically. Tickets for different repos run concurrently up to `MAX_CONCURRENT`. See [Repositories](#repositories).
 
 ### What if the agent gets stuck?
 

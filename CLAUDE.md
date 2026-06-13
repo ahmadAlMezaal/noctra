@@ -52,7 +52,7 @@ The project-directive route means **`repos.json` is optional**: declare each pro
 
 The registry can also be supplied inline via the **`REPOS_JSON`** env var (same shape as `repos.json`) — it takes precedence over `REPOS_FILE` and exists for PaaS deploys (Fly/Render/Railway) that can't mount a file. `config.ParseRepoRegistry` parses it; `config.Load` chooses env-vs-file.
 
-`./nightshift setup` is the interactive wizard that generates `.env` and `repos.json`. `repos.example.json` is the checked-in template.
+`./nightshift setup` is the interactive wizard that generates `.env` (and optionally a fallback `repos.json`). Repos are primarily routed via the Linear project `Repo:` directive; `repos.json` is an optional fallback (no checked-in example template).
 
 ## Coding-agent backend (`AGENT_BACKEND`)
 
