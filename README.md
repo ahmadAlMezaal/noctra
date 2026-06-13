@@ -7,10 +7,17 @@
 [![Release](https://img.shields.io/github/v/release/ahmadAlMezaal/nightshift?sort=semver)](https://github.com/ahmadAlMezaal/nightshift/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
+[![Website](https://img.shields.io/badge/website-getnightshift.dev-7C3AED.svg)](https://getnightshift.dev)
 
 Nightshift picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code or OpenAI Codex** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
 <!-- TODO(maintainer): drop a ~20s demo GIF here — drag a ticket to "Next" → PR appears — e.g. ![demo](docs/demo.gif) -->
+
+---
+
+## Website
+
+Visit [getnightshift.dev](https://getnightshift.dev) for the Nightshift landing page.
 
 ---
 
@@ -401,6 +408,10 @@ If `GEMINI_API_KEY` is configured, your git diffs and ticket descriptions are se
 
 ## FAQ
 
+### Where is the Nightshift website?
+
+The project website and landing page are at [getnightshift.dev](https://getnightshift.dev).
+
 ### Is this safe to run on my production repo?
 
 Nightshift creates PRs — it doesn't merge them. You review and merge manually. The risk is in what the agent writes during implementation, not in what Nightshift does with it. Use PR review as your safety gate. For extra isolation, run in a container.
@@ -443,6 +454,7 @@ PRs welcome — bug fixes, new deploy targets, or new agent / project-management
 ## Credits
 
 Built with:
+- Project website: [getnightshift.dev](https://getnightshift.dev)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — implementation engine (default) + [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams)
 - [OpenAI Codex](https://github.com/openai/codex) — alternative implementation engine (`AGENT_BACKEND=codex`)
 - [Gemini](https://aistudio.google.com) by Google — independent code review
