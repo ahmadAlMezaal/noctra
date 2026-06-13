@@ -7,6 +7,8 @@
 //	nightshift cleanup    clean up stale branches and worktrees
 //	nightshift cleanup --force
 //	nightshift doctor     preflight dependency and config checks
+//	nightshift update     self-update to the latest release (--restart)
+//	nightshift logs       tail the service logs (-f to follow)
 //	nightshift version
 //	nightshift --help
 package main
@@ -17,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -26,6 +29,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
+	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
 	"github.com/ahmadAlMezaal/nightshift/internal/setup"
 )
 
@@ -80,6 +84,24 @@ func realMain() error {
 	case "doctor":
 		printBanner()
 		return doctor.Run(scriptDir)
+	case "update", "--update":
+		restart := false
+		for _, a := range os.Args[2:] {
+			if a == "--restart" {
+				restart = true
+			}
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return selfupdate.Update(ctx, version, restart)
+	case "logs":
+		follow := false
+		for _, a := range os.Args[2:] {
+			if a == "-f" || a == "--follow" {
+				follow = true
+			}
+		}
+		return runLogs(scriptDir, follow)
 	case "version", "--version", "-v":
 		printBanner()
 		fmt.Println("nightshift", version)
@@ -114,6 +136,8 @@ func printUsage() {
 	fmt.Println("  setup     Interactive configuration wizard")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
+	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
+	fmt.Println("  logs      Tail the service logs (-f / --follow to stream)")
 	fmt.Println("  version   Print version information")
 	fmt.Println()
 	fmt.Println("Flags:")
@@ -150,6 +174,7 @@ func runPoll(scriptDir string) error {
 	defer stop()
 
 	slog.Info("nightshift starting", "version", version)
+	pipeline.Version = version
 	return pipeline.New(cfg).Run(ctx)
 }
 
@@ -169,6 +194,31 @@ func runCleanup(scriptDir string, force bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return cleanup.Run(ctx, cfg, force)
+}
+
+// runLogs tails Nightshift's own service logs. On a systemd host it execs
+// journalctl for the user unit (optionally following). When journalctl isn't
+// available (macOS dev box, Docker), it points the user at where logs actually
+// live instead of failing cryptically.
+func runLogs(scriptDir string, follow bool) error {
+	jctl, err := exec.LookPath("journalctl")
+	if err != nil {
+		fmt.Println("journalctl not found — Nightshift isn't running under systemd here.")
+		fmt.Println()
+		fmt.Printf("Per-ticket agent logs:  %s\n", filepath.Join(scriptDir, "logs"))
+		fmt.Println("Running in Docker?       use `docker logs <container>`")
+		return nil
+	}
+
+	args := []string{"--user-unit=nightshift.service"}
+	if follow {
+		args = append(args, "-f")
+	}
+	cmd := exec.Command(jctl, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
 
 // ensureValidConfig loads + validates config. If validation fails and we're

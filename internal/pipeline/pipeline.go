@@ -18,10 +18,16 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
 	"github.com/ahmadAlMezaal/nightshift/internal/review"
+	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
 	"github.com/ahmadAlMezaal/nightshift/internal/state"
 	"github.com/ahmadAlMezaal/nightshift/internal/telegram"
 	"github.com/ahmadAlMezaal/nightshift/internal/watch"
 )
+
+// Version is the running build version, set by main before Run so the startup
+// update check can compare it against the latest published release. Empty/"dev"
+// for local builds, which suppresses the check entirely.
+var Version = ""
 
 // Pipeline holds the wiring shared by every ticket the agent processes.
 type Pipeline struct {
@@ -153,6 +159,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching \"%s\" for %s tickets",
 			notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	}
+
+	// Best-effort update check: never blocks startup, swallows all errors, and
+	// does nothing for dev builds (IsNewer returns false). Logs a line and
+	// pings Telegram once if a newer release is published.
+	go p.checkForUpdate(ctx)
 
 	var wg sync.WaitGroup
 
@@ -447,6 +458,27 @@ func (p *Pipeline) summary(ctx context.Context) {
 	p.telegram.Send(ctx, fmt.Sprintf(
 		"🌅 *Nightshift session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s",
 		succ, fail, dur))
+}
+
+// checkForUpdate runs once at startup in its own goroutine. It's strictly best-
+// effort: it never blocks Run, swallows every error, and no-ops for dev builds
+// (selfupdate.IsNewer returns false for empty/"dev"/"-dev"/"-snapshot"). When a
+// newer release exists it logs a line and, if Telegram is wired up, pings once.
+func (p *Pipeline) checkForUpdate(ctx context.Context) {
+	if Version == "" || Version == "dev" {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	latest, err := selfupdate.Latest(cctx)
+	if err != nil || !selfupdate.IsNewer(latest, Version) {
+		return
+	}
+	slog.Info("🆙 a new version is available", "latest", latest, "current", Version,
+		"run", "nightshift update")
+	p.telegram.Send(ctx, fmt.Sprintf(
+		"🆙 *Nightshift update available*\nA new version `%s` is out (running `%s`).\nRun `nightshift update` to upgrade.",
+		notify.EscapeMarkdown(latest), notify.EscapeMarkdown(Version)))
 }
 
 // startupCleanup is the lightweight version that runs on every boot — prune

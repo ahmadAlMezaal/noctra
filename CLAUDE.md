@@ -69,7 +69,7 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 
 | Package | Purpose |
 |---------|---------|
-| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `version`); startup banner; `--help` |
+| `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` / `update` / `logs` / `version`); startup banner; `--help` |
 | `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
 | `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues` (both fetch each issue's `comments` so human clarifications reach the agent — see `Issue.ClarificationComments`, which filters out Nightshift's own automated notices; project descriptions are fetched too, parsed by `Project.RepoDirective` for `Repo:`/`Branch:` routing), `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
 | `internal/repo` | Repo resolution: `Resolve` (project name → `repos.json` entry) + `ResolveDirect` (explicit `owner/name`/URL from a Linear project's `Repo:` directive or a PR's own repo, with `origin/HEAD` default-branch detection); clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
@@ -84,6 +84,7 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 | `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repos.json |
+| `internal/selfupdate` | npm-style in-place upgrade: `Latest`/`IsNewer`/`assetName` (pure, tested) + `Update` (shells `gh` to download the GoReleaser archive matching `.goreleaser.yaml`, verifies SHA-256 vs `checksums.txt`, untars + atomic-swaps the running binary). `nightshift run` also fires a best-effort `checkForUpdate` goroutine at startup (logs/pings if a newer release exists; no-op on dev builds) |
 
 ## Config directory
 
