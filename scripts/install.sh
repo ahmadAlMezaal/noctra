@@ -80,8 +80,11 @@ tar -xzf "$TMP/$ASSET" -C "$TMP" nightshift \
 	|| err "could not extract nightshift from $ASSET"
 
 mkdir -p "$INSTALL_DIR"
+# Unlink any existing binary first so reinstalling over a running nightshift
+# doesn't fail with "text file busy" (applies to both install and the cp fallback).
+rm -f "$INSTALL_DIR/nightshift" 2>/dev/null
 install -m 0755 "$TMP/nightshift" "$INSTALL_DIR/nightshift" 2>/dev/null \
-	|| { rm -f "$INSTALL_DIR/nightshift" 2>/dev/null; cp "$TMP/nightshift" "$INSTALL_DIR/nightshift" && chmod 0755 "$INSTALL_DIR/nightshift"; }
+	|| { cp "$TMP/nightshift" "$INSTALL_DIR/nightshift" && chmod 0755 "$INSTALL_DIR/nightshift"; }
 
 echo "✓ Installed nightshift to $INSTALL_DIR/nightshift"
 
