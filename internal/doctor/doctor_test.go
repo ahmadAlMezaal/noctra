@@ -1,6 +1,8 @@
 package doctor
 
 import (
+	"bytes"
+	"encoding/json"
 	"os/exec"
 	"strings"
 	"testing"
@@ -92,5 +94,70 @@ func TestCheckRepos_WithProjects(t *testing.T) {
 	}
 	if !strings.Contains(c.detail, "12 project(s)") {
 		t.Errorf("expected detail to contain '12 project(s)'; got %q", c.detail)
+	}
+}
+
+func TestRunJSON_Shape(t *testing.T) {
+	// Use a temp dir with no config: gather() still emits checks (CLIs, gh
+	// auth, config error, config dir), so we get a non-empty, well-formed array.
+	var buf bytes.Buffer
+	_ = RunJSON(t.TempDir(), &buf)
+
+	var got []jsonCheck
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one check in JSON output")
+	}
+	for i, c := range got {
+		if c.Name == "" {
+			t.Errorf("check[%d] has empty name", i)
+		}
+	}
+
+	// The "config dir" check must always be present and report the dir.
+	found := false
+	for _, c := range got {
+		if c.Name == "config dir" {
+			found = true
+			if !c.OK {
+				t.Error("config dir check should be ok")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a 'config dir' check in JSON output")
+	}
+
+	// Verify the JSON keys match the documented {name, ok, detail, hint} shape.
+	var raw []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
+		t.Fatalf("re-unmarshal failed: %v", err)
+	}
+	for _, m := range raw {
+		if _, ok := m["name"]; !ok {
+			t.Errorf("object missing 'name' key: %v", m)
+		}
+		if _, ok := m["ok"]; !ok {
+			t.Errorf("object missing 'ok' key: %v", m)
+		}
+	}
+}
+
+func TestRunJSON_ReturnsErrorOnFailure(t *testing.T) {
+	// Force a deterministic failure: clear LINEAR_API_KEY so an ambient key in
+	// the environment can't satisfy the Linear check, and point at an empty temp
+	// config dir. The Linear-key (or config-load) check then fails → non-nil
+	// error, regardless of which CLIs happen to be on PATH.
+	t.Setenv("LINEAR_API_KEY", "")
+	var buf bytes.Buffer
+	err := RunJSON(t.TempDir(), &buf)
+	if err == nil {
+		t.Error("expected an error when a check fails")
+	}
+	// JSON must still have been written even on failure.
+	if buf.Len() == 0 {
+		t.Error("expected JSON output even when checks fail")
 	}
 }

@@ -7,6 +7,13 @@
 //	nightshift cleanup    clean up stale branches and worktrees
 //	nightshift cleanup --force
 //	nightshift doctor     preflight dependency and config checks
+//	nightshift update     self-update to the latest release (--restart)
+//	nightshift logs       tail the service logs (-f to follow)
+//	nightshift start      start the systemd --user service
+//	nightshift stop       stop the systemd --user service
+//	nightshift restart    restart the systemd --user service
+//	nightshift status     show service status + installed version
+//	nightshift completion print a bash/zsh completion script
 //	nightshift version
 //	nightshift --help
 package main
@@ -17,6 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -26,6 +34,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
 	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
+	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
 	"github.com/ahmadAlMezaal/nightshift/internal/setup"
 )
 
@@ -78,8 +87,49 @@ func realMain() error {
 		force := len(os.Args) > 2 && os.Args[2] == "--force"
 		return runCleanup(scriptDir, force)
 	case "doctor":
+		jsonOut := false
+		for _, a := range os.Args[2:] {
+			if a == "--json" {
+				jsonOut = true
+			}
+		}
+		if jsonOut {
+			return doctor.RunJSON(scriptDir, os.Stdout)
+		}
 		printBanner()
 		return doctor.Run(scriptDir)
+	case "update", "--update":
+		restart := false
+		for _, a := range os.Args[2:] {
+			if a == "--restart" {
+				restart = true
+			}
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return selfupdate.Update(ctx, version, restart)
+	case "logs":
+		follow := false
+		for _, a := range os.Args[2:] {
+			if a == "-f" || a == "--follow" {
+				follow = true
+			}
+		}
+		return runLogs(scriptDir, follow)
+	case "start", "stop", "restart", "status":
+		return runService(cmd)
+	case "completion":
+		shell := ""
+		if len(os.Args) > 2 {
+			shell = os.Args[2]
+		}
+		script, err := completionScript(shell)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Usage: nightshift completion bash|zsh")
+			return err
+		}
+		fmt.Print(script)
+		return nil
 	case "version", "--version", "-v":
 		printBanner()
 		fmt.Println("nightshift", version)
@@ -114,6 +164,13 @@ func printUsage() {
 	fmt.Println("  setup     Interactive configuration wizard")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
+	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
+	fmt.Println("  logs      Tail the service logs (-f / --follow to stream)")
+	fmt.Println("  start     Start the systemd --user service")
+	fmt.Println("  stop      Stop the systemd --user service")
+	fmt.Println("  restart   Restart the systemd --user service")
+	fmt.Println("  status    Show service status and installed version")
+	fmt.Println("  completion  Print a shell-completion script (bash|zsh)")
 	fmt.Println("  version   Print version information")
 	fmt.Println()
 	fmt.Println("Flags:")
@@ -150,6 +207,7 @@ func runPoll(scriptDir string) error {
 	defer stop()
 
 	slog.Info("nightshift starting", "version", version)
+	pipeline.Version = version
 	return pipeline.New(cfg).Run(ctx)
 }
 
@@ -169,6 +227,99 @@ func runCleanup(scriptDir string, force bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return cleanup.Run(ctx, cfg, force)
+}
+
+// runLogs tails Nightshift's own service logs. On a systemd host it execs
+// journalctl for the user unit (optionally following). When journalctl isn't
+// available (macOS dev box, Docker), it points the user at where logs actually
+// live instead of failing cryptically.
+func runLogs(scriptDir string, follow bool) error {
+	jctl, err := exec.LookPath("journalctl")
+	if err != nil {
+		fmt.Println("journalctl not found — Nightshift isn't running under systemd here.")
+		fmt.Println()
+		fmt.Printf("Per-ticket agent logs:  %s\n", filepath.Join(scriptDir, "logs"))
+		fmt.Println("Running in Docker?       use `docker logs <container>`")
+		return nil
+	}
+
+	args := []string{"--user-unit=nightshift.service"}
+	if follow {
+		args = append(args, "-f")
+	}
+	cmd := exec.Command(jctl, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+// runService is a thin wrapper over `systemctl --user <verb> nightshift.service`
+// for the start/stop/restart/status subcommands. stdout/stderr stream through.
+// On a non-systemd host (macOS dev box, Docker) systemctl isn't on PATH, so we
+// print a clear hint instead of crashing — mirroring runLogs. For `status` we
+// also print the installed binary version after the systemctl output.
+func runService(verb string) error {
+	sctl, err := exec.LookPath("systemctl")
+	if err != nil {
+		fmt.Println("systemctl not found — Nightshift isn't running under systemd here.")
+		fmt.Println()
+		fmt.Println("Running in Docker?  use `docker start/stop/restart <container>`.")
+		fmt.Println("On macOS / a dev box, run `nightshift run` directly instead.")
+		if verb == "status" {
+			fmt.Println("nightshift", version)
+		}
+		return nil
+	}
+
+	cmd := exec.Command(sctl, "--user", verb, "nightshift.service")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	// `systemctl status` exits non-zero for inactive/dead units; that's
+	// informational, not an error we want to surface as a failed command.
+	runErr := cmd.Run()
+	if verb == "status" {
+		fmt.Println("nightshift", version)
+		return nil
+	}
+	return runErr
+}
+
+// subcommands is the list completion offers. Kept in one place so the help
+// text, the completion script, and tests stay in sync.
+var subcommands = []string{
+	"run", "setup", "update", "logs", "start", "stop", "restart",
+	"status", "doctor", "cleanup", "completion", "version", "help",
+}
+
+// completionScript returns a static shell-completion script for the given
+// shell ("bash" or "zsh") completing the subcommand list. It's a pure function
+// (no I/O) so it can be unit-tested. An unknown shell returns an error.
+func completionScript(shell string) (string, error) {
+	cmds := strings.Join(subcommands, " ")
+	switch shell {
+	case "bash":
+		return "# bash completion for nightshift\n" +
+			"_nightshift() {\n" +
+			"    local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n" +
+			"    if [ \"$COMP_CWORD\" -eq 1 ]; then\n" +
+			"        COMPREPLY=( $(compgen -W \"" + cmds + "\" -- \"$cur\") )\n" +
+			"    fi\n" +
+			"}\n" +
+			"complete -F _nightshift nightshift\n", nil
+	case "zsh":
+		return "#compdef nightshift\n" +
+			"# zsh completion for nightshift\n" +
+			"_nightshift() {\n" +
+			"    local -a cmds\n" +
+			"    cmds=(" + cmds + ")\n" +
+			"    _describe 'command' cmds\n" +
+			"}\n" +
+			"compdef _nightshift nightshift\n", nil
+	default:
+		return "", fmt.Errorf("unsupported shell %q (want bash or zsh)", shell)
+	}
 }
 
 // ensureValidConfig loads + validates config. If validation fails and we're

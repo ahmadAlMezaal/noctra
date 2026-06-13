@@ -235,7 +235,60 @@ Running Nightshift as a long-lived `systemd --user` service? The `Makefile` wrap
 
 **Upgrading is just `make update` on the host** — it pulls `main`, rebuilds, and restarts in one step.
 
-The startup banner (visible in `make logs` right after a restart) prints the live configuration — active agent backend, review gate, auto-iterate, notifications — so you can confirm at a glance what a freshly-restarted instance is running.
+The startup banner (visible in `make logs` right after a restart) prints the live configuration — active agent backend, review gate, auto-iterate, notifications — so you can confirm at a glance what a freshly-restarted instance is running. If a newer release has been published, the banner is followed by a one-line `🆙 a new version … is available — run 'nightshift update'` hint (and a single Telegram ping if notifications are configured).
+
+### Self-update from a release binary
+
+If you installed Nightshift from a published GitHub Release (rather than running from a git checkout), the binary can upgrade itself npm-style — no `git pull` / rebuild:
+
+```bash
+nightshift update            # download the latest release, verify its checksum, swap the binary in place
+nightshift update --restart  # …and restart nightshift.service afterwards (systemd --user)
+```
+
+`update` queries the latest release via `gh` (which must be installed and authenticated), downloads the archive for your OS/arch, verifies the SHA-256 against the published `checksums.txt`, and atomically replaces the running executable. **It only swaps the binary** — your logs (the config dir's `logs/` and journald) and all runtime state under `~/.nightshift-*` (worktrees, repos, the PR cursor) are left untouched. If the binary lives somewhere you can't write, it tells you to reinstall or re-run with `sudo`. Restart the service yourself afterwards (or pass `--restart`).
+
+```bash
+nightshift logs       # tail the service logs (journalctl --user-unit=nightshift.service)
+nightshift logs -f    # …and follow
+```
+
+`nightshift logs` is the binary's built-in equivalent of `make logs`. Off a systemd host (macOS dev box, Docker) it prints where the per-ticket agent transcripts live and reminds you to use `docker logs` in a container.
+
+### Control the service from the binary
+
+The binary also wraps the `systemd --user` lifecycle directly, so you don't need the `Makefile` (or to remember the unit name) on the host:
+
+```bash
+nightshift start     # systemctl --user start nightshift.service
+nightshift stop      # …stop
+nightshift restart   # …restart
+nightshift status    # …status, then print the installed binary version
+```
+
+These shell out to `systemctl --user <verb> nightshift.service` and stream its output. `status` appends the running binary's version after the unit status so you can confirm what's installed at a glance. Off a systemd host (macOS dev box, Docker) `systemctl` isn't on PATH, so each prints a clear hint (use `docker start/stop/restart`, or `nightshift run` directly) instead of crashing.
+
+### Shell completion
+
+```bash
+nightshift completion bash   # print a bash completion script
+nightshift completion zsh    # print a zsh completion script
+
+# install (bash):
+nightshift completion bash > /etc/bash_completion.d/nightshift
+# install (zsh, anywhere on $fpath):
+nightshift completion zsh > "${fpath[1]}/_nightshift"
+```
+
+The script completes the subcommand list (`run`, `setup`, `update`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
+
+### Machine-readable doctor
+
+`nightshift doctor` prints a human report by default; pass `--json` to emit the check results as a JSON array of `{name, ok, detail, hint}` objects (and a non-zero exit when any check fails) for scripting and monitoring:
+
+```bash
+nightshift doctor --json
+```
 
 ---
 

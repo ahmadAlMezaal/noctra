@@ -4,7 +4,9 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,11 +23,9 @@ type check struct {
 	hint   string
 }
 
-// Run performs all preflight checks and prints a report.
-func Run(scriptDir string) error {
-	fmt.Println("Checking dependencies and configuration...")
-	fmt.Println()
-
+// gather runs every preflight check and returns the results. It performs no
+// output, so both the human (`Run`) and machine (`RunJSON`) renderers share it.
+func gather(scriptDir string) []check {
 	var checks []check
 
 	// Load config first so the CLI check knows which agent backend (and thus
@@ -67,6 +67,16 @@ func Run(scriptDir string) error {
 		detail: scriptDir,
 	})
 
+	return checks
+}
+
+// Run performs all preflight checks and prints a human-readable report.
+func Run(scriptDir string) error {
+	fmt.Println("Checking dependencies and configuration...")
+	fmt.Println()
+
+	checks := gather(scriptDir)
+
 	// ── Report ───────────────────────────────────────────────────────────────
 	passed, failed := 0, 0
 	for _, c := range checks {
@@ -88,6 +98,42 @@ func Run(scriptDir string) error {
 		return fmt.Errorf("%d check(s) failed", failed)
 	}
 	fmt.Printf("  All %d checks passed — ready to roll.\n", passed)
+	return nil
+}
+
+// jsonCheck is the machine-readable shape of a single check, emitted by
+// `nightshift doctor --json`.
+type jsonCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+	Hint   string `json:"hint,omitempty"`
+}
+
+// RunJSON performs all preflight checks and writes them to w as a JSON array
+// of {name, ok, detail, hint} objects. It returns a non-nil error when any
+// check failed (matching Run's exit semantics) so `--json` callers can still
+// branch on success, but the JSON is always written first.
+func RunJSON(scriptDir string, w io.Writer) error {
+	checks := gather(scriptDir)
+
+	out := make([]jsonCheck, 0, len(checks))
+	failed := 0
+	for _, c := range checks {
+		if !c.ok {
+			failed++
+		}
+		out = append(out, jsonCheck{Name: c.name, OK: c.ok, Detail: c.detail, Hint: c.hint})
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return err
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d check(s) failed", failed)
+	}
 	return nil
 }
 
