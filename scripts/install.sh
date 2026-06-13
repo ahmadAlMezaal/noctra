@@ -92,17 +92,24 @@ echo "✓ Installed nightshift to $INSTALL_DIR/nightshift"
 case ":$PATH:" in
 	*":$INSTALL_DIR:"*) ;;
 	*)
-		# Point at the rc file for the user's login shell so the hint is actionable.
-		case "${SHELL##*/}" in
-			zsh)  rc="$HOME/.zshrc" ;;
-			bash) rc="$HOME/.bashrc" ;;
-			*)    rc="$HOME/.profile" ;;
-		esac
 		echo
 		echo "⚠️  $INSTALL_DIR is not on your PATH yet. Add it once:"
-		echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc   # persist for new shells"
-		echo "    export PATH=\"$INSTALL_DIR:\$PATH\"                 # …and use it in this shell now"
-		echo "  (Debian/Raspberry Pi OS: opening a fresh login shell also picks it up automatically.)"
+		# fish has its own syntax and doesn't read POSIX profile/rc files.
+		case "${SHELL##*/}" in
+			fish)
+				echo "    fish_add_path $INSTALL_DIR"
+				;;
+			*)
+				case "${SHELL##*/}" in
+					zsh)  rc="$HOME/.zshrc" ;;
+					bash) rc="$HOME/.bashrc" ;;
+					*)    rc="$HOME/.profile" ;;
+				esac
+				echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc   # persist for new shells"
+				echo "    export PATH=\"$INSTALL_DIR:\$PATH\"                 # …and use it in this shell now"
+				echo "  (Debian/Raspberry Pi OS: opening a fresh login shell also picks it up automatically.)"
+				;;
+		esac
 		;;
 esac
 
