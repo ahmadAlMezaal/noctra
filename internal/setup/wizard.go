@@ -1,5 +1,7 @@
-// Package setup is the interactive wizard that generates .env and repos.json.
-// It's the friendlier alternative to hand-editing the config files.
+// Package setup is the interactive wizard that generates .env (and, only if the
+// user opts in, an optional repos.json fallback). It's the friendlier
+// alternative to hand-editing the config files. Repos are routed per-project
+// from the Linear project's `Repo: owner/name` directive by default.
 //
 // On re-run, every prompt is pre-filled with the value currently in .env (or
 // the static default if absent). Press Enter to keep, type to replace. The
@@ -25,7 +27,8 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 )
 
-// Run drives the wizard. It writes scriptDir/.env and scriptDir/repos.json.
+// Run drives the wizard. It always writes scriptDir/.env, and writes
+// scriptDir/repos.json only when the user opts into the optional fallback.
 func Run(scriptDir string) error {
 	envFile := filepath.Join(scriptDir, ".env")
 	reposFile := filepath.Join(scriptDir, "repos.json")
@@ -37,7 +40,9 @@ func Run(scriptDir string) error {
 
 	fmt.Println()
 	fmt.Println("🌙 Nightshift Setup")
-	fmt.Println("   Generates .env and repos.json — press Enter to accept [defaults].")
+	fmt.Println("   Generates .env — press Enter to accept [defaults].")
+	fmt.Println("   Repos are declared per-project in Linear (a `Repo: owner/name` line in")
+	fmt.Println("   the project description); repos.json is an optional fallback.")
 	if len(existingEnv) > 0 {
 		fmt.Println("   Existing values from .env are pre-filled in [brackets].")
 	}
@@ -113,17 +118,34 @@ func Run(scriptDir string) error {
 	})
 	fmt.Println()
 
-	// ── Repos: registry ────────────────────────────────────────────────────────
+	// ── Repos: directive-first routing ───────────────────────────────────────────
 	mainBranch := w.askEx("Default main branch", askOpts{
 		existing: existingEnv["MAIN_BRANCH"],
 		fallback: config.DefaultMainBranch,
 	})
-	reg := w.collectRepos(mainBranch, existingRepos)
+
+	// Repos are routed per-ticket from each Linear project's description. The
+	// repos.json registry is only an optional fallback (SSH/non-GitHub URLs, or
+	// projects without a directive), so we gate the registry loop behind an
+	// explicit opt-in that defaults to No.
+	fmt.Println()
+	fmt.Println("─── Repos ───")
+	fmt.Println("Repos are declared per-project in Linear. Add this to each project's")
+	fmt.Println("description so Nightshift knows where to open PRs:")
+	fmt.Println("  Repo: your-org/your-repo")
+	fmt.Println("  Branch: main   (optional — defaults to the repo's default branch)")
+	fmt.Println()
+	var reg *config.RepoRegistry
+	useRegistry := w.confirm("Configure an optional repos.json fallback now? (most users declare repos in Linear instead)")
+	if useRegistry {
+		reg = w.collectRepos(mainBranch, existingRepos)
+	}
 
 	// ── Optional REPO_PATH fallback ────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Single-repo fallback (optional) ───")
-	fmt.Println("Used only for tickets whose Linear project is not in repos.json.")
+	fmt.Println("Used only for tickets whose Linear project has no `Repo:` directive")
+	fmt.Println("and no repos.json entry.")
 	repoPath := w.askEx("Path to fallback git repo (blank to skip)", askOpts{
 		existing: existingEnv["REPO_PATH"],
 	})
@@ -249,12 +271,18 @@ func Run(scriptDir string) error {
 		fmt.Printf("  TELEGRAM_VERBOSE      = %s\n", tgVerbose)
 	}
 	fmt.Println()
-	fmt.Printf("  repos.json: %d project(s)\n", len(reg.Repos))
-	for _, name := range reg.ProjectNames() {
-		fmt.Printf("    - %s → %s\n", name, reg.Repos[name].URL)
+	if reg != nil {
+		fmt.Printf("  repos.json: %d project(s)\n", len(reg.Repos))
+		for _, name := range reg.ProjectNames() {
+			fmt.Printf("    - %s → %s\n", name, reg.Repos[name].URL)
+		}
+		fmt.Println()
 	}
-	fmt.Println()
-	if !w.confirm("Save to .env and repos.json?") {
+	savePrompt := "Save to .env?"
+	if reg != nil {
+		savePrompt = "Save to .env and repos.json?"
+	}
+	if !w.confirm(savePrompt) {
 		fmt.Println("Setup cancelled — no files changed.")
 		return nil
 	}
@@ -290,16 +318,16 @@ func Run(scriptDir string) error {
 	}); err != nil {
 		return fmt.Errorf("write %s: %w", envFile, err)
 	}
-	if err := writeReposFile(reposFile, reg); err != nil {
-		return fmt.Errorf("write %s: %w", reposFile, err)
-	}
-
-	count := len(reg.Repos)
 	fmt.Println()
 	fmt.Printf("✅ Wrote %s\n", envFile)
-	fmt.Printf("✅ Wrote %s (%d repo(s))\n", reposFile, count)
-	if count == 0 && repoPath == "" {
-		fmt.Println("⚠️  No repos registered and no REPO_PATH fallback — Nightshift won't process any tickets yet.")
+	if reg != nil {
+		if err := writeReposFile(reposFile, reg); err != nil {
+			return fmt.Errorf("write %s: %w", reposFile, err)
+		}
+		fmt.Printf("✅ Wrote %s (%d repo(s))\n", reposFile, len(reg.Repos))
+	} else {
+		fmt.Println("ℹ️  No repos.json written — repos are routed via each Linear project's")
+		fmt.Println("   `Repo: owner/name` directive. Add it to your project descriptions.")
 	}
 	fmt.Println()
 	fmt.Println("Start Nightshift with: ./nightshift")
@@ -618,7 +646,6 @@ func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate str
 
 func (w *wizard) collectRepos(defaultMainBranch string, existing *config.RepoRegistry) *config.RepoRegistry {
 	fmt.Println()
-	fmt.Println("─── Repos ───")
 	fmt.Println("Map each Linear project to a git repo. Nightshift clones these on demand.")
 
 	reg := &config.RepoRegistry{Repos: map[string]config.RepoEntry{}}
@@ -773,7 +800,8 @@ LINEAR_API_KEY="%s"
 LINEAR_TEAM_KEY="%s"
 %sIN_REVIEW_STATE="%s"
 
-# Optional single-repo fallback for tickets whose project is not in repos.json
+# Optional single-repo fallback for tickets whose project has no Repo: directive
+# and no repos.json entry
 %s
 MAIN_BRANCH="%s"
 

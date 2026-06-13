@@ -168,7 +168,10 @@ func checkLinearKey(cfg *config.Config) check {
 	return check{name: "LINEAR_API_KEY", ok: true, detail: fmt.Sprintf("authenticated as %s", name)}
 }
 
-// checkRepos verifies repos.json is loadable and reports the project count.
+// checkRepos validates repos.json if present. A missing repos.json is fine:
+// repos are routed per-ticket from each Linear project's `Repo: owner/name`
+// directive, with repos.json only an optional fallback. So absence is reported
+// as an informational OK, never a failure.
 func checkRepos(cfg *config.Config) check {
 	if cfg.Registry == nil {
 		if cfg.RepoPath != "" {
@@ -180,8 +183,8 @@ func checkRepos(cfg *config.Config) check {
 		}
 		return check{
 			name:   "repos",
-			detail: "no repos.json and no REPO_PATH fallback",
-			hint:   "Run `nightshift setup` to configure repositories.",
+			ok:     true,
+			detail: "no repos.json — repos routed via Linear project `Repo:` directives (repos.json optional)",
 		}
 	}
 	names := cfg.Registry.ProjectNames()
