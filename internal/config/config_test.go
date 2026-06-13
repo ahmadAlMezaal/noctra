@@ -140,18 +140,19 @@ REPO_PATH="`+initBareRepo(t)+`"
 	}
 }
 
-func TestValidate_RequiresAtLeastOneRepoSource(t *testing.T) {
+func TestValidate_AllowsDirectiveOnlySetup(t *testing.T) {
 	isolateEnv(t)
 
+	// No repos.json and no REPO_PATH is valid: repos are routed per-ticket from
+	// each Linear project's "Repo:" directive. Validate must not fail on this.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "no repos configured") {
-		t.Fatalf("expected no-repos error, got %v", err)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("directive-only setup should validate, got: %v", err)
 	}
 }
 
