@@ -348,22 +348,25 @@ func runManual(scriptDir string, in *bufio.Scanner) error {
 	src := filepath.Join(scriptDir, ".env.example")
 	dst := filepath.Join(scriptDir, ".env")
 	if _, err := os.Stat(src); err != nil {
-		fmt.Printf("⚠️  Template not found: %s — skipping\n", src)
-	} else {
-		create := true
-		if _, err := os.Stat(dst); err == nil {
-			fmt.Print(filepath.Base(dst), " already exists — overwrite? [y/N] ")
-			if !in.Scan() || !yes(in.Text()) {
-				fmt.Println("   kept existing")
-				create = false
-			}
+		// Manual setup's only job is copying this template — if it's missing
+		// (e.g. run outside a checkout), there's nothing useful to do, so fail
+		// loudly rather than exit 0. Use interactive setup instead.
+		return fmt.Errorf("template not found: %s (run `nightshift setup` interactively instead): %w", src, err)
+	}
+
+	create := true
+	if _, err := os.Stat(dst); err == nil {
+		fmt.Print(filepath.Base(dst), " already exists — overwrite? [y/N] ")
+		if !in.Scan() || !yes(in.Text()) {
+			fmt.Println("   kept existing")
+			create = false
 		}
-		if create {
-			if err := copyFile(src, dst); err != nil {
-				return fmt.Errorf("copy %s → %s: %w", src, dst, err)
-			}
-			fmt.Printf("📄 Created %s\n", dst)
+	}
+	if create {
+		if err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("copy %s → %s: %w", src, dst, err)
 		}
+		fmt.Printf("📄 Created %s\n", dst)
 	}
 	fmt.Println()
 	fmt.Println("Edit .env with your values, then run: ./nightshift")
