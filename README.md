@@ -167,7 +167,7 @@ docker run -d --name nightshift --env-file .env -v "$PWD/data:/data" \
 docker logs -f nightshift       # watch it pick up tickets
 ```
 
-Repo routing works as [described below](#repositories): the project `Repo:` directive covers GitHub repos cloned over HTTPS (authenticated by `GH_TOKEN`). For SSH / non-GitHub URLs, drop the fallback `repos.json` at `./data/repos.json`.
+Repo routing works as [described below](#repositories): the project `Repo:` directive covers GitHub repos cloned over HTTPS (authenticated by `GH_TOKEN`). For SSH / non-GitHub URLs, place the fallback `repos.json` at `./data/repos.json`.
 
 Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compose.yml)).
 
