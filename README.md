@@ -7,6 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/ahmadAlMezaal/nightshift?sort=semver)](https://github.com/ahmadAlMezaal/nightshift/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
+[![Website](https://img.shields.io/badge/website-getnightshift.dev-7C3AED.svg)](https://getnightshift.dev)
 
 Nightshift picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code or OpenAI Codex** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
@@ -400,6 +401,10 @@ If `GEMINI_API_KEY` is configured, your git diffs and ticket descriptions are se
 ---
 
 ## FAQ
+
+### Where is the Nightshift website?
+
+The project website and landing page are at [getnightshift.dev](https://getnightshift.dev).
 
 ### Is this safe to run on my production repo?
 
