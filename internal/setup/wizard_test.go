@@ -129,6 +129,56 @@ func TestAskInt_EOFNoExistingUsesFallback(t *testing.T) {
 	}
 }
 
+func TestChooseGeminiMode(t *testing.T) {
+	w := newWizardWithInput("2\n")
+	if got := w.chooseGeminiMode("api"); got != "cli" {
+		t.Errorf("chooseGeminiMode returned %q, want cli", got)
+	}
+}
+
+func TestChooseGeminiModeEOFPreservesCLI(t *testing.T) {
+	w := newWizardWithInput("")
+	if got := w.chooseGeminiMode("cli"); got != "cli" {
+		t.Errorf("chooseGeminiMode EOF returned %q, want cli", got)
+	}
+}
+
+func TestWriteEnvFileIncludesGeminiMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := writeEnvFile(path, envValues{
+		linearKey:    "lin_xyz",
+		team:         "ENG",
+		agentBackend: "claude",
+		triggerMode:  "state",
+		trigger:      "Next",
+		review:       "In Review",
+		mainBranch:   "main",
+		concurrency:  "3",
+		dispatches:   "10",
+		retries:      "3",
+		timeoutMin:   "45",
+		geminiMode:   "cli",
+		tgEnabled:    "false",
+		tgVerbose:    "false",
+		autoIterate:  "false",
+		maxIter:      "3",
+		prPoll:       "120",
+	}); err != nil {
+		t.Fatalf("writeEnvFile: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `GEMINI_MODE="cli"`) {
+		t.Errorf("generated .env missing GEMINI_MODE:\n%s", text)
+	}
+	if !strings.Contains(text, "run 'gemini' once") {
+		t.Errorf("generated .env missing CLI login hint:\n%s", text)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

@@ -45,6 +45,7 @@ const (
 	DefaultMaxDispatches    = 10
 	DefaultMaxRetries       = 3
 	DefaultAgentTimeout     = 45 * time.Minute
+	DefaultGeminiMode       = "api"
 	DefaultGeminiModel      = "gemini-2.5-pro"
 	DefaultMaxReviewRetries = 1
 
@@ -85,6 +86,7 @@ type Config struct {
 	TelegramVerbose  bool // also notify on dispatch (otherwise: terminal events only)
 
 	// Gemini review gate (optional)
+	GeminiMode       string
 	GeminiAPIKey     string
 	GeminiModel      string
 	MaxReviewRetries int
@@ -142,6 +144,7 @@ func Load(scriptDir string) (*Config, error) {
 		TelegramChatID:   getenv(fileEnv, "TELEGRAM_CHAT_ID", ""),
 		TelegramVerbose:  getbool(fileEnv, "TELEGRAM_VERBOSE", false),
 
+		GeminiMode:   strings.ToLower(strings.TrimSpace(getenv(fileEnv, "GEMINI_MODE", DefaultGeminiMode))),
 		GeminiAPIKey: getenv(fileEnv, "GEMINI_API_KEY", ""),
 		GeminiModel:  getenv(fileEnv, "GEMINI_MODEL", DefaultGeminiModel),
 
@@ -209,6 +212,12 @@ func (c *Config) Validate() error {
 		}
 	default:
 		errs = append(errs, fmt.Sprintf("TRIGGER_MODE must be \"state\" or \"label\", got %q", c.TriggerMode))
+	}
+
+	switch c.GeminiMode {
+	case "api", "cli":
+	default:
+		errs = append(errs, fmt.Sprintf("GEMINI_MODE must be \"api\" or \"cli\", got %q", c.GeminiMode))
 	}
 
 	if c.RepoPath != "" && !isGitRepo(c.RepoPath) {

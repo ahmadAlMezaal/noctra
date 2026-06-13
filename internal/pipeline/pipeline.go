@@ -71,7 +71,7 @@ func New(cfg *config.Config) *Pipeline {
 		linear:         linear.New(cfg.LinearAPIKey),
 		resolver:       repo.FromConfig(cfg),
 		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
-		review:         review.New(cfg.GeminiAPIKey, cfg.GeminiModel),
+		review:         review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
 		agent:          backend,
 		active:         map[string]struct{}{},
 		cancels:        map[string]context.CancelFunc{},
@@ -389,7 +389,7 @@ func rateLimited(b agent.Backend, runErr error, output string) bool {
 func (p *Pipeline) banner() {
 	reviewMode := "Disabled"
 	if p.review.Enabled() {
-		reviewMode = fmt.Sprintf("Gemini (%s)", p.cfg.GeminiModel)
+		reviewMode = fmt.Sprintf("Gemini %s (%s)", p.review.Mode, p.review.Model)
 	}
 	notifyMode := "Disabled"
 	if p.telegram.Enabled {

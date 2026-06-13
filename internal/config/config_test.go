@@ -18,7 +18,7 @@ var nightshiftEnvKeys = []string{
 	"MAX_CONCURRENT", "POLL_INTERVAL", "USE_AGENT_TEAMS",
 	"MAX_DISPATCHES", "MAX_RETRIES", "AGENT_TIMEOUT_MINUTES",
 	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_VERBOSE",
-	"GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
+	"GEMINI_MODE", "GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
 	"REPOS_FILE", "REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_FILE",
@@ -443,6 +443,56 @@ func TestLoad_AgentBackendDefaultsToClaude(t *testing.T) {
 	}
 	if got := cfg.RequiredCLIs(); got[len(got)-1] != "claude" {
 		t.Errorf("RequiredCLIs should end with the agent CLI, got %v", got)
+	}
+}
+
+func TestLoad_GeminiModeDefaultsToAPI(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GeminiMode != DefaultGeminiMode {
+		t.Errorf("GeminiMode: got %q, want %q", cfg.GeminiMode, DefaultGeminiMode)
+	}
+}
+
+func TestLoad_GeminiModeLowercased(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+GEMINI_MODE="CLI"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GeminiMode != "cli" {
+		t.Errorf("GeminiMode should be lowercased, got %q", cfg.GeminiMode)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass with cli mode: %v", err)
+	}
+}
+
+func TestValidate_RejectsUnknownGeminiMode(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+GEMINI_MODE="other"`)
+	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "GEMINI_MODE") {
+		t.Fatalf("expected GEMINI_MODE error, got %v", err)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/linear"
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 	"github.com/ahmadAlMezaal/nightshift/internal/repo"
+	"github.com/ahmadAlMezaal/nightshift/internal/review"
 )
 
 // process is one ticket's full lifecycle: resolve repo → worktree → run
@@ -229,6 +230,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	// ── Gemini review gate (optional) ────────────────────────────────────────
 	reviewPassed := true
+	reviewSkipped := false
 	var reviewBody string
 	reviewAttempts := 0
 
@@ -239,12 +241,25 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			diff := gitDiff(ctx, wt.Path)
 			r, err := p.review.Review(ctx, issue.Title, issue.Description, diff)
 			if err != nil {
+				if errors.Is(err, review.ErrUnavailable) {
+					logger.Warn("gemini review gate skipped", "err", err)
+					reviewPassed = true
+					reviewSkipped = true
+					reviewBody = r.Body
+					break
+				}
 				logger.Warn("gemini review request failed", "err", err)
 				reviewPassed = false
 				reviewBody = err.Error()
 				break
 			}
 			reviewBody = r.Body
+			if r.Skipped {
+				reviewPassed = true
+				reviewSkipped = true
+				logger.Warn("gemini review gate skipped", "reason", r.Body)
+				break
+			}
 			if r.Passed {
 				reviewPassed = true
 				logger.Info("✅ gemini review passed")
@@ -288,8 +303,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// changes, the staged set is empty and a plain `git commit` would fail with
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
 	commitMsg := fmt.Sprintf(
-		"feat: implement %s — %s\n\nImplemented by Nightshift using Claude Code\n\nLinear: %s",
-		id, issue.Title, issue.URL)
+		"feat: implement %s — %s\n\nImplemented by Nightshift using %s\n\nLinear: %s",
+		id, issue.Title, p.agent.Label(), issue.URL)
 
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
@@ -320,8 +335,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	reviewSection := ""
 	if p.review.Enabled() {
-		if reviewPassed {
-			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s`)", p.cfg.GeminiModel)
+		if reviewSkipped {
+			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
+				p.review.Model, p.review.Mode, reviewBody)
+		} else if reviewPassed {
+			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
+				p.review.Model, p.review.Mode)
 		} else {
 			reviewSection = fmt.Sprintf(
 				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
@@ -330,8 +349,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Nightshift](https://github.com/ahmadAlMezaal/nightshift) 🌙 using Claude Code*",
-		id, issue.Title, issue.URL, summary, reviewSection)
+		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Nightshift](https://github.com/ahmadAlMezaal/nightshift) 🌙 using %s*",
+		id, issue.Title, issue.URL, summary, reviewSection, p.agent.Label())
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,

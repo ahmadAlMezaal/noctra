@@ -69,29 +69,39 @@ func BlockedLine(output string) string {
 	return m
 }
 
-// ExtractSummary returns Claude's final attempt's summary, stripping the
-// "--- Attempt …" markers and DEBUG: lines, and keeping only the last 40
-// lines. Matches the awk/grep pipeline the bash version used to build the PR
-// body.
+// Summary markers the prompt asks the agent to wrap its final summary in (see
+// BuildPrompt). Extracting between these is backend-agnostic and deterministic:
+// it strips everything the CLI streams around the summary — Codex's diff dump
+// and "tokens used" footer, Claude's preamble — without guessing from line
+// counts. ExtractSummary falls back to the last-N-lines heuristic when the
+// markers are absent (older logs, or an agent that didn't comply).
+const (
+	SummaryStartMarker = "===NIGHTSHIFT SUMMARY==="
+	SummaryEndMarker   = "===END NIGHTSHIFT SUMMARY==="
+)
+
+// ExtractSummary returns the agent's final-attempt summary for the PR body.
+//
+// Preferred path: the content between the last SummaryStartMarker/SummaryEndMarker
+// pair the agent printed. Fallback (no markers): the "--- Attempt …"-scoped tail
+// with DEBUG: lines and any trailing CLI usage footer stripped, capped to the
+// last 40 lines — matching the awk/grep pipeline the bash version used.
 func ExtractSummary(logContents string) string {
 	const maxLines = 40
 
-	// Find the start of the last attempt.
-	idx := strings.LastIndex(logContents, "--- Attempt ")
-	last := logContents
-	if idx >= 0 {
-		// Skip to the line after the marker.
-		nl := strings.IndexByte(logContents[idx:], '\n')
-		if nl >= 0 {
-			last = logContents[idx+nl+1:]
-		} else {
-			last = ""
-		}
+	// Scope to the last attempt first so stale markers from an earlier attempt
+	// in the same appended log can't win over the current one.
+	last := lastAttempt(logContents)
+
+	// Preferred: deterministic marker-delimited summary.
+	if s, ok := betweenMarkers(last); ok {
+		return s
 	}
 
-	// Filter out DEBUG: lines.
+	// Filter out DEBUG: lines and any trailing CLI usage footer (e.g. Codex's
+	// "tokens used" line).
 	var kept []string
-	for _, line := range strings.Split(last, "\n") {
+	for _, line := range strings.Split(stripUsageFooter(last), "\n") {
 		if strings.HasPrefix(line, "DEBUG: ") {
 			continue
 		}
@@ -109,4 +119,49 @@ func ExtractSummary(logContents string) string {
 		kept = kept[len(kept)-maxLines:]
 	}
 	return strings.Join(kept, "\n")
+}
+
+// lastAttempt returns logContents from after the final "--- Attempt …" marker
+// to the end (the whole input if there is no marker).
+func lastAttempt(logContents string) string {
+	idx := strings.LastIndex(logContents, "--- Attempt ")
+	if idx < 0 {
+		return logContents
+	}
+	nl := strings.IndexByte(logContents[idx:], '\n')
+	if nl < 0 {
+		return ""
+	}
+	return logContents[idx+nl+1:]
+}
+
+// betweenMarkers returns the trimmed text between the last SummaryStartMarker
+// and the first SummaryEndMarker after it. ok is false when the pair is absent,
+// so the caller can fall back to the heuristic. Using the LAST start marker
+// guards against the agent echoing the instruction earlier in its output.
+func betweenMarkers(s string) (string, bool) {
+	start := strings.LastIndex(s, SummaryStartMarker)
+	if start < 0 {
+		return "", false
+	}
+	rest := s[start+len(SummaryStartMarker):]
+	end := strings.Index(rest, SummaryEndMarker)
+	if end < 0 {
+		return "", false
+	}
+	summary := strings.TrimSpace(rest[:end])
+	if summary == "" {
+		return "", false
+	}
+	return summary, true
+}
+
+// usageFooterRe matches a trailing token-usage footer some CLIs print after the
+// agent's message (notably Codex's "tokens used: 167,195"). Anchored to the end
+// so it never eats a legitimate mid-summary mention.
+var usageFooterRe = regexp.MustCompile(`(?is)\n\s*tokens used\b.*$`)
+
+// stripUsageFooter removes a trailing CLI usage footer if present.
+func stripUsageFooter(s string) string {
+	return usageFooterRe.ReplaceAllString(s, "")
 }
