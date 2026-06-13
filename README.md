@@ -57,12 +57,17 @@ flowchart LR
 The fastest path — local, ~5 minutes:
 
 ```bash
-go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
+# One-liner install of the latest release binary (no Go toolchain needed):
+curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/nightshift/main/scripts/install.sh | sh
+# (soon also available at: curl -fsSL https://getnightshift.dev/install.sh | sh)
+
 claude            # or: codex login   — authenticate your agent once
 gh auth login     # GitHub access for PRs
 nightshift setup  # interactive: backend, Linear key, repos → writes .env
-nightshift        # start polling
+nightshift        # start polling — or run it as a service (see below)
 ```
+
+Prefer the Go toolchain? `go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest` works too.
 
 Tell each Linear **project** which repo it maps to by adding one line to the project's description:
 
@@ -237,6 +242,18 @@ Running Nightshift as a long-lived `systemd --user` service? The `Makefile` wrap
 
 The startup banner (visible in `make logs` right after a restart) prints the live configuration — active agent backend, review gate, auto-iterate, notifications — so you can confirm at a glance what a freshly-restarted instance is running. If a newer release has been published, the banner is followed by a one-line `🆙 a new version … is available — run 'nightshift update'` hint (and a single Telegram ping if notifications are configured).
 
+### Install as a service (no checkout)
+
+Installed from the one-liner or a release binary, with no git checkout (and so no `Makefile`)? `nightshift install-service` writes the `systemd --user` unit for you, pointing at the installed binary and inheriting your current `PATH` (so the service finds the same `git`/`gh`/`claude`/`codex`):
+
+```bash
+nightshift install-service --start   # write the unit, enable + start it, and enable lingering
+nightshift install-service           # …just write the unit (start it yourself with `nightshift start`)
+nightshift install-service --force   # overwrite an existing unit
+```
+
+`--start` also runs `loginctl enable-linger` so the service keeps running after you log out. Off a systemd host (macOS, Docker) it prints a clear message and exits non-zero — use Docker or `nightshift run` directly there. After installing, manage it with `nightshift start` / `stop` / `restart` / `status` (below).
+
 ### Self-update from a release binary
 
 If you installed Nightshift from a published GitHub Release (rather than running from a git checkout), the binary can upgrade itself npm-style — no `git pull` / rebuild:
@@ -280,7 +297,7 @@ nightshift completion bash > /etc/bash_completion.d/nightshift
 nightshift completion zsh > "${fpath[1]}/_nightshift"
 ```
 
-The script completes the subcommand list (`run`, `setup`, `update`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
+The script completes the subcommand list (`run`, `setup`, `update`, `install-service`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
 
 ### Machine-readable doctor
 

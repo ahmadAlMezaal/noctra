@@ -8,6 +8,7 @@
 //	nightshift cleanup --force
 //	nightshift doctor     preflight dependency and config checks
 //	nightshift update     self-update to the latest release (--restart)
+//	nightshift install-service  install the systemd --user unit (--start, --force)
 //	nightshift logs       tail the service logs (-f to follow)
 //	nightshift start      start the systemd --user service
 //	nightshift stop       stop the systemd --user service
@@ -35,6 +36,7 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
 	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
 	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
+	"github.com/ahmadAlMezaal/nightshift/internal/service"
 	"github.com/ahmadAlMezaal/nightshift/internal/setup"
 )
 
@@ -116,6 +118,17 @@ func realMain() error {
 			}
 		}
 		return runLogs(scriptDir, follow)
+	case "install-service":
+		force, start := false, false
+		for _, a := range os.Args[2:] {
+			switch a {
+			case "--force":
+				force = true
+			case "--start":
+				start = true
+			}
+		}
+		return service.Install(force, start)
 	case "start", "stop", "restart", "status":
 		return runService(cmd)
 	case "completion":
@@ -165,6 +178,7 @@ func printUsage() {
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
 	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
+	fmt.Println("  install-service  Install the systemd --user unit (--start to enable+start, --force to overwrite)")
 	fmt.Println("  logs      Tail the service logs (-f / --follow to stream)")
 	fmt.Println("  start     Start the systemd --user service")
 	fmt.Println("  stop      Stop the systemd --user service")
@@ -289,7 +303,7 @@ func runService(verb string) error {
 // subcommands is the list completion offers. Kept in one place so the help
 // text, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "update", "logs", "start", "stop", "restart",
+	"run", "setup", "update", "install-service", "logs", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 
