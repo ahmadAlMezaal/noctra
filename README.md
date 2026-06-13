@@ -67,6 +67,8 @@ nightshift setup  # interactive: backend, Linear key, repos → writes .env
 nightshift        # start polling — or run it as a service (see below)
 ```
 
+> **`nightshift: command not found`?** The installer drops the binary in `~/.local/bin`; if that's not on your `PATH`, add it (the installer prints the exact line for your shell — `~/.bashrc`/`~/.zshrc`) or just open a new shell. This is normal for any user-local install (`go install`, `pip --user`, rustup, …) — not Nightshift-specific.
+
 Prefer the Go toolchain? `go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest` works too.
 
 Tell each Linear **project** which repo it maps to by adding one line to the project's description:
