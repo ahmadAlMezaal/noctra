@@ -303,8 +303,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// changes, the staged set is empty and a plain `git commit` would fail with
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
 	commitMsg := fmt.Sprintf(
-		"feat: implement %s — %s\n\nImplemented by Nightshift using Claude Code\n\nLinear: %s",
-		id, issue.Title, issue.URL)
+		"feat: implement %s — %s\n\nImplemented by Nightshift using %s\n\nLinear: %s",
+		id, issue.Title, p.agent.Label(), issue.URL)
 
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
@@ -349,8 +349,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Nightshift](https://github.com/ahmadAlMezaal/nightshift) 🌙 using Claude Code*",
-		id, issue.Title, issue.URL, summary, reviewSection)
+		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Nightshift](https://github.com/ahmadAlMezaal/nightshift) 🌙 using %s*",
+		id, issue.Title, issue.URL, summary, reviewSection, p.agent.Label())
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,

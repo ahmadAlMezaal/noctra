@@ -43,7 +43,11 @@ func BuildPrompt(in BuildPromptInput) string {
 - Do NOT create PRs or push branches — Nightshift handles that.
 
 ## When done:
-Provide a brief summary of what was implemented and any important decisions made.
+Provide a brief summary of what was implemented and any important decisions made. Wrap the summary between these exact marker lines, each alone on its own line with nothing else:
+
+===NIGHTSHIFT SUMMARY===
+<your summary here>
+===END NIGHTSHIFT SUMMARY===
 `, in.Identifier, in.Title, desc)
 	}
 
@@ -66,6 +70,10 @@ Provide a brief summary of what was implemented and any important decisions made
 - Do NOT create PRs or push branches — Nightshift handles that.
 
 ## When done:
-Provide a brief summary of what was implemented and any important decisions made.
+Provide a brief summary of what was implemented and any important decisions made. Wrap the summary between these exact marker lines, each alone on its own line with nothing else:
+
+===NIGHTSHIFT SUMMARY===
+<your summary here>
+===END NIGHTSHIFT SUMMARY===
 `, in.Identifier, in.Title, desc)
 }
