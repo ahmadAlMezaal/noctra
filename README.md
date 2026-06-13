@@ -77,7 +77,7 @@ Repo: your-org/your-repo
 
 Then drag a ticket into **Next** → Nightshift clones the repo, runs the agent in an isolated worktree, opens a PR, and moves the ticket to **In Review**.
 
-> ⚠️ **The one thing newcomers trip on:** a ticket's Linear **project** must point at the repo where its code lives — via a `Repo:` line in the project description (recommended), or a `repos.json` entry. A wrong/missing mapping means the agent runs in the wrong repo (or none), makes no changes, and the ticket bounces back. See [Repositories](#repositories).
+> ⚠️ **The one thing newcomers trip on:** a ticket's Linear **project** must point at the repo where its code lives, or the agent runs in the wrong repo (or none), makes no changes, and the ticket bounces back. See [Repositories](#repositories) for the `Repo:` directive and `repos.json` fallback.
 
 **No hardware?** Skip to [Docker](#docker-any-host--no-go-no-pi) or [Cloud (Fly/Render/Railway/DO)](#cloud-fly--render--railway--digitalocean) — same idea, with API-key auth.
 
@@ -138,13 +138,11 @@ Run `nightshift version` to confirm the build.
 ```bash
 # 1. With nightshift on your PATH (or ./nightshift if built from source)
 
-# 2. Run the interactive setup wizard
-#    Prompts for the agent backend (Claude/Codex), Linear,
-#    and optional Gemini/Telegram — then generates .env for you.
+# 2. Run the interactive setup wizard — prompts for the agent backend
+#    (Claude/Codex), Linear, and optional Gemini/Telegram, then writes .env.
 ./nightshift setup
 
-# 3. Tell each Linear project which repo it maps to —
-#    add a "Repo:" line to the project's description (see Repositories).
+# 3. Map each Linear project to a repo (see Repositories).
 
 # 4. Start the poll loop
 ./nightshift
@@ -152,15 +150,14 @@ Run `nightshift version` to confirm the build.
 
 That's it. Move tickets to your trigger state (default: "Next") — or set `TRIGGER_MODE=label` to pick up any ticket carrying a label instead — and watch them become PRs.
 
-Prefer editing config by hand? Copy `.env.example` → `.env` instead of running the wizard, and route repos via the project `Repo:` directive (see [Repositories](#repositories)).
+Prefer editing config by hand? Copy `.env.example` → `.env` instead of running the wizard. Either way, route repos per the [Repositories](#repositories) section.
 
 ### Docker (any host — no Go, no Pi)
 
 A prebuilt image is published to GHCR with `git`, `gh`, and both agent CLIs baked in. Runs anywhere Docker does — your laptop, a $4 VPS, Railway/Fly/Render.
 
 ```bash
-# 1. Config: keys via .env; repos routed per-ticket from each Linear
-#    project's "Repo: owner/name" directive (see Repositories).
+# 1. Config: keys via .env; repos routed per-ticket (see Repositories).
 cp .env.example .env            # fill in LINEAR_API_KEY, AGENT_BACKEND, agent + GitHub keys
 mkdir -p data                   # /data holds the repos cache, worktrees, logs, PR cursor
 
@@ -170,7 +167,7 @@ docker run -d --name nightshift --env-file .env -v "$PWD/data:/data" \
 docker logs -f nightshift       # watch it pick up tickets
 ```
 
-The project `Repo:` directive covers GitHub repos cloned over HTTPS (authenticated by `GH_TOKEN`). For SSH / non-GitHub URLs, drop an optional `repos.json` at `./data/repos.json` (mapping project name → URL) as a fallback.
+Repo routing works as [described below](#repositories): the project `Repo:` directive covers GitHub repos cloned over HTTPS (authenticated by `GH_TOKEN`). For SSH / non-GitHub URLs, place the fallback `repos.json` at `./data/repos.json`.
 
 Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compose.yml)).
 
@@ -184,11 +181,11 @@ Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compo
 | `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope) |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | commit identity (defaults to a `Nightshift` bot) |
 
-`GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. Stick to **HTTPS**-cloneable repos (a `Repo: owner/name` directive, or HTTPS URLs in any fallback `repos.json`) so `GH_TOKEN` authenticates clones/pushes — SSH would need a mounted key.
+`GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. In a container, stick to **HTTPS**-cloneable repos so `GH_TOKEN` authenticates clones/pushes — SSH would need a mounted key.
 
 ### Cloud (Fly · Render · Railway · DigitalOcean)
 
-Always-on, no hardware. Each template deploys the GHCR image; set the same secrets as the Docker table above. Route repos per-ticket with the project `Repo:` directive — no file to mount. For SSH / non-GitHub URLs (where these platforms can't mount a `repos.json` file), supply the fallback registry inline via **`REPOS_JSON`** (the same JSON, as an env var):
+Always-on, no hardware. Each template deploys the GHCR image; set the same secrets as the Docker table above. Repos route per-ticket via the project `Repo:` directive — no file to mount (see [Repositories](#repositories)). For SSH / non-GitHub URLs, where these platforms can't mount a `repos.json` file, supply the fallback registry inline via **`REPOS_JSON`** (the same JSON, as an env var):
 
 ```bash
 REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
