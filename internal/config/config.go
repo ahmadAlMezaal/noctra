@@ -190,8 +190,11 @@ func Load(scriptDir string) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate checks that required fields are set and that there's at least one
-// usable repo source (registry or REPO_PATH fallback).
+// Validate checks that required fields are set. It does NOT require a repos.json
+// registry or REPO_PATH: repos are resolved per-ticket — primarily from each
+// Linear project's "Repo:" directive, with the registry/REPO_PATH as optional
+// fallbacks — so a directive-only setup is valid, and a ticket that resolves to
+// nothing is skipped gracefully with a Linear comment (not a startup failure).
 func (c *Config) Validate() error {
 	var errs []string
 
@@ -224,11 +227,9 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("REPO_PATH (%s) is not a git repository", c.RepoPath))
 	}
 
-	if c.Registry == nil && c.RepoPath == "" {
-		errs = append(errs,
-			fmt.Sprintf("no repos configured — run ./nightshift setup, create %s, or set REPO_PATH in .env",
-				c.ReposFile))
-	}
+	// No registry + no REPO_PATH is fine: repos come from Linear project
+	// "Repo:" directives at dispatch time. An unresolvable ticket is skipped
+	// per-ticket with a Linear comment, so this isn't a startup-fatal condition.
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(errs, "\n  - "))
