@@ -66,8 +66,22 @@ var systemCommentMarkers = []string{
 }
 
 func isSystemComment(body string) bool {
+	// Classify only by the first non-empty line. A human who quotes one of our
+	// notifications (a "> 🚧 **Nightshift…" block) and then adds their own reply
+	// must still count as a clarification — so a leading ">" quote is never a
+	// system comment, and a marker buried later in the body doesn't trip it.
+	firstLine := ""
+	for _, line := range strings.Split(body, "\n") {
+		if s := strings.TrimSpace(line); s != "" {
+			firstLine = s
+			break
+		}
+	}
+	if strings.HasPrefix(firstLine, ">") {
+		return false
+	}
 	for _, m := range systemCommentMarkers {
-		if strings.Contains(body, m) {
+		if strings.Contains(firstLine, m) {
 			return true
 		}
 	}

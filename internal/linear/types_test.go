@@ -19,6 +19,9 @@ func TestClarificationComments_FiltersSystemComments(t *testing.T) {
 			{Body: "   "},
 			// Author missing — kept, attributed to "Someone".
 			{Body: "Also add a badge near the title."},
+			// Human reply that QUOTES the bot notification, then adds their own
+			// clarification — must be kept, not mistaken for a system comment.
+			{Body: "> 🚧 **Nightshift needs your input**\n\nActually, use the other URL.", User: &User{Name: "Ahmad"}},
 		}},
 	}
 
@@ -26,6 +29,7 @@ func TestClarificationComments_FiltersSystemComments(t *testing.T) {
 	want := []string{
 		"Ahmad: Use https://getnightshift.dev as the canonical URL.",
 		"Someone: Also add a badge near the title.",
+		"Ahmad: > 🚧 **Nightshift needs your input**\n\nActually, use the other URL.",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ClarificationComments:\n got: %#v\nwant: %#v", got, want)
