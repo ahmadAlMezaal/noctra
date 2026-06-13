@@ -37,8 +37,19 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		logger.Warn("could not write attempt header", "err", err)
 	}
 
-	// ── Resolve target repo from the ticket's Linear project ─────────────────
-	resolved, err := p.resolver.Resolve(ctx, issue.ProjectName())
+	// ── Resolve target repo ──────────────────────────────────────────────────
+	// A "Repo:" directive on the ticket's Linear project wins (no repos.json
+	// needed); otherwise fall back to the project→repos.json mapping.
+	var (
+		resolved repo.Resolved
+		err      error
+	)
+	if ref, branch := issue.Project.RepoDirective(); ref != "" {
+		logger.Info("repo from Linear project directive", "repo", ref, "branch", branch)
+		resolved, err = p.resolver.ResolveDirect(ctx, ref, branch)
+	} else {
+		resolved, err = p.resolver.Resolve(ctx, issue.ProjectName())
+	}
 	if err != nil {
 		logger.Error("repo resolution failed", "err", err)
 
@@ -50,7 +61,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			// the agent down. Only one comment + notification is posted.
 			p.skipPermanently(id)
 			if cerr := p.linear.Comment(ctx, issue.ID,
-				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nMap this ticket's project in `repos.json` (or run `./nightshift setup`), then restart Nightshift and move it back to **%s**.",
+				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` line to this ticket's **Linear project description** (optionally a `Branch:` line), or map the project in `repos.json`. Then move it back to **%s**.",
 					err.Error(), p.cfg.TriggerState)); cerr != nil {
 				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
 			}

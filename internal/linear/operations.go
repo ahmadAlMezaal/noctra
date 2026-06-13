@@ -77,7 +77,7 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 func (c *Client) FetchTriggerIssues(ctx context.Context, stateName string) ([]Issue, error) {
 	query := `query($state: String!) {
 	  teams { nodes { issues(filter: { state: { name: { eq: $state } } }, orderBy: updatedAt, first: 20) {
-	    nodes { id identifier title description url project { name } comments(last: 50) { nodes { body user { name } } } }
+	    nodes { id identifier title description url project { name description } comments(last: 50) { nodes { body user { name } } } }
 	  } } }
 	}`
 
@@ -318,7 +318,7 @@ func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Is
 func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Issue, error) {
 	query := `query($label: String!) {
 	  teams { nodes { issues(filter: { labels: { name: { eq: $label } } }, orderBy: updatedAt, first: 20) {
-	    nodes { id identifier title description url project { name } comments(last: 50) { nodes { body user { name } } } }
+	    nodes { id identifier title description url project { name description } comments(last: 50) { nodes { body user { name } } } }
 	  } } }
 	}`
 

@@ -41,3 +41,34 @@ func TestClarificationComments_EmptyWhenNoComments(t *testing.T) {
 		t.Errorf("expected no comments, got %#v", got)
 	}
 }
+
+func TestProjectRepoDirective(t *testing.T) {
+	cases := []struct {
+		name             string
+		desc             string
+		wantRepo, wantBr string
+	}{
+		{"none", "Just a normal project summary.", "", ""},
+		{"repo only", "Autonomous agent.\n\nRepo: ahmadAlMezaal/nightshift-site", "ahmadAlMezaal/nightshift-site", ""},
+		{"repo and branch", "Repo: owner/site\nBranch: staging", "owner/site", "staging"},
+		{"full https url", "Repo: https://github.com/owner/site", "https://github.com/owner/site", ""},
+		{"branch alone ignored", "Branch: main\nNo repo here.", "", ""},
+		{"case-insensitive + spaces", "repo:   owner/x  \nBRANCH:  dev ", "owner/x", "dev"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := &Project{Name: "P", Description: c.desc}
+			r, b := p.RepoDirective()
+			if r != c.wantRepo || b != c.wantBr {
+				t.Errorf("got (%q,%q), want (%q,%q)", r, b, c.wantRepo, c.wantBr)
+			}
+		})
+	}
+}
+
+func TestProjectRepoDirective_NilSafe(t *testing.T) {
+	var p *Project
+	if r, b := p.RepoDirective(); r != "" || b != "" {
+		t.Errorf("nil project: got (%q,%q)", r, b)
+	}
+}

@@ -233,3 +233,54 @@ func TestAllRepoPaths_DedupesAndFilters(t *testing.T) {
 		t.Errorf("second path: got %q, want %q", paths[1], fallback)
 	}
 }
+
+func TestResolveDirect_AlreadyClonedUsesExplicitBranch(t *testing.T) {
+	base := t.TempDir()
+	// Pre-create the slug dir as a "clone" so ResolveDirect skips the network.
+	dest := filepath.Join(base, Slug("owner/site-repo"))
+	if err := os.MkdirAll(filepath.Join(dest, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Resolver{ReposBase: base, MainBranch: "main"}
+
+	res, err := r.ResolveDirect(context.Background(), "owner/site-repo", "staging")
+	if err != nil {
+		t.Fatalf("ResolveDirect: %v", err)
+	}
+	if res.Path != dest {
+		t.Errorf("Path: got %q, want %q", res.Path, dest)
+	}
+	if res.MainBranch != "staging" {
+		t.Errorf("explicit branch should win: got %q", res.MainBranch)
+	}
+}
+
+func TestResolveDirect_NoBranchFallsBackToMainBranch(t *testing.T) {
+	base := t.TempDir()
+	dest := filepath.Join(base, Slug("owner/site-repo"))
+	if err := os.MkdirAll(filepath.Join(dest, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Resolver{ReposBase: base, MainBranch: "main"}
+
+	// No branch given and the fake repo has no origin/HEAD → fall back.
+	res, err := r.ResolveDirect(context.Background(), "owner/site-repo", "")
+	if err != nil {
+		t.Fatalf("ResolveDirect: %v", err)
+	}
+	if res.MainBranch != "main" {
+		t.Errorf("branch fallback: got %q, want main", res.MainBranch)
+	}
+}
+
+func TestResolveDirect_InvalidRefIsNonTransient(t *testing.T) {
+	r := &Resolver{ReposBase: t.TempDir(), MainBranch: "main"}
+	_, err := r.ResolveDirect(context.Background(), "this is not a repo!", "")
+	if err == nil {
+		t.Fatal("expected an error for an invalid ref")
+	}
+	var nte *NonTransientError
+	if !errors.As(err, &nte) {
+		t.Fatalf("want NonTransientError, got %T: %v", err, err)
+	}
+}
