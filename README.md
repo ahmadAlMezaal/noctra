@@ -15,12 +15,6 @@ Nightshift picks up your Linear tickets, implements them with your coding agent 
 
 ---
 
-## Website
-
-Visit [getnightshift.dev](https://getnightshift.dev) for the Nightshift landing page.
-
----
-
 ## How it works
 
 ```
@@ -454,7 +448,6 @@ PRs welcome — bug fixes, new deploy targets, or new agent / project-management
 ## Credits
 
 Built with:
-- Project website: [getnightshift.dev](https://getnightshift.dev)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — implementation engine (default) + [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams)
 - [OpenAI Codex](https://github.com/openai/codex) — alternative implementation engine (`AGENT_BACKEND=codex`)
 - [Gemini](https://aistudio.google.com) by Google — independent code review
