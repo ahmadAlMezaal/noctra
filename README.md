@@ -443,7 +443,7 @@ If the agent gets stuck or makes no changes, the ticket is moved back to **Next*
 
 ## Writing Good Tickets
 
-Nightshift is only as good as your tickets. See [docs/WRITING-GOOD-TICKETS.md](docs/WRITING-GOOD-TICKETS.md) for a full guide.
+Nightshift is only as good as your tickets. See the [`writing-good-tickets` skill](.claude/skills/writing-good-tickets/SKILL.md) for a full guide.
 
 **The one-line rule:** the agent needs to know *what* to change, *where* to change it, and *how you'll know it's done*.
 
