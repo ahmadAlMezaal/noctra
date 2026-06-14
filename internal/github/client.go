@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -257,4 +258,182 @@ func ExtractOwnerRepo(raw string) (string, error) {
 
 func looksLikeOwnerRepo(s string) bool {
 	return strings.Count(s, "/") == 1 && !strings.HasPrefix(s, "/") && !strings.HasSuffix(s, "/")
+}
+
+// reviewThread is an unresolved review thread on a PR, fetched via GraphQL.
+type reviewThread struct {
+	ID                     string // GraphQL node ID (used to resolve the thread)
+	FirstCommentDatabaseID int64  // REST API ID of the first comment (used to reply)
+}
+
+// ReplyAndResolveThreads replies to and resolves all unresolved review threads
+// on a PR with a short note referencing the new commit SHA. Best-effort:
+// individual failures are logged, never returned. Mirrors the existing
+// "non-fatal on failure" posture for inline-comment fetches.
+func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, sha string) {
+	owner, repo, number, err := parsePRURL(prURL)
+	if err != nil {
+		slog.Warn("github: cannot parse PR URL for thread resolution", "url", prURL, "err", err)
+		return
+	}
+
+	threads, err := c.fetchUnresolvedThreads(ctx, owner, repo, number)
+	if err != nil {
+		slog.Warn("github: fetch review threads failed", "url", prURL, "err", err)
+		return
+	}
+
+	if len(threads) == 0 {
+		return
+	}
+
+	replyBody := fmt.Sprintf("Addressed in %s.", sha)
+
+	resolved := 0
+	for _, t := range threads {
+		if t.FirstCommentDatabaseID > 0 {
+			if err := c.replyToThread(ctx, owner, repo, number, t.FirstCommentDatabaseID, replyBody); err != nil {
+				slog.Warn("github: reply to review thread failed", "thread", t.ID, "err", err)
+			}
+		}
+		if err := c.resolveThread(ctx, t.ID); err != nil {
+			slog.Warn("github: resolve review thread failed", "thread", t.ID, "err", err)
+		} else {
+			resolved++
+		}
+	}
+
+	slog.Info("github: review threads addressed", "url", prURL, "total", len(threads), "resolved", resolved)
+}
+
+// fetchUnresolvedThreads queries the GitHub GraphQL API for all unresolved
+// review threads on a PR. Returns only threads that are not yet resolved.
+func (c *Client) fetchUnresolvedThreads(ctx context.Context, owner, repo string, number int) ([]reviewThread, error) {
+	query := `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          comments(first: 1) {
+            nodes {
+              databaseId
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", "query="+query,
+		"-F", "owner="+owner,
+		"-F", "repo="+repo,
+		"-F", fmt.Sprintf("number=%d", number),
+	)
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh api graphql: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+
+	return decodeReviewThreads(stdout)
+}
+
+// decodeReviewThreads parses the GraphQL response for review threads and
+// returns only the unresolved ones.
+func decodeReviewThreads(data []byte) ([]reviewThread, error) {
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode review threads: %w", err)
+	}
+
+	var threads []reviewThread
+	for _, n := range resp.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		if n.IsResolved {
+			continue
+		}
+		var commentID int64
+		if len(n.Comments.Nodes) > 0 {
+			commentID = n.Comments.Nodes[0].DatabaseID
+		}
+		threads = append(threads, reviewThread{
+			ID:                     n.ID,
+			FirstCommentDatabaseID: commentID,
+		})
+	}
+	return threads, nil
+}
+
+// replyToThread posts a reply on a review comment thread via the REST API.
+func (c *Client) replyToThread(ctx context.Context, owner, repo string, prNumber int, commentID int64, body string) error {
+	apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments/%d/replies", owner, repo, prNumber, commentID)
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath,
+		"-f", "body="+body,
+	)
+	cmd.Stderr = &stderr
+	if _, err := cmd.Output(); err != nil {
+		return fmt.Errorf("gh api POST %s: %w (%s)", apiPath, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// resolveThread resolves a review thread via the GitHub GraphQL API.
+func (c *Client) resolveThread(ctx context.Context, threadID string) error {
+	mutation := `mutation($threadId: ID!) {
+  resolveReviewThread(input: {threadId: $threadId}) {
+    thread { isResolved }
+  }
+}`
+
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", "query="+mutation,
+		"-f", "threadId="+threadID,
+	)
+	cmd.Stderr = &stderr
+	if _, err := cmd.Output(); err != nil {
+		return fmt.Errorf("gh api graphql resolveReviewThread: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// parsePRURL extracts owner, repo name, and PR number from a GitHub PR URL
+// like https://github.com/owner/repo/pull/42.
+func parsePRURL(prURL string) (owner, repo string, number int, err error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("parse PR URL %q: %w", prURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" || parts[0] == "" || parts[1] == "" || parts[3] == "" {
+		return "", "", 0, fmt.Errorf("unexpected PR URL shape: %q", prURL)
+	}
+	n, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return "", "", 0, fmt.Errorf("PR number is not an integer in %q: %w", prURL, err)
+	}
+	return parts[0], parts[1], n, nil
 }
