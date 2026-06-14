@@ -71,6 +71,9 @@ func runPath(envFile string) error {
 // runEdit opens the resolved .env in the user's $EDITOR. Falls back to vi,
 // then nano. Mirrors how `noctra logs` execs journalctl — stdin/stdout/stderr
 // wired through.
+//
+// $EDITOR may contain arguments (e.g. "code --wait", "nano -w"), so we
+// split on whitespace and resolve only the first field as the binary.
 func runEdit(envFile string) error {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -90,14 +93,23 @@ func runEdit(envFile string) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
-	bin, err := exec.LookPath(editor)
+	// Split $EDITOR into binary + optional flags (e.g. "code --wait" →
+	// ["code", "--wait"]).
+	parts := strings.Fields(editor)
+
+	bin, err := exec.LookPath(parts[0])
 	if err != nil {
-		return fmt.Errorf("editor %q not found: %w", editor, err)
+		return fmt.Errorf("editor %q not found: %w", parts[0], err)
 	}
+
+	// Build argv: [binary, ...editor-flags, envFile].
+	argv := make([]string, 0, len(parts)+1)
+	argv = append(argv, parts...)
+	argv = append(argv, envFile)
 
 	// exec replaces the current process — cleaner than cmd.Run for an
 	// interactive editor (no double-process, signal handling is simpler).
-	return syscall.Exec(bin, []string{editor, envFile}, os.Environ())
+	return syscall.Exec(bin, argv, os.Environ())
 }
 
 // runGet prints the current value of a single key from the .env file.
@@ -125,7 +137,8 @@ func runSet(envFile string, args []string) error {
 }
 
 // parseKeyValue extracts a key-value pair from the arguments. It supports
-// two forms: ["KEY=VALUE"] and ["KEY", "VALUE"].
+// two forms: ["KEY=VALUE"] and ["KEY", "VALUE"]. Extra arguments are
+// rejected to avoid silent data loss (e.g. unquoted multi-word values).
 func parseKeyValue(args []string) (key, value string, err error) {
 	if len(args) == 0 {
 		return "", "", fmt.Errorf("usage: noctra config set KEY=VALUE (or KEY VALUE)")
@@ -133,6 +146,9 @@ func parseKeyValue(args []string) (key, value string, err error) {
 
 	// Form 1: KEY=VALUE in a single arg.
 	if eq := strings.IndexByte(args[0], '='); eq >= 0 {
+		if len(args) > 1 {
+			return "", "", fmt.Errorf("too many arguments; did you forget to quote the value?")
+		}
 		key = args[0][:eq]
 		value = args[0][eq+1:]
 		if key == "" {
@@ -144,6 +160,9 @@ func parseKeyValue(args []string) (key, value string, err error) {
 	// Form 2: KEY VALUE as two args.
 	if len(args) < 2 {
 		return "", "", fmt.Errorf("usage: noctra config set KEY=VALUE (or KEY VALUE)")
+	}
+	if len(args) > 2 {
+		return "", "", fmt.Errorf("too many arguments; did you forget to quote the value?")
 	}
 	return args[0], args[1], nil
 }

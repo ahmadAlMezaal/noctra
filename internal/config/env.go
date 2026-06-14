@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -93,11 +94,17 @@ func PatchEnvFile(path string, updates map[string]string) error {
 		}
 	}
 
-	// Append keys that weren't found in the existing file.
-	for key, val := range updates {
+	// Append keys that weren't found in the existing file, sorted
+	// alphabetically for deterministic output.
+	var newKeys []string
+	for key := range updates {
 		if !seen[key] {
-			lines = append(lines, key+`="`+val+`"`)
+			newKeys = append(newKeys, key)
 		}
+	}
+	sort.Strings(newKeys)
+	for _, key := range newKeys {
+		lines = append(lines, key+`="`+updates[key]+`"`)
 	}
 
 	content := strings.Join(lines, "\n")

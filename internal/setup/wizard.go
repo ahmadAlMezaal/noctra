@@ -709,8 +709,11 @@ type envValues struct {
 }
 
 // toMap returns the wizard-managed keys as a flat map suitable for
-// config.PatchEnvFile. Every key the wizard touches is included so the
-// merge covers all of them.
+// config.PatchEnvFile. Only keys the wizard actively collects from the
+// user are included — static defaults (POLL_INTERVAL, USE_AGENT_TEAMS,
+// GEMINI_MODEL, MAX_REVIEW_RETRIES) are omitted so merging into an
+// existing .env doesn't overwrite manual customizations. The fresh-
+// install template (writeEnvFile) still renders them with defaults.
 func (v envValues) toMap() map[string]string {
 	m := map[string]string{
 		"LINEAR_API_KEY":        v.linearKey,
@@ -720,8 +723,6 @@ func (v envValues) toMap() map[string]string {
 		"IN_REVIEW_STATE":       v.review,
 		"MAIN_BRANCH":           v.mainBranch,
 		"MAX_CONCURRENT":        v.concurrency,
-		"POLL_INTERVAL":         "30",
-		"USE_AGENT_TEAMS":       "false",
 		"MAX_DISPATCHES":        v.dispatches,
 		"MAX_RETRIES":           v.retries,
 		"AGENT_TIMEOUT_MINUTES": v.timeoutMin,
@@ -731,8 +732,6 @@ func (v envValues) toMap() map[string]string {
 		"TELEGRAM_VERBOSE":      v.tgVerbose,
 		"GEMINI_MODE":           v.geminiMode,
 		"GEMINI_API_KEY":        v.geminiKey,
-		"GEMINI_MODEL":          "gemini-2.5-pro",
-		"MAX_REVIEW_RETRIES":    "1",
 		"AUTO_ITERATE_PRS":      v.autoIterate,
 		"MAX_PR_ITERATIONS":     v.maxIter,
 		"PR_POLL_INTERVAL":      v.prPoll,
