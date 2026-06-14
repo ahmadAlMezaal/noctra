@@ -62,6 +62,27 @@ release:
   draft: false
   prerelease: auto
 
-# A Homebrew formula/cask can be published here later via `homebrew_casks`,
-# once an `ahmadAlMezaal/homebrew-tap` repo and a HOMEBREW_TAP_TOKEN secret
-# exist. `go install` + the release binaries already cover install for now.
+homebrew_casks:
+  - name: nightshift
+    binaries:
+      - nightshift
+    repository:
+      owner: ahmadAlMezaal
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: nightshift-bot
+      email: nightshift-bot@users.noreply.github.com
+    homepage: https://getnightshift.dev
+    description: >-
+      Autonomous Linear-to-PR agent — polls Linear for tickets, implements
+      them with Claude Code or OpenAI Codex, and creates pull requests.
+    # The release binaries are unsigned, so macOS quarantines them after a cask
+    # download and Gatekeeper blocks the first run. Strip the quarantine xattr
+    # on install so `nightshift` runs straight away.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nightshift"]
+          end
