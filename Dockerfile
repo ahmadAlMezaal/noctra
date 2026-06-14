@@ -18,10 +18,13 @@ RUN go mod download
 
 COPY . .
 ARG VERSION=docker
-# TARGETOS/TARGETARCH are injected by buildx for each target platform.
+# TARGETOS/TARGETARCH are injected by buildx for each target platform. They're
+# empty under a plain `docker build` (legacy builder / BuildKit off), so set
+# GOARCH only when TARGETARCH is non-empty (${VAR:+…}) — otherwise Go defaults
+# to the native host arch and the local build still works.
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} ${TARGETARCH:+GOARCH=${TARGETARCH}} go build -trimpath \
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/noctra ./cmd/noctra
 
