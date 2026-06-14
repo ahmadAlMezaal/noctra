@@ -78,12 +78,12 @@ func New(cfg *config.Config) *Pipeline {
 	}
 
 	p := &Pipeline{
-		cfg:            cfg,
-		linear:         newLinearClient(cfg),
-		resolver:       repo.FromConfig(cfg),
-		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
-		review:         review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
-		agent:          backend,
+		cfg:      cfg,
+		linear:   newLinearClient(cfg),
+		resolver: repo.FromConfig(cfg),
+		telegram: notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
+		review:   review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
+		agent:    backend,
 		budget: budget.New(budget.Config{
 			MaxDailyTokens: cfg.MaxDailyTokens,
 			MaxDailyUSD:    cfg.MaxDailyUSD,
