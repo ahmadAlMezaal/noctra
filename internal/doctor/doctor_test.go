@@ -32,7 +32,7 @@ func TestCheckCLI_NotFound(t *testing.T) {
 }
 
 func TestCheckCLI_HintsForKnownCLIs(t *testing.T) {
-	for _, cli := range []string{"git", "gh", "claude"} {
+	for _, cli := range []string{"git", "gh", "claude", "copilot"} {
 		c := checkCLI(cli)
 		// We can't control whether these are installed, but we can verify
 		// the hint is populated when missing.

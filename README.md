@@ -9,7 +9,7 @@
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
 [![Website](https://img.shields.io/badge/website-getnoctra.dev-7C3AED.svg)](https://getnoctra.dev)
 
-Noctra picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code or OpenAI Codex** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
+Noctra picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code, OpenAI Codex, or GitHub Copilot** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
 <!-- TODO(maintainer): drop a ~20s demo GIF here — drag a ticket to "Next" → PR appears — e.g. ![demo](docs/demo.gif) -->
 
@@ -23,7 +23,7 @@ You: Move 3 tickets to "Next" → Run noctra → Go to sleep
 Noctra:
   1. Polls Linear, finds tickets in "Next" (or carrying a trigger label)
   2. Creates an isolated git worktree per ticket
-  3. Dispatches your agent backend (Claude Code or OpenAI Codex):
+  3. Dispatches your agent backend (Claude Code, OpenAI Codex, or GitHub Copilot):
      → Reads the ticket, plans, implements, and self-reviews
      → (Claude + USE_AGENT_TEAMS) a lead agent delegates to teammates in parallel
   4. (If Gemini key provided) Multi-model review gate:
@@ -40,7 +40,7 @@ You: Wake up → Review 3 PRs → Merge   (check on it from Telegram any time)
 flowchart LR
     L[Linear ticket in Next] --> N[Noctra poll loop]
     N --> W[git worktree per ticket]
-    W --> A[Agent: Claude or Codex]
+    W --> A[Agent: Claude / Codex / Copilot]
     A --> G{Gemini review?}
     G -->|pass / disabled| PR[gh pr create]
     G -->|issues found| A
@@ -61,8 +61,8 @@ The fastest path — local, ~5 minutes:
 curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/noctra/main/scripts/install.sh | sh
 # (soon also available at: curl -fsSL https://getnoctra.dev/install.sh | sh)
 
-claude            # or: codex login   — authenticate your agent once
-gh auth login     # GitHub access for PRs
+claude            # or: codex login / gh auth login — authenticate your agent once
+gh auth login     # GitHub access for PRs (also authenticates Copilot backend)
 noctra setup  # interactive: backend, Linear key, repos → writes .env
 noctra        # start polling — or run it as a service (see below)
 ```
@@ -92,13 +92,13 @@ Noctra is a single Go binary. Beyond Go for the build, it shells out to a few st
 | Tool | Install | Purpose |
 |------|---------|---------|
 | Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
-| `claude` **or** `codex` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude) or `npm i -g @openai/codex` (Codex) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
+| `claude`, `codex`, **or** `copilot` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude), `npm i -g @openai/codex` (Codex), or `npm i -g @githubnext/copilot-cli` (Copilot) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
 | `gh` CLI | `brew install gh` | PR creation |
 | `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
 | Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) | Optional review gate |
 
-You only need the CLI for the backend you select with `AGENT_BACKEND` — `claude` (default) or `codex`. `noctra doctor` checks for the right one.
+You only need the CLI for the backend you select with `AGENT_BACKEND` — `claude` (default), `codex`, or `copilot`. `noctra doctor` checks for the right one.
 
 **Authentication:**
 
@@ -106,8 +106,7 @@ You only need the CLI for the backend you select with `AGENT_BACKEND` — `claud
 # Authenticate whichever agent backend you use (one-time, on the host):
 claude              # Claude Code  (subscription login, or set ANTHROPIC_API_KEY)
 codex login         # OpenAI Codex (subscription login, or set OPENAI_API_KEY)
-
-gh auth login       # authenticate gh
+gh auth login       # authenticate gh (also authenticates Copilot CLI)
 ```
 
 Noctra never stores or manages agent credentials — it inherits whatever the selected CLI is already logged into.
@@ -144,7 +143,7 @@ Run `noctra version` to confirm the build.
 # 1. With noctra on your PATH (or ./noctra if built from source)
 
 # 2. Run the interactive setup wizard — prompts for the agent backend
-#    (Claude/Codex), Linear, and optional Gemini/Telegram, then writes .env.
+#    (Claude/Codex/Copilot), Linear, and optional Gemini/Telegram, then writes .env.
 ./noctra setup
 
 # 3. Map each Linear project to a repo (see Repositories).
@@ -159,7 +158,7 @@ Prefer editing config by hand? Copy `.env.example` → `.env` instead of running
 
 ### Docker (any host — no Go, no Pi)
 
-A prebuilt image is published to GHCR with `git`, `gh`, and both agent CLIs baked in. Runs anywhere Docker does — your laptop, a $4 VPS, Railway/Fly/Render.
+A prebuilt image is published to GHCR with `git`, `gh`, and all three agent CLIs baked in. Runs anywhere Docker does — your laptop, a $4 VPS, Railway/Fly/Render.
 
 ```bash
 # 1. Config: keys via .env; repos routed per-ticket (see Repositories).
@@ -181,9 +180,9 @@ Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compo
 | Env var | For |
 |---------|-----|
 | `LINEAR_API_KEY` | Linear (required) |
-| `AGENT_BACKEND` | `claude` or `codex` |
-| `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` | the agent backend you chose |
-| `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope) |
+| `AGENT_BACKEND` | `claude`, `codex`, or `copilot` |
+| `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` | the agent backend you chose (copilot uses `GH_TOKEN`) |
+| `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope); also authenticates `copilot` |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | commit identity (defaults to a `Noctra` bot) |
 
 `GEMINI_API_KEY`, Telegram, and auto-iterate vars work the same as elsewhere. Everything mutable (repos cache, worktrees, logs, PR cursor) lives under the mounted `/data` volume, so restarts keep their state. In a container, stick to **HTTPS**-cloneable repos so `GH_TOKEN` authenticates clones/pushes — SSH would need a mounted key.
@@ -242,7 +241,7 @@ The startup banner (visible in `make logs` right after a restart) prints the liv
 
 ### Install as a service (no checkout)
 
-Installed from the one-liner or a release binary, with no git checkout (and so no `Makefile`)? `noctra install-service` writes the `systemd --user` unit for you, pointing at the installed binary and inheriting your current `PATH` (so the service finds the same `git`/`gh`/`claude`/`codex`):
+Installed from the one-liner or a release binary, with no git checkout (and so no `Makefile`)? `noctra install-service` writes the `systemd --user` unit for you, pointing at the installed binary and inheriting your current `PATH` (so the service finds the same `git`/`gh`/`claude`/`codex`/`copilot`):
 
 ```bash
 noctra install-service --start   # write the unit, enable + start it, and enable lingering
@@ -391,7 +390,7 @@ Run `./noctra setup` to generate config, or copy `.env.example` → `.env` by ha
 |----------|---------|-------------|
 | `LINEAR_API_KEY` | *(required)* | Your Linear personal API key |
 | `LINEAR_TEAM_KEY` | `ENG` | Team identifier — the prefix before ticket numbers (e.g. `ENG` for `ENG-42`) |
-| `AGENT_BACKEND` | `claude` | Coding agent: `claude` or `codex` |
+| `AGENT_BACKEND` | `claude` | Coding agent: `claude`, `codex`, or `copilot` |
 | `TRIGGER_MODE` | `state` | Pick up work by `state` (column) or `label` |
 | `TRIGGER_STATE` | `Next` | Column to watch (state mode) |
 | `TRIGGER_LABEL` | *(empty)* | Label to watch (label mode); removed after dispatch |
@@ -459,7 +458,7 @@ Noctra is only as good as your tickets. See the [`writing-good-tickets` skill](.
 
 ### Unattended, no-confirmation execution
 
-Noctra runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-permissions`, or `codex exec --dangerously-bypass-approvals-and-sandbox` for the Codex backend. Either way, the agent can read, write, and execute commands in your repository without asking for confirmation on each action.
+Noctra runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-permissions`, `codex exec --dangerously-bypass-approvals-and-sandbox` for the Codex backend, or `copilot --allow-all-tools` for the Copilot backend. Either way, the agent can read, write, and execute commands in your repository without asking for confirmation on each action.
 
 **Only use Noctra on repositories where you accept this risk:**
 - ✅ Personal projects and side projects
@@ -500,7 +499,7 @@ Noctra creates PRs — it doesn't merge them. You review and merge manually. The
 
 ### How much does it cost?
 
-**Agent backend:** With `AGENT_BACKEND=claude` (default) it uses the `claude` CLI on your Claude Code subscription; with `codex`, the `codex` CLI on your ChatGPT subscription (or `OPENAI_API_KEY`). Either way it's the CLI's own auth/billing — Noctra adds no implementation API costs of its own. (Agent Teams uses more tokens per ticket since multiple agents run at once.)
+**Agent backend:** With `AGENT_BACKEND=claude` (default) it uses the `claude` CLI on your Claude Code subscription; with `codex`, the `codex` CLI on your ChatGPT subscription (or `OPENAI_API_KEY`); with `copilot`, the `copilot` CLI on your GitHub Copilot subscription (via `gh` / `GH_TOKEN`). Either way it's the CLI's own auth/billing — Noctra adds no implementation API costs of its own. (Agent Teams uses more tokens per ticket since multiple agents run at once.)
 
 **Gemini:** Only if you enable the review gate — pay-per-token, ~$0.01–$0.05/ticket with `gemini-2.5-pro` ([pricing](https://aistudio.google.com/pricing)).
 
@@ -538,6 +537,7 @@ PRs welcome — bug fixes, new deploy targets, or new agent / project-management
 Built with:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — implementation engine (default) + [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams)
 - [OpenAI Codex](https://github.com/openai/codex) — alternative implementation engine (`AGENT_BACKEND=codex`)
+- [GitHub Copilot](https://github.com/features/copilot) — alternative implementation engine (`AGENT_BACKEND=copilot`)
 - [Gemini](https://aistudio.google.com) by Google — independent code review
 - Inspired by Damian Galarza's agent loop patterns and the broader agentic-coding community
 

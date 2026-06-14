@@ -142,10 +142,11 @@ func checkCLI(name string) check {
 	path, err := exec.LookPath(name)
 	if err != nil {
 		hints := map[string]string{
-			"git":    "Install git: https://git-scm.com/downloads",
-			"gh":     "Install GitHub CLI: https://cli.github.com",
-			"claude": "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
-			"codex":  "Install Codex CLI: npm i -g @openai/codex, then run `codex login`",
+			"git":     "Install git: https://git-scm.com/downloads",
+			"gh":      "Install GitHub CLI: https://cli.github.com",
+			"claude":  "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
+			"codex":   "Install Codex CLI: npm i -g @openai/codex, then run `codex login`",
+			"copilot": "Install Copilot CLI: npm i -g @githubnext/copilot-cli (requires a Copilot subscription via gh)",
 		}
 		return check{
 			name:   name,

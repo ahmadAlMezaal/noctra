@@ -17,8 +17,9 @@ var baseCLIs = []string{"git", "gh"}
 
 // agentCLIs maps a backend name to the CLI binary it requires on PATH.
 var agentCLIs = map[string]string{
-	"claude": "claude",
-	"codex":  "codex",
+	"claude":  "claude",
+	"codex":   "codex",
+	"copilot": "copilot",
 }
 
 // DefaultConfigDir returns the per-user config directory (~/.noctra/).
@@ -108,7 +109,7 @@ type Config struct {
 	MainBranch string
 
 	// Agent
-	AgentBackend  string // coding-agent CLI: "claude" (default) or "codex"
+	AgentBackend  string // coding-agent CLI: "claude" (default), "codex", or "copilot"
 	MaxConcurrent int
 	PollInterval  time.Duration
 	UseAgentTeams bool
@@ -228,7 +229,7 @@ func (c *Config) Validate() error {
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {
-		errs = append(errs, fmt.Sprintf("AGENT_BACKEND must be \"claude\" or \"codex\", got %q", c.AgentBackend))
+		errs = append(errs, fmt.Sprintf("AGENT_BACKEND must be \"claude\", \"codex\", or \"copilot\", got %q", c.AgentBackend))
 	}
 
 	switch c.TriggerMode {
