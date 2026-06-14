@@ -81,7 +81,7 @@ func TestFetchTriggerIssues_ParsesProject(t *testing.T) {
 		variables  map[string]any
 	}{
 		authHeader: "test-key",
-		query:      "project { name description }",
+		query:      "project { name description content }",
 		variables:  map[string]any{"state": "Next"},
 	}, resp)
 

@@ -45,19 +45,25 @@ func TestClarificationComments_EmptyWhenNoComments(t *testing.T) {
 func TestProjectRepoDirective(t *testing.T) {
 	cases := []struct {
 		name             string
-		desc             string
+		content, desc    string // content = markdown body (primary), desc = short description (fallback)
 		wantRepo, wantBr string
 	}{
-		{"none", "Just a normal project summary.", "", ""},
-		{"repo only", "Autonomous agent.\n\nRepo: ahmadAlMezaal/nightshift-site", "ahmadAlMezaal/nightshift-site", ""},
-		{"repo and branch", "Repo: owner/site\nBranch: staging", "owner/site", "staging"},
-		{"full https url", "Repo: https://github.com/owner/site", "https://github.com/owner/site", ""},
-		{"branch alone ignored", "Branch: main\nNo repo here.", "", ""},
-		{"case-insensitive + spaces", "repo:   owner/x  \nBRANCH:  dev ", "owner/x", "dev"},
+		{"none", "", "Just a normal project summary.", "", ""},
+		// Directive in the markdown body (content) — the real-world case that
+		// the ENG-200 bug broke (we used to read description only).
+		{"content repo only", "Autonomous agent.\n\nRepo: ahmadAlMezaal/nightshift-site", "", "ahmadAlMezaal/nightshift-site", ""},
+		{"content repo + branch", "Repo: owner/site\nBranch: staging", "", "owner/site", "staging"},
+		{"content full https url", "Repo: https://github.com/owner/site", "", "https://github.com/owner/site", ""},
+		// Fallback: directive written in the short description still works.
+		{"description fallback", "", "Repo: owner/x", "owner/x", ""},
+		// content takes precedence over description.
+		{"content beats description", "Repo: owner/from-content", "Repo: owner/from-desc", "owner/from-content", ""},
+		{"branch alone ignored", "Branch: main\nNo repo here.", "", "", ""},
+		{"case-insensitive + spaces", "repo:   owner/x  \nBRANCH:  dev ", "", "owner/x", "dev"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p := &Project{Name: "P", Description: c.desc}
+			p := &Project{Name: "P", Content: c.content, Description: c.desc}
 			r, b := p.RepoDirective()
 			if r != c.wantRepo || b != c.wantBr {
 				t.Errorf("got (%q,%q), want (%q,%q)", r, b, c.wantRepo, c.wantBr)
