@@ -22,6 +22,7 @@ var noctraEnvKeys = []string{
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_FILE",
+	"DASHBOARD_ADDR", "DASHBOARD_TOKEN",
 }
 
 func isolateEnv(t *testing.T) {

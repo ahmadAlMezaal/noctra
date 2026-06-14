@@ -153,6 +153,10 @@ type Config struct {
 	AutoReleaseLabel   bool
 	DefaultReleaseBump string // "patch" (default), "minor", or "major"
 
+	// Dashboard (ENG-218) — off by default, opt-in via DASHBOARD_ADDR.
+	DashboardAddr  string // listen address (e.g. ":8080", "127.0.0.1:9000")
+	DashboardToken string // shared secret for auth-gated actions (kill/requeue)
+
 	// Derived paths
 	ScriptDir    string
 	EnvFile      string
@@ -232,6 +236,10 @@ func Load(scriptDir string) (*Config, error) {
 	// Auto-release-label
 	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)
 	cfg.DefaultReleaseBump = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "DEFAULT_RELEASE_BUMP", DefaultReleaseBump)))
+
+	// Dashboard
+	cfg.DashboardAddr = getenv(fileEnv, "DASHBOARD_ADDR", "")
+	cfg.DashboardToken = getenv(fileEnv, "DASHBOARD_TOKEN", "")
 
 	return cfg, nil
 }

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noctra Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --yellow: #d29922;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.5; padding: 1rem; }
+h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+h2 { font-size: 1.1rem; color: var(--accent); margin: 1rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; }
+.card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.card .value { font-size: 1.5rem; font-weight: 600; }
+.card .value.green { color: var(--green); }
+.card .value.red { color: var(--red); }
+.card .value.yellow { color: var(--yellow); }
+table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+th { color: var(--muted); font-weight: 500; }
+.badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.75rem; font-weight: 500; }
+.badge-active { background: rgba(56,139,253,0.15); color: var(--accent); }
+.badge-failed { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-skipped { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.badge-killed { background: rgba(139,148,158,0.15); color: var(--muted); }
+button { background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.8rem; }
+button:hover { border-color: var(--accent); }
+button.danger { border-color: var(--red); color: var(--red); }
+button.danger:hover { background: rgba(248,81,73,0.1); }
+#log-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.75rem; max-height: 400px; overflow-y: auto; font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; display: none; }
+#log-title { display: none; }
+.controls { margin: 0.5rem 0; display: flex; gap: 0.5rem; align-items: center; }
+.controls input { background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.3rem 0.6rem; font-size: 0.8rem; width: 120px; }
+#error-bar { background: rgba(248,81,73,0.1); border: 1px solid var(--red); color: var(--red);
+  border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.85rem; display: none; margin-bottom: 0.5rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.header .uptime { color: var(--muted); font-size: 0.85rem; }
+.empty { color: var(--muted); font-style: italic; padding: 0.4rem 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Noctra Dashboard</h1>
+  <span class="uptime" id="uptime"></span>
+</div>
+
+<div id="error-bar"></div>
+
+<div class="grid" id="stats-grid"></div>
+
+<h2>Active Runs</h2>
+<div id="active-runs"></div>
+
+<h2>Queue</h2>
+<div id="queue-info"></div>
+
+<h2>PR Iteration State</h2>
+<div id="pr-state"></div>
+
+<h2>Controls</h2>
+<div class="controls">
+  <input type="text" id="ctrl-id" placeholder="ENG-42">
+  <button class="danger" onclick="doKill()">Kill</button>
+  <button onclick="doRequeue()">Requeue</button>
+  <input type="text" id="ctrl-ctx" placeholder="extra context" style="width:200px">
+</div>
+
+<h2 id="log-title">Log Tail</h2>
+<div id="log-panel"></div>
+
+<script>
+const TOKEN = localStorage.getItem('noctra_token') || '';
+let streamSource = null;
+
+async function fetchStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    if (!resp.ok) throw new Error(resp.statusText);
+    const data = await resp.json();
+    render(data);
+    hideError();
+  } catch (e) {
+    showError('Failed to fetch status: ' + e.message);
+  }
+}
+
+function render(d) {
+  document.getElementById('uptime').textContent = 'Uptime: ' + d.uptime;
+
+  const s = d.stats;
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="card"><div class="label">Workers</div><div class="value">${d.active.length}/${d.max_workers}</div></div>
+    <div class="card"><div class="label">Dispatches</div><div class="value">${s.total_dispatches}/${s.max_dispatches}</div></div>
+    <div class="card"><div class="label">PRs Created</div><div class="value green">${s.success_count}</div></div>
+    <div class="card"><div class="label">Failed</div><div class="value red">${s.fail_count}</div></div>
+  `;
+
+  // Active runs
+  const activeEl = document.getElementById('active-runs');
+  if (d.active.length === 0) {
+    activeEl.innerHTML = '<div class="empty">No active runs (idle)</div>';
+  } else {
+    let html = '<table><tr><th>Ticket</th><th>Actions</th></tr>';
+    for (const id of d.active) {
+      html += `<tr><td><span class="badge badge-active">${esc(id)}</span></td>
+        <td><button class="danger" onclick="doKillId('${esc(id)}')">Kill</button>
+        <button onclick="viewLog('${esc(id)}')">Logs</button></td></tr>`;
+    }
+    html += '</table>';
+    activeEl.innerHTML = html;
+  }
+
+  // Queue info (failed + skipped + killed)
+  const queueEl = document.getElementById('queue-info');
+  const failKeys = Object.keys(d.failed || {});
+  const skipKeys = d.skipped || [];
+  const killKeys = d.killed || [];
+  if (failKeys.length === 0 && skipKeys.length === 0 && killKeys.length === 0) {
+    queueEl.innerHTML = '<div class="empty">No failed, skipped, or killed tickets</div>';
+  } else {
+    let html = '<table><tr><th>Ticket</th><th>Status</th><th>Detail</th></tr>';
+    for (const id of failKeys) {
+      html += `<tr><td>${esc(id)}</td><td><span class="badge badge-failed">failed</span></td><td>${d.failed[id]} attempts</td></tr>`;
+    }
+    for (const id of skipKeys) {
+      html += `<tr><td>${esc(id)}</td><td><span class="badge badge-skipped">skipped</span></td><td>non-transient</td></tr>`;
+    }
+    for (const id of killKeys) {
+      html += `<tr><td>${esc(id)}</td><td><span class="badge badge-killed">killed</span></td><td></td></tr>`;
+    }
+    html += '</table>';
+    queueEl.innerHTML = html;
+  }
+
+  // PR state
+  const prEl = document.getElementById('pr-state');
+  const prKeys = Object.keys(d.pr_state || {});
+  if (prKeys.length === 0) {
+    prEl.innerHTML = '<div class="empty">No tracked PRs</div>';
+  } else {
+    let html = '<table><tr><th>PR</th><th>Ticket</th><th>Backend</th><th>Iterations</th><th>Last Iterated</th><th>CI SHA</th></tr>';
+    for (const url of prKeys) {
+      const pr = d.pr_state[url];
+      const shortURL = url.replace(/^https:\/\/github\.com\//, '');
+      const lastIter = pr.last_iterated_at ? new Date(pr.last_iterated_at).toLocaleString() : '-';
+      const ciSha = pr.last_ci_sha ? pr.last_ci_sha.substring(0, 7) : '-';
+      html += `<tr><td><a href="${esc(url)}" target="_blank" style="color:var(--accent)">${esc(shortURL)}</a></td>
+        <td>${esc(pr.ticket_id || '-')}</td><td>${esc(pr.agent_backend || '-')}</td>
+        <td>${pr.iterations || 0}</td><td>${lastIter}</td><td><code>${ciSha}</code></td></tr>`;
+    }
+    html += '</table>';
+    prEl.innerHTML = html;
+  }
+}
+
+async function viewLog(id) {
+  document.getElementById('log-title').style.display = 'block';
+  const panel = document.getElementById('log-panel');
+  panel.style.display = 'block';
+  panel.textContent = 'Loading...';
+  try {
+    const resp = await fetch('/api/logs/' + encodeURIComponent(id));
+    if (!resp.ok) throw new Error(resp.statusText);
+    const data = await resp.json();
+    panel.textContent = data.tail || '(empty log)';
+    panel.scrollTop = panel.scrollHeight;
+    startStream(id, panel);
+  } catch (e) {
+    panel.textContent = 'Error: ' + e.message;
+  }
+}
+
+function startStream(id, panel) {
+  if (streamSource) streamSource.close();
+  streamSource = new EventSource('/api/logs/' + encodeURIComponent(id) + '/stream');
+  streamSource.onmessage = function(e) {
+    panel.textContent += e.data + '\n';
+    panel.scrollTop = panel.scrollHeight;
+  };
+  streamSource.onerror = function() {
+    streamSource.close();
+    streamSource = null;
+  };
+}
+
+async function doKill() {
+  const id = document.getElementById('ctrl-id').value.trim();
+  if (!id) return;
+  await doKillId(id);
+}
+
+async function doKillId(id) {
+  try {
+    const resp = await fetch('/api/kill', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN},
+      body: JSON.stringify({identifier: id})
+    });
+    const data = await resp.json();
+    if (data.error) showError(data.error);
+    else { hideError(); fetchStatus(); }
+  } catch (e) { showError(e.message); }
+}
+
+async function doRequeue() {
+  const id = document.getElementById('ctrl-id').value.trim();
+  const ctx = document.getElementById('ctrl-ctx').value.trim();
+  if (!id) return;
+  try {
+    const resp = await fetch('/api/requeue', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN},
+      body: JSON.stringify({identifier: id, context: ctx})
+    });
+    const data = await resp.json();
+    if (data.error) showError(data.error);
+    else { hideError(); fetchStatus(); }
+  } catch (e) { showError(e.message); }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-bar');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideError() { document.getElementById('error-bar').style.display = 'none'; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+fetchStatus();
+setInterval(fetchStatus, 5000);
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/dashboard"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
@@ -180,6 +181,23 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		slog.Info("telegram command listener started")
 	}
 
+	// Start the dashboard HTTP server if configured. Runs in its own
+	// goroutine on the shared WaitGroup so shutdown drains it cleanly.
+	var dashSrv *dashboard.Server
+	if p.cfg.DashboardAddr != "" {
+		dashSrv = dashboard.New(p, p, p.cfg.DashboardToken, p.cfg.LogDir)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := dashSrv.ListenAndServe(p.cfg.DashboardAddr); err != nil {
+				// http.ErrServerClosed is expected on graceful shutdown.
+				if err.Error() != "http: Server closed" {
+					slog.Warn("dashboard server stopped", "err", err)
+				}
+			}
+		}()
+	}
+
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -194,10 +212,20 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		go p.runWatcher(ctx, &wg)
 	}
 
+	// shutdownDashboard gracefully stops the dashboard server if it was started.
+	shutdownDashboard := func() {
+		if dashSrv != nil {
+			shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutCancel()
+			_ = dashSrv.Shutdown(shutCtx)
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("🌅 shutting down — waiting for active tasks")
+			shutdownDashboard()
 			wg.Wait()
 			p.summary(ctx)
 			return nil
@@ -210,6 +238,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 			if rlDetected {
 				slog.Info("🛑 rate limit detected — shutting down")
+				shutdownDashboard()
 				wg.Wait()
 				p.summary(ctx)
 				return nil
@@ -217,6 +246,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 			if atCap {
 				slog.Info("🛑 max dispatches reached — shutting down",
 					"limit", p.cfg.MaxDispatches)
+				shutdownDashboard()
 				wg.Wait()
 				p.summary(ctx)
 				return nil
@@ -386,6 +416,80 @@ func (p *Pipeline) flagRateLimit() {
 	p.rateLimitDetected = true
 }
 
+// DashboardStatus returns a snapshot of the pipeline state for the dashboard.
+// Implements dashboard.Snapshot.
+func (p *Pipeline) DashboardStatus() dashboard.Status {
+	p.mu.Lock()
+	active := make([]string, 0, len(p.active))
+	for id := range p.active {
+		active = append(active, id)
+	}
+	killed := make([]string, 0, len(p.killed))
+	for id := range p.killed {
+		killed = append(killed, id)
+	}
+	skipped := make([]string, 0, len(p.skipped))
+	for id := range p.skipped {
+		skipped = append(skipped, id)
+	}
+	failed := make(map[string]int, len(p.failedAttempts))
+	for id, n := range p.failedAttempts {
+		failed[id] = n
+	}
+	stats := dashboard.SessionStats{
+		TotalDispatches: p.totalDispatches,
+		MaxDispatches:   p.cfg.MaxDispatches,
+		SuccessCount:    p.successCount,
+		FailCount:       p.failCount,
+	}
+	maxW := p.cfg.MaxConcurrent
+	p.mu.Unlock()
+
+	var prState map[string]state.PRState
+	if p.store != nil {
+		prState = p.store.All()
+	}
+
+	return dashboard.Status{
+		Active:     active,
+		Killed:     killed,
+		Skipped:    skipped,
+		Failed:     failed,
+		Stats:      stats,
+		PRState:    prState,
+		MaxWorkers: maxW,
+		Uptime:     time.Since(p.sessionStart).Round(time.Second).String(),
+	}
+}
+
+// Requeue moves a ticket back to the trigger state/label. Implements
+// dashboard.Controller. If extraContext is non-empty, it is posted as a
+// Linear comment before the state transition.
+func (p *Pipeline) Requeue(ctx context.Context, identifier, extraContext string) error {
+	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
+	if err != nil {
+		return fmt.Errorf("ticket %s not found: %w", identifier, err)
+	}
+
+	if extraContext != "" {
+		comment := fmt.Sprintf("**Requeued via dashboard**\n\n%s", extraContext)
+		if err := p.linear.Comment(ctx, issue.ID, comment); err != nil {
+			return fmt.Errorf("comment on %s failed: %w", identifier, err)
+		}
+	}
+
+	if p.cfg.TriggerMode == "label" && p.labelID != "" {
+		if err := p.linear.AddLabel(ctx, issue.ID, p.labelID); err != nil {
+			return fmt.Errorf("add trigger label on %s failed: %w", identifier, err)
+		}
+	} else if p.states.Trigger != "" {
+		if err := p.linear.SetState(ctx, issue.ID, p.states.Trigger); err != nil {
+			return fmt.Errorf("set trigger state on %s failed: %w", identifier, err)
+		}
+	}
+	return nil
+}
+
 // rateLimited reports whether a run should be treated as having hit a usage /
 // rate limit. A genuine limit makes the agent CLI FAIL, so this is only true
 // for a failed run whose output carries the backend's rate-limit markers. A
@@ -465,6 +569,9 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
 	fmt.Printf("   Max dispatches: %d per session\n", p.cfg.MaxDispatches)
 	fmt.Printf("   Notifications:  %s\n", notifyMode)
+	if p.cfg.DashboardAddr != "" {
+		fmt.Printf("   Dashboard:      http://%s\n", p.cfg.DashboardAddr)
+	}
 	fmt.Println()
 	fmt.Println("Waiting for tickets... (Ctrl+C to stop)")
 	fmt.Println()
