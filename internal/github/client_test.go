@@ -209,10 +209,10 @@ func TestDetailsIsOpen(t *testing.T) {
 
 func TestParsePRURL(t *testing.T) {
 	cases := []struct {
-		in              string
-		owner, repo     string
-		number          int
-		wantErr         bool
+		in          string
+		owner, repo string
+		number      int
+		wantErr     bool
 	}{
 		{"https://github.com/me/auth/pull/42", "me", "auth", 42, false},
 		{"https://github.com/org/repo/pull/1", "org", "repo", 1, false},
