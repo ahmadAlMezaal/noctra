@@ -612,6 +612,36 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestAuthHeader_KeyVsOAuthBearer(t *testing.T) {
+	cases := []struct {
+		name   string
+		client *Client
+		want   string
+	}{
+		{"personal API key sent verbatim", New("lin_api_xyz"), "lin_api_xyz"},
+		{"OAuth token prefixed with Bearer", NewOAuth("lin_oauth_abc"), "Bearer lin_oauth_abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Get("Authorization")
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+			}))
+			t.Cleanup(srv.Close)
+			tc.client.Endpoint = srv.URL
+			tc.client.HTTP = srv.Client()
+
+			if err := tc.client.Do(context.Background(), "{ viewer { id } }", nil, nil); err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("Authorization header: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDo_SurfacesGraphQLErrors(t *testing.T) {
 	client := fakeServer(t, struct {
 		authHeader string

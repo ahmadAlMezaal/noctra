@@ -18,15 +18,30 @@ type Client struct {
 	APIKey   string
 	Endpoint string
 	HTTP     *http.Client
+	// Bearer controls how APIKey is sent: personal API keys go in the
+	// Authorization header verbatim, OAuth access tokens are prefixed "Bearer ".
+	Bearer bool
 }
 
-// New constructs a Client with sensible defaults.
+// New constructs a Client authenticated with a personal API key.
 func New(apiKey string) *Client {
 	return &Client{
 		APIKey:   apiKey,
 		Endpoint: defaultEndpoint,
 		HTTP:     &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// NewOAuth constructs a Client authenticated with an OAuth access token. When
+// that token was issued with `actor=app`, Noctra's comments and state changes
+// are attributed to the application identity rather than the authorizing user.
+func NewOAuth(token string) *Client {
+	// Defensively trim whitespace and strip any accidental "Bearer " prefix.
+	token = strings.TrimSpace(token)
+	token = strings.TrimPrefix(token, "Bearer ")
+	c := New(token)
+	c.Bearer = true
+	return c
 }
 
 // Do runs a GraphQL operation. On success the contents of "data" are decoded
@@ -45,7 +60,11 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", c.APIKey)
+	auth := c.APIKey
+	if c.Bearer {
+		auth = "Bearer " + c.APIKey
+	}
+	req.Header.Set("Authorization", auth)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

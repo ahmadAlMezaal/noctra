@@ -97,12 +97,17 @@ const (
 // Config is Noctra's resolved runtime configuration.
 type Config struct {
 	// Linear
-	LinearAPIKey  string
-	LinearTeamKey string
-	TriggerMode   string // "state" (default) or "label"
-	TriggerState  string // watched column name (state mode)
-	TriggerLabel  string // label name to watch (label mode)
-	InReviewState string
+	LinearAPIKey string
+	// LinearOAuthToken, when set, is an OAuth access token obtained with the
+	// `actor=app` parameter, so Noctra's comments + state changes are
+	// attributed to the "Noctra" app instead of the personal user behind the
+	// API key. Takes precedence over LinearAPIKey for all Linear calls.
+	LinearOAuthToken string
+	LinearTeamKey    string
+	TriggerMode      string // "state" (default) or "label"
+	TriggerState     string // watched column name (state mode)
+	TriggerLabel     string // label name to watch (label mode)
+	InReviewState    string
 
 	// Repos
 	RepoPath   string // optional single-repo fallback for unmapped projects
@@ -165,12 +170,13 @@ func Load(scriptDir string) (*Config, error) {
 	reposBase := getenv(fileEnv, "REPOS_BASE", filepath.Join(home, ".noctra-repos"))
 
 	cfg := &Config{
-		LinearAPIKey:  getenv(fileEnv, "LINEAR_API_KEY", ""),
-		LinearTeamKey: getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
-		TriggerMode:   strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
-		TriggerState:  getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
-		TriggerLabel:  getenv(fileEnv, "TRIGGER_LABEL", ""),
-		InReviewState: getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
+		LinearAPIKey:     getenv(fileEnv, "LINEAR_API_KEY", ""),
+		LinearOAuthToken: getenv(fileEnv, "LINEAR_OAUTH_TOKEN", ""),
+		LinearTeamKey:    getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
+		TriggerMode:      strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
+		TriggerState:     getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
+		TriggerLabel:     getenv(fileEnv, "TRIGGER_LABEL", ""),
+		InReviewState:    getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),
@@ -224,8 +230,8 @@ func Load(scriptDir string) (*Config, error) {
 func (c *Config) Validate() error {
 	var errs []string
 
-	if c.LinearAPIKey == "" {
-		errs = append(errs, "LINEAR_API_KEY is required — run ./noctra setup or set it in .env")
+	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" {
+		errs = append(errs, "LINEAR_API_KEY (or LINEAR_OAUTH_TOKEN) is required — run ./noctra setup or set it in .env")
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {

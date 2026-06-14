@@ -12,7 +12,7 @@ import (
 // up front so the dev's shell environment (direnv, exported .env, etc.) can't
 // leak through and quietly satisfy a check the test means to fail.
 var noctraEnvKeys = []string{
-	"LINEAR_API_KEY", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
+	"LINEAR_API_KEY", "LINEAR_OAUTH_TOKEN", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
 	"TRIGGER_LABEL", "IN_REVIEW_STATE",
 	"REPO_PATH", "MAIN_BRANCH",
 	"MAX_CONCURRENT", "POLL_INTERVAL", "USE_AGENT_TEAMS",
@@ -130,6 +130,26 @@ REPO_PATH="`+initBareRepo(t)+`"
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY") {
 		t.Fatalf("expected LINEAR_API_KEY error, got %v", err)
+	}
+}
+
+func TestValidate_OAuthTokenSatisfiesLinearAuth(t *testing.T) {
+	isolateEnv(t)
+
+	// An app-actor OAuth token alone (no personal API key) is a valid Linear
+	// auth — Noctra posts under its app identity instead.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY=""
+LINEAR_OAUTH_TOKEN="lin_oauth_app_token"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LinearOAuthToken != "lin_oauth_app_token" {
+		t.Errorf("LinearOAuthToken: got %q", cfg.LinearOAuthToken)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("OAuth-token-only setup should validate, got: %v", err)
 	}
 }
 
