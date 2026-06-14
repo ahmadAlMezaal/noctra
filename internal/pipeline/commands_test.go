@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 )
@@ -41,6 +42,7 @@ func TestHandleStatus_Idle(t *testing.T) {
 			MaxConcurrent: 3,
 			MaxDispatches: 10,
 		},
+		budget:       budget.New(budget.Config{}),
 		active:       map[string]struct{}{},
 		sessionStart: time.Now().Add(-5 * time.Minute),
 	}
@@ -59,6 +61,7 @@ func TestHandleStatus_Active(t *testing.T) {
 			MaxConcurrent: 3,
 			MaxDispatches: 10,
 		},
+		budget: budget.New(budget.Config{}),
 		active: map[string]struct{}{
 			"ENG-42": {},
 			"ENG-44": {},
@@ -561,11 +564,59 @@ func TestHandleStatus_UptimeFormat(t *testing.T) {
 			MaxConcurrent: 5,
 			MaxDispatches: 20,
 		},
+		budget:       budget.New(budget.Config{}),
 		active:       map[string]struct{}{},
 		sessionStart: time.Now().Add(-2*time.Hour - 30*time.Minute),
 	}
 	reply := p.handleStatus(context.Background(), "")
 	if !strings.Contains(reply, "Uptime") {
 		t.Errorf("expected uptime in reply, got %q", reply)
+	}
+}
+
+func TestHandleStatus_BudgetCaps(t *testing.T) {
+	b := budget.New(budget.Config{MaxDailyTokens: 1_000_000, MaxDailyUSD: 25.0})
+	b.Record(500_000, 12.50)
+
+	p := &Pipeline{
+		cfg: &config.Config{
+			MaxConcurrent: 3,
+			MaxDispatches: 10,
+		},
+		budget:       b,
+		active:       map[string]struct{}{},
+		sessionStart: time.Now().Add(-10 * time.Minute),
+	}
+	reply := p.handleStatus(context.Background(), "")
+	if !strings.Contains(reply, "Budget") {
+		t.Errorf("expected 'Budget' section in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "500K") || !strings.Contains(reply, "1M") {
+		t.Errorf("expected token usage in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "12.50") || !strings.Contains(reply, "25.00") {
+		t.Errorf("expected cost usage in reply, got %q", reply)
+	}
+}
+
+func TestHandleStatus_PausedState(t *testing.T) {
+	b := budget.New(budget.Config{})
+	b.Pause("rate limit", time.Now().Add(30*time.Minute))
+
+	p := &Pipeline{
+		cfg: &config.Config{
+			MaxConcurrent: 3,
+			MaxDispatches: 10,
+		},
+		budget:       b,
+		active:       map[string]struct{}{},
+		sessionStart: time.Now(),
+	}
+	reply := p.handleStatus(context.Background(), "")
+	if !strings.Contains(reply, "Paused") {
+		t.Errorf("expected 'Paused' in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "rate limit") {
+		t.Errorf("expected pause reason in reply, got %q", reply)
 	}
 }

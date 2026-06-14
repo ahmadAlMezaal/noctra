@@ -96,6 +96,10 @@ const (
 
 	// Auto-release-label (ENG-231) — disabled by default; opt in via .env.
 	DefaultReleaseBump = "patch"
+
+	// Budget / cost-aware management (ENG-217).
+	DefaultRateLimitStrategy = "pause"
+	DefaultRateLimitCooldown = 30 * time.Minute
 )
 
 // Config is Noctra's resolved runtime configuration.
@@ -152,6 +156,12 @@ type Config struct {
 	// RELEASE: line in its output.
 	AutoReleaseLabel   bool
 	DefaultReleaseBump string // "patch" (default), "minor", or "major"
+
+	// Budget / cost-aware management (ENG-217).
+	MaxDailyTokens    int64         // daily token cap, 0 = unlimited
+	MaxDailyUSD       float64       // daily dollar cap, 0 = unlimited
+	RateLimitStrategy string        // "pause" (default) or "shutdown"
+	RateLimitCooldown time.Duration // pause duration after rate limit (default 30m)
 
 	// Derived paths
 	ScriptDir    string
@@ -233,6 +243,13 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)
 	cfg.DefaultReleaseBump = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "DEFAULT_RELEASE_BUMP", DefaultReleaseBump)))
 
+	// Budget / cost-aware management (ENG-217)
+	cfg.MaxDailyTokens = int64(getint(fileEnv, "MAX_DAILY_TOKENS", 0))
+	cfg.MaxDailyUSD = getfloat(fileEnv, "MAX_DAILY_USD", 0)
+	cfg.RateLimitStrategy = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "RATE_LIMIT_STRATEGY", DefaultRateLimitStrategy)))
+	cooldownSecs := getint(fileEnv, "RATE_LIMIT_COOLDOWN", int(DefaultRateLimitCooldown/time.Second))
+	cfg.RateLimitCooldown = time.Duration(cooldownSecs) * time.Second
+
 	return cfg, nil
 }
 
@@ -275,6 +292,12 @@ func (c *Config) Validate() error {
 		default:
 			errs = append(errs, fmt.Sprintf("DEFAULT_RELEASE_BUMP must be \"patch\", \"minor\", or \"major\", got %q", c.DefaultReleaseBump))
 		}
+	}
+
+	switch c.RateLimitStrategy {
+	case "pause", "shutdown":
+	default:
+		errs = append(errs, fmt.Sprintf("RATE_LIMIT_STRATEGY must be \"pause\" or \"shutdown\", got %q", c.RateLimitStrategy))
 	}
 
 	if c.RepoPath != "" && !isGitRepo(c.RepoPath) {
@@ -391,6 +414,18 @@ func getbool(fileEnv map[string]string, key string, def bool) bool {
 		return false
 	}
 	return def
+}
+
+func getfloat(fileEnv map[string]string, key string, def float64) float64 {
+	v := getenv(fileEnv, key, "")
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return f
 }
 
 func getint(fileEnv map[string]string, key string, def int) int {

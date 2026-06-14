@@ -334,6 +334,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	}
 
 	output := agent.ReadAfter(logFile, offset)
+
+	// Record usage from the iteration (ENG-217).
+	usage := agent.ParseUsage(output)
+	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+
 	// Rate limit is only classified on a failed run (see rateLimited), so a
 	// successful iteration whose transcript merely mentions "rate limit" (file
 	// content / diff) doesn't trigger a false shutdown.

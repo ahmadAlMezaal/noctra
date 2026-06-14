@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 )
@@ -59,6 +60,34 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	fmt.Fprintf(&b, "❌ %d failed\n", fail)
 	fmt.Fprintf(&b, "📦 %d/%d dispatches used\n", dispatches, maxD)
 	fmt.Fprintf(&b, "⏱ Uptime: %s\n", uptime)
+
+	// Budget / usage stats (ENG-217).
+	bs := p.budget.Stats()
+	if bs.SessionTokens > 0 || bs.SessionCostUSD > 0 || bs.HasCaps() {
+		b.WriteString("\n*Budget:*\n")
+		if bs.SessionTokens > 0 || bs.SessionCostUSD > 0 {
+			usageLine := fmt.Sprintf("💰 Session: %s tokens", budget.FormatTokens(bs.SessionTokens))
+			if bs.SessionCostUSD > 0 {
+				usageLine += fmt.Sprintf(" ($%.2f)", bs.SessionCostUSD)
+			}
+			fmt.Fprintf(&b, "%s\n", usageLine)
+		}
+		if bs.MaxDailyTokens > 0 {
+			fmt.Fprintf(&b, "📊 Tokens: %s/%s today\n",
+				budget.FormatTokens(bs.DailyTokens), budget.FormatTokens(bs.MaxDailyTokens))
+		}
+		if bs.MaxDailyUSD > 0 {
+			fmt.Fprintf(&b, "💵 Cost: $%.2f/$%.2f today\n", bs.DailyCostUSD, bs.MaxDailyUSD)
+		}
+	}
+	if bs.Paused {
+		pauseMsg := fmt.Sprintf("⏸ Paused: %s", notify.EscapeMarkdown(bs.PauseReason))
+		if !bs.PausedUntil.IsZero() {
+			pauseMsg += fmt.Sprintf(" — resuming at %s", bs.PausedUntil.UTC().Format("15:04 UTC"))
+		}
+		fmt.Fprintf(&b, "\n%s\n", pauseMsg)
+	}
+
 	return b.String()
 }
 

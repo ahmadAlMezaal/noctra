@@ -22,6 +22,7 @@ var noctraEnvKeys = []string{
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_FILE",
+	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
 }
 
 func isolateEnv(t *testing.T) {
@@ -646,5 +647,120 @@ func TestMigrateLegacyPaths(t *testing.T) {
 	MigrateLegacyPaths()
 	if b, err := os.ReadFile(filepath.Join(home, ".noctra", ".env")); err != nil || string(b) != "X=1" {
 		t.Errorf("second migration disturbed state: %v / %q", err, b)
+	}
+}
+
+func TestLoad_BudgetDefaults(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.MaxDailyTokens != 0 {
+		t.Errorf("MaxDailyTokens: got %d, want 0 (unlimited)", cfg.MaxDailyTokens)
+	}
+	if cfg.MaxDailyUSD != 0 {
+		t.Errorf("MaxDailyUSD: got %f, want 0 (unlimited)", cfg.MaxDailyUSD)
+	}
+	if cfg.RateLimitStrategy != DefaultRateLimitStrategy {
+		t.Errorf("RateLimitStrategy: got %q, want %q", cfg.RateLimitStrategy, DefaultRateLimitStrategy)
+	}
+	if cfg.RateLimitCooldown != DefaultRateLimitCooldown {
+		t.Errorf("RateLimitCooldown: got %v, want %v", cfg.RateLimitCooldown, DefaultRateLimitCooldown)
+	}
+}
+
+func TestLoad_BudgetFromEnv(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+MAX_DAILY_TOKENS="5000000"
+MAX_DAILY_USD="50.00"
+RATE_LIMIT_STRATEGY="shutdown"
+RATE_LIMIT_COOLDOWN="900"
+`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.MaxDailyTokens != 5000000 {
+		t.Errorf("MaxDailyTokens: got %d, want 5000000", cfg.MaxDailyTokens)
+	}
+	if cfg.MaxDailyUSD != 50.0 {
+		t.Errorf("MaxDailyUSD: got %f, want 50.0", cfg.MaxDailyUSD)
+	}
+	if cfg.RateLimitStrategy != "shutdown" {
+		t.Errorf("RateLimitStrategy: got %q, want %q", cfg.RateLimitStrategy, "shutdown")
+	}
+	if cfg.RateLimitCooldown != 900*time.Second {
+		t.Errorf("RateLimitCooldown: got %v, want %v", cfg.RateLimitCooldown, 900*time.Second)
+	}
+}
+
+func TestValidate_RateLimitStrategyPause(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+RATE_LIMIT_STRATEGY="pause"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass with pause strategy: %v", err)
+	}
+}
+
+func TestValidate_RateLimitStrategyShutdown(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+RATE_LIMIT_STRATEGY="shutdown"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass with shutdown strategy: %v", err)
+	}
+}
+
+func TestValidate_InvalidRateLimitStrategyRejected(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+RATE_LIMIT_STRATEGY="explode"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "RATE_LIMIT_STRATEGY") {
+		t.Fatalf("expected RATE_LIMIT_STRATEGY error, got %v", err)
+	}
+}
+
+func TestLoad_RateLimitStrategyCaseInsensitive(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+RATE_LIMIT_STRATEGY="Shutdown"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RateLimitStrategy != "shutdown" {
+		t.Errorf("RateLimitStrategy should be lowercased, got %q", cfg.RateLimitStrategy)
 	}
 }
