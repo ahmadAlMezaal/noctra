@@ -190,8 +190,10 @@ func TestParseResultToleratesVerdictFormatting(t *testing.T) {
 		skipped bool
 	}{
 		{name: "bolded", text: "**VERDICT: PASS**\nLooks good.", passed: true},
+		{name: "bolded label", text: "**VERDICT**: PASS\nLooks good.", passed: true},
 		{name: "missing space", text: "VERDICT:PASS\nLooks good.", passed: true},
 		{name: "fail", text: "**VERDICT: FAIL**\nNeeds work.", passed: false},
+		{name: "bolded fail label", text: "**VERDICT**: FAIL\nNeeds work.", passed: false},
 		{name: "unparseable", text: "Looks fine to me.", passed: true, skipped: true},
 	}
 	for _, tt := range tests {

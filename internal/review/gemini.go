@@ -121,10 +121,10 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 		return Result{}, err
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
 		url.PathEscape(g.Model))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return Result{}, err
 	}
@@ -244,7 +244,8 @@ var verdictLineRe = regexp.MustCompile(`(?i)(?:\*\*)?\s*VERDICT\s*:?\s*(PASS|FAI
 
 func reviewVerdict(text string) string {
 	for _, line := range strings.Split(text, "\n") {
-		m := verdictLineRe.FindStringSubmatch(line)
+		normalized := strings.ReplaceAll(line, "*", "")
+		m := verdictLineRe.FindStringSubmatch(normalized)
 		if len(m) == 2 {
 			return strings.ToUpper(m[1])
 		}
