@@ -146,7 +146,7 @@ func checkCLI(name string) check {
 			"gh":      "Install GitHub CLI: https://cli.github.com",
 			"claude":  "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
 			"codex":   "Install Codex CLI: npm i -g @openai/codex, then run `codex login`",
-			"copilot": "Install Copilot CLI: create a wrapper for `gh copilot` on PATH (requires a Copilot subscription via `gh auth login`)",
+			"copilot": "Install Copilot CLI: npm i -g @github/copilot (authenticates via `gh auth login` / GH_TOKEN)",
 		}
 		return check{
 			name:   name,

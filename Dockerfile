@@ -30,8 +30,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)}
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Noctra shells out to git (worktrees/clone), gh (PR creation), and a coding
-# agent CLI (claude/codex via npm, copilot via built-in gh subcommand), so the runtime
-# needs all of them. The node base supplies the agent runtime; git + gh on top.
+# agent CLI (claude/codex/copilot, all via npm), so the runtime needs all of
+# them. The node base supplies the agent runtime; git + gh on top.
 FROM node:20-bookworm-slim AS runtime
 
 RUN apt-get update \
@@ -47,17 +47,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Bundle ALL coding-agent backends so AGENT_BACKEND=claude|codex|copilot works
-# out of the box. Auth is provided at runtime via ANTHROPIC_API_KEY /
-# OPENAI_API_KEY / GH_TOKEN (interactive subscription login isn't viable in a
-# detached container).
-RUN npm install -g @anthropic-ai/claude-code @openai/codex \
+# out of the box. The GitHub Copilot CLI is the standalone agentic CLI
+# (@github/copilot, binary `copilot`) — NOT the `gh copilot` suggest/explain
+# extension, which can't edit files or take `--allow-all-tools -p`. Auth is
+# provided at runtime via ANTHROPIC_API_KEY / OPENAI_API_KEY / GH_TOKEN
+# (interactive subscription login isn't viable in a detached container).
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot \
  && npm cache clean --force
-
-# GitHub Copilot CLI is a built-in `gh copilot` subcommand (no extension install
-# needed). Create a wrapper so `copilot` is on PATH for the agent runner. Auth
-# (GH_TOKEN / Copilot subscription) is only needed at runtime.
-RUN printf '#!/bin/sh\nexec gh copilot "$@"\n' > /usr/local/bin/copilot \
- && chmod +x /usr/local/bin/copilot
 
 COPY --from=build /out/noctra /usr/local/bin/noctra
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
