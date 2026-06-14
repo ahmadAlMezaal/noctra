@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
@@ -239,16 +240,36 @@ func (r *Resolver) AllRepoPaths() []string {
 // AllRepoPaths. The PR watcher uses this to discover which repos to scan for
 // Nightshift-authored PRs — with directive-only routing the set of repos is
 // whatever has been cloned so far, so it's derived from the clones on disk.
-func (r *Resolver) AllRepoRemotes() []string {
-	var urls []string
-	for _, p := range r.AllRepoPaths() {
-		out, err := exec.Command("git", "-C", p, "remote", "get-url", "origin").Output()
-		if err != nil {
-			continue
-		}
-		if u := strings.TrimSpace(string(out)); u != "" {
-			urls = append(urls, u)
+//
+// The git reads run concurrently and honour ctx: this is called on the PR-poll
+// path (under that poll's timeout), so a single hung `git` must neither block
+// the loop nor outlive the scan. Results are written to fixed indices to keep
+// the order stable without a lock.
+func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
+	paths := r.AllRepoPaths()
+	if len(paths) == 0 {
+		return nil
+	}
+
+	urls := make([]string, len(paths))
+	var wg sync.WaitGroup
+	for i, p := range paths {
+		wg.Add(1)
+		go func(idx int, path string) {
+			defer wg.Done()
+			out, err := exec.CommandContext(ctx, "git", "-C", path, "remote", "get-url", "origin").Output()
+			if err == nil {
+				urls[idx] = strings.TrimSpace(string(out))
+			}
+		}(i, p)
+	}
+	wg.Wait()
+
+	filtered := urls[:0] // reuse backing array — order preserved, empties dropped
+	for _, u := range urls {
+		if u != "" {
+			filtered = append(filtered, u)
 		}
 	}
-	return urls
+	return filtered
 }

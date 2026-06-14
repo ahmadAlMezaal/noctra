@@ -70,15 +70,16 @@ type Watcher struct {
 	// reposFn returns the git URLs of the repos to scan for Nightshift PRs.
 	// It's a function (not a static slice) because directive-only routing
 	// clones repos on demand — the set grows as tickets are dispatched, so the
-	// watcher re-discovers them on every poll. May be nil (scans nothing).
-	reposFn func() []string
+	// watcher re-discovers them on every poll. It takes the scan context so the
+	// underlying git reads honour the poll timeout. May be nil (scans nothing).
+	reposFn func(context.Context) []string
 }
 
 // New constructs a Watcher. trusted is the list of GitHub logins/bot names
 // whose feedback should be acted on; humans are always trusted, so trusted
 // only meaningfully restricts bots. reposFn is evaluated on each Scan to get
 // the current set of repos to poll.
-func New(gh *github.Client, store *state.Store, reposFn func() []string, trusted []string) *Watcher {
+func New(gh *github.Client, store *state.Store, reposFn func(context.Context) []string, trusted []string) *Watcher {
 	// GitHub logins are case-insensitive; normalise to lower so a config
 	// entry like "Gemini-Code-Assist" still matches the API's casing.
 	t := make(map[string]bool, len(trusted))
@@ -96,7 +97,7 @@ func New(gh *github.Client, store *state.Store, reposFn func() []string, trusted
 func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 	var repoURLs []string
 	if w.reposFn != nil {
-		repoURLs = w.reposFn()
+		repoURLs = w.reposFn(ctx)
 	}
 	prs, err := w.gh.ListNightshiftPRs(ctx, repoURLs)
 	if err != nil {
