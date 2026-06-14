@@ -142,6 +142,24 @@ func TestCopilotEnv_InjectsGhTokenWhenNoneSet(t *testing.T) {
 	}
 }
 
+func TestCopilotEnv_SkipsClassicPAT(t *testing.T) {
+	t.Setenv("COPILOT_GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	// Fake `gh` that returns a classic PAT (ghp_), which Copilot rejects.
+	dir := t.TempDir()
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = token ]; then echo ghp_classicclassicclassic; fi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	if env := copilotEnv(context.Background()); env != nil {
+		t.Errorf("expected nil (no injection) for a classic PAT, got %v", env)
+	}
+}
+
 func TestHasRateLimit_PerBackend(t *testing.T) {
 	claude, _ := New("claude")
 	codex, _ := New("codex")
