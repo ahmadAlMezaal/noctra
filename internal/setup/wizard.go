@@ -265,7 +265,8 @@ func Run(scriptDir string) error {
 	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
 		return fmt.Errorf("create config dir %s: %w", scriptDir, err)
 	}
-	if err := writeEnvFile(envFile, envValues{
+
+	vals := envValues{
 		linearKey:    linearKey,
 		team:         team,
 		agentBackend: agentBackend,
@@ -289,8 +290,21 @@ func Run(scriptDir string) error {
 		maxIter:      strconv.Itoa(maxIter),
 		prPoll:       strconv.Itoa(prPoll),
 		trusted:      trusted,
-	}); err != nil {
-		return fmt.Errorf("write %s: %w", envFile, err)
+	}
+
+	// Merge into existing .env when the file already exists — this preserves
+	// hand-added keys (e.g. LINEAR_OAUTH_TOKEN) that the wizard doesn't
+	// manage. On a fresh install (no .env) the template is written from
+	// scratch so first-run users get an organized, commented file.
+	_, existsErr := os.Stat(envFile)
+	if existsErr == nil {
+		if err := mergeEnvFile(envFile, vals); err != nil {
+			return fmt.Errorf("merge %s: %w", envFile, err)
+		}
+	} else {
+		if err := writeEnvFile(envFile, vals); err != nil {
+			return fmt.Errorf("write %s: %w", envFile, err)
+		}
 	}
 	fmt.Println()
 	fmt.Printf("✅ Wrote %s\n", envFile)
@@ -692,6 +706,59 @@ type envValues struct {
 	geminiMode, geminiKey                        string
 	tgEnabled, tgToken, tgChat, tgVerbose        string
 	autoIterate, maxIter, prPoll, trusted        string
+}
+
+// toMap returns the wizard-managed keys as a flat map suitable for
+// config.PatchEnvFile. Every key the wizard touches is included so the
+// merge covers all of them.
+func (v envValues) toMap() map[string]string {
+	m := map[string]string{
+		"LINEAR_API_KEY":        v.linearKey,
+		"LINEAR_TEAM_KEY":       v.team,
+		"AGENT_BACKEND":         v.agentBackend,
+		"TRIGGER_MODE":          v.triggerMode,
+		"IN_REVIEW_STATE":       v.review,
+		"MAIN_BRANCH":           v.mainBranch,
+		"MAX_CONCURRENT":        v.concurrency,
+		"POLL_INTERVAL":         "30",
+		"USE_AGENT_TEAMS":       "false",
+		"MAX_DISPATCHES":        v.dispatches,
+		"MAX_RETRIES":           v.retries,
+		"AGENT_TIMEOUT_MINUTES": v.timeoutMin,
+		"TELEGRAM_ENABLED":      v.tgEnabled,
+		"TELEGRAM_BOT_TOKEN":    v.tgToken,
+		"TELEGRAM_CHAT_ID":      v.tgChat,
+		"TELEGRAM_VERBOSE":      v.tgVerbose,
+		"GEMINI_MODE":           v.geminiMode,
+		"GEMINI_API_KEY":        v.geminiKey,
+		"GEMINI_MODEL":          "gemini-2.5-pro",
+		"MAX_REVIEW_RETRIES":    "1",
+		"AUTO_ITERATE_PRS":      v.autoIterate,
+		"MAX_PR_ITERATIONS":     v.maxIter,
+		"PR_POLL_INTERVAL":      v.prPoll,
+		"TRUSTED_REVIEWERS":     v.trusted,
+	}
+
+	// Trigger-mode-dependent keys.
+	if v.triggerMode == "label" {
+		m["TRIGGER_LABEL"] = v.triggerLabel
+	} else {
+		m["TRIGGER_STATE"] = v.trigger
+	}
+
+	// REPO_PATH: include only when set (empty means the user skipped it).
+	if v.repoPath != "" {
+		m["REPO_PATH"] = v.repoPath
+	}
+
+	return m
+}
+
+// mergeEnvFile updates only the wizard-managed keys in an existing .env,
+// preserving every other line (comments, blank lines, hand-added keys like
+// LINEAR_OAUTH_TOKEN). Uses the same atomic writer as `noctra config set`.
+func mergeEnvFile(path string, v envValues) error {
+	return config.PatchEnvFile(path, v.toMap())
 }
 
 func writeEnvFile(path string, v envValues) error {
