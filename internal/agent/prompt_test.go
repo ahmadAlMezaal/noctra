@@ -49,3 +49,43 @@ func TestBuildPrompt_CommentsInTeamsFlavor(t *testing.T) {
 		t.Errorf("teams prompt missing the clarification comment:\n%s", out)
 	}
 }
+
+func TestBuildPrompt_ReleaseInstructionWhenEnabled(t *testing.T) {
+	out := BuildPrompt(BuildPromptInput{
+		Identifier:       "ENG-50",
+		Title:            "Add feature",
+		Description:      "Details.",
+		AutoReleaseLabel: true,
+	})
+	if !strings.Contains(out, "RELEASE: patch | minor | major | none") {
+		t.Errorf("prompt should include RELEASE instruction when AutoReleaseLabel=true:\n%s", out)
+	}
+}
+
+func TestBuildPrompt_NoReleaseInstructionWhenDisabled(t *testing.T) {
+	out := BuildPrompt(BuildPromptInput{
+		Identifier:       "ENG-51",
+		Title:            "Fix bug",
+		Description:      "Details.",
+		AutoReleaseLabel: false,
+	})
+	if strings.Contains(out, "RELEASE:") {
+		t.Errorf("prompt should NOT include RELEASE instruction when AutoReleaseLabel=false:\n%s", out)
+	}
+}
+
+func TestBuildPrompt_ReleaseInstructionInTeamsFlavor(t *testing.T) {
+	out := BuildPrompt(BuildPromptInput{
+		Identifier:       "ENG-52",
+		Title:            "Teams feature",
+		Description:      "Details.",
+		UseTeams:         true,
+		AutoReleaseLabel: true,
+	})
+	if !strings.Contains(out, "team of agents") {
+		t.Fatalf("expected the teams-flavor prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "RELEASE: patch | minor | major | none") {
+		t.Errorf("teams prompt should include RELEASE instruction when AutoReleaseLabel=true:\n%s", out)
+	}
+}

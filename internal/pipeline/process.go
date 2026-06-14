@@ -102,11 +102,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	// ── Run Claude ───────────────────────────────────────────────────────────
 	prompt := agent.BuildPrompt(agent.BuildPromptInput{
-		Identifier:  id,
-		Title:       issue.Title,
-		Description: issue.Description,
-		Comments:    issue.ClarificationComments(),
-		UseTeams:    p.cfg.UseAgentTeams,
+		Identifier:       id,
+		Title:            issue.Title,
+		Description:      issue.Description,
+		Comments:         issue.ClarificationComments(),
+		UseTeams:         p.cfg.UseAgentTeams,
+		AutoReleaseLabel: p.cfg.AutoReleaseLabel,
 	})
 
 	logger.Info("running agent",
@@ -416,6 +417,22 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		return
 	}
 
+	// ── Auto-release label (ENG-231) ────────────────────────────────────────
+	if p.cfg.AutoReleaseLabel {
+		bump := agent.ReleaseBump(output)
+		label := agent.ReleaseLabel(bump, p.cfg.DefaultReleaseBump)
+		if label != "" {
+			if err := ghAddLabel(ctx, resolved.Path, prURL, label); err != nil {
+				// Degrade gracefully: label failure never blocks the PR.
+				logger.Warn("could not apply release label", "label", label, "err", err)
+			} else {
+				logger.Info("applied release label", "label", label, "agent_bump", bump)
+			}
+		} else {
+			logger.Info("release label skipped (agent suggested none)")
+		}
+	}
+
 	logger.Info("✅ PR created", "url", prURL)
 	p.bumpSuccess()
 	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
@@ -579,6 +596,19 @@ func ghCreatePR(ctx context.Context, repoPath, title, body, base, head string) (
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// ghAddLabel applies a label to an existing PR via `gh pr edit --add-label`.
+// prURL is the PR URL returned by ghCreatePR. Errors are returned to the
+// caller for logging but never block the PR.
+func ghAddLabel(ctx context.Context, repoPath, prURL, label string) error {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "edit", prURL, "--add-label", label)
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // gitHeadShort returns the abbreviated HEAD commit SHA, or "" on error.

@@ -69,6 +69,43 @@ func BlockedLine(output string) string {
 	return m
 }
 
+// releaseRe matches the "RELEASE: <bump>" line the prompt asks the agent to
+// emit after its summary. Case-insensitive, anchored to start of line.
+var releaseRe = regexp.MustCompile(`(?im)^RELEASE:\s*(.+)$`)
+
+// ReleaseBump extracts the semver bump suggestion from the agent output.
+// Returns one of "patch", "minor", "major", "none", or "" (not found / unparseable).
+func ReleaseBump(output string) string {
+	m := releaseRe.FindStringSubmatch(output)
+	if m == nil {
+		return ""
+	}
+	val := strings.ToLower(strings.TrimSpace(m[1]))
+	switch val {
+	case "patch", "minor", "major", "none":
+		return val
+	}
+	return ""
+}
+
+// ReleaseLabel returns the GitHub label name for a given bump level, or ""
+// when the bump is "none" (intentionally skip release). An empty/unrecognized
+// bump falls back to defaultBump.
+func ReleaseLabel(bump, defaultBump string) string {
+	switch bump {
+	case "none":
+		return ""
+	case "patch", "minor", "major":
+		return "release:" + bump
+	default:
+		// Missing or unparseable — use the configured default.
+		if defaultBump == "" {
+			defaultBump = "patch"
+		}
+		return "release:" + defaultBump
+	}
+}
+
 // Summary markers the prompt asks the agent to wrap its final summary in (see
 // BuildPrompt). Extracting between these is backend-agnostic and deterministic:
 // it strips everything the CLI streams around the summary — Codex's diff dump

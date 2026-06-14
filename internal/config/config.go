@@ -92,6 +92,9 @@ const (
 	// Auto-iterate (ENG-173) — disabled by default; opt in via .env.
 	DefaultMaxPRIterations = 3
 	DefaultPRPollInterval  = 2 * time.Minute
+
+	// Auto-release-label (ENG-231) — disabled by default; opt in via .env.
+	DefaultReleaseBump = "patch"
 )
 
 // Config is Noctra's resolved runtime configuration.
@@ -142,6 +145,12 @@ type Config struct {
 	PRPollInterval   time.Duration
 	TrustedReviewers []string // GitHub logins/bots Noctra will act on (default: humans only)
 	StateFile        string   // where the per-PR cursor + iteration count is persisted
+
+	// Auto-release-label (ENG-231) — off by default. When enabled, Noctra
+	// applies a release:* label at PR creation derived from the agent's
+	// RELEASE: line in its output.
+	AutoReleaseLabel   bool
+	DefaultReleaseBump string // "patch" (default), "minor", or "major"
 
 	// Derived paths
 	ScriptDir    string
@@ -219,6 +228,10 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".noctra-state.json"))
 
+	// Auto-release-label
+	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)
+	cfg.DefaultReleaseBump = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "DEFAULT_RELEASE_BUMP", DefaultReleaseBump)))
+
 	return cfg, nil
 }
 
@@ -253,6 +266,14 @@ func (c *Config) Validate() error {
 	case "api", "cli":
 	default:
 		errs = append(errs, fmt.Sprintf("GEMINI_MODE must be \"api\" or \"cli\", got %q", c.GeminiMode))
+	}
+
+	if c.AutoReleaseLabel {
+		switch c.DefaultReleaseBump {
+		case "patch", "minor", "major":
+		default:
+			errs = append(errs, fmt.Sprintf("DEFAULT_RELEASE_BUMP must be \"patch\", \"minor\", or \"major\", got %q", c.DefaultReleaseBump))
+		}
 	}
 
 	if c.RepoPath != "" && !isGitRepo(c.RepoPath) {
