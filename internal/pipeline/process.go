@@ -314,9 +314,10 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// Commit only if there's staged work — if Claude already committed its own
 	// changes, the staged set is empty and a plain `git commit` would fail with
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
-	commitMsg := fmt.Sprintf(
-		"feat: implement %s — %s\n\nImplemented by Noctra using %s\n\nLinear: %s",
-		id, issue.Title, p.agent.Label(), issue.URL)
+	commitMsg := appendCoAuthorTrailer(
+		fmt.Sprintf("feat: implement %s — %s\n\nImplemented by Noctra using %s\n\nLinear: %s",
+			id, issue.Title, p.agent.Label(), issue.URL),
+		p.agent.CoAuthor())
 
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
@@ -507,4 +508,15 @@ func runIn(ctx context.Context, dir, name string, args ...string) error {
 		return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// appendCoAuthorTrailer appends a Co-authored-by trailer to a commit message
+// body when the backend declares one. The trailer is separated from the body
+// by a blank line, following git's trailer convention. Returns the message
+// unchanged when coAuthor is empty.
+func appendCoAuthorTrailer(msg, coAuthor string) string {
+	if coAuthor == "" {
+		return msg
+	}
+	return strings.TrimRight(msg, " \t\n\r") + "\n\nCo-authored-by: " + coAuthor
 }

@@ -43,6 +43,12 @@ type Backend interface {
 	Label() string
 	// CLI is the executable Noctra requires on PATH for this backend.
 	CLI() string
+	// CoAuthor returns the "Name <email>" value for a Co-authored-by git
+	// trailer attributing commits to this backend. Backends with a real
+	// GitHub account behind the email (e.g. Copilot) get an avatar and
+	// Contributors-graph entry; others render as a plain name on the commit.
+	// Returns "" if no trailer should be added.
+	CoAuthor() string
 	// Run invokes the CLI in opts.Workdir, streaming stdout+stderr to
 	// opts.LogFile. It returns ErrTimedOut (wrapped) on per-attempt timeout
 	// and the underlying error on any other non-zero exit.

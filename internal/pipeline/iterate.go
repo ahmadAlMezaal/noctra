@@ -345,8 +345,10 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		return
 	}
 	if staged {
-		commitMsg := fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Noctra (%s).",
-			identifier, engagementSummary(ch))
+		commitMsg := appendCoAuthorTrailer(
+			fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Noctra (%s).",
+				identifier, engagementSummary(ch)),
+			p.agent.CoAuthor())
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
