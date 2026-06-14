@@ -22,6 +22,12 @@ permissions:
   pages: write
   id-token: write
 
+# Serialize releases so two PRs merged back-to-back can't both compute the same
+# "next version" off a stale tag list and race to push the same tag.
+concurrency:
+  group: tag-on-merge
+  cancel-in-progress: false
+
 jobs:
   tag-on-merge:
     if: github.event.pull_request.merged == true
@@ -29,36 +35,41 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          # Check out the actual merge commit, not the default refs/pull/N/merge
+          # synthetic ref. We tag HEAD and GoReleaser builds HEAD, so both must be
+          # the merged commit or GoReleaser fails to find the tag on the commit it builds.
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Check for release labels
         id: check-label
         run: |
           labels='${{ toJson(github.event.pull_request.labels[*].name) }}'
-          
-          major=$(echo "$labels" | jq 'contains(["release:major"])')
-          minor=$(echo "$labels" | jq 'contains(["release:minor"])')
-          patch=$(echo "$labels" | jq 'contains(["release:patch"])')
-          
-          count=$(($(echo "$major" | grep -c true) + $(echo "$minor" | grep -c true) + $(echo "$patch" | grep -c true)))
-          
+
+          # Count release:* labels in a single jq pass. The previous approach piped
+          # each boolean through `grep -c true`, but grep exits non-zero when it finds
+          # no match, and GitHub runs steps under `bash -e` — so the no-label (and
+          # single-label!) cases aborted the step before the count was ever checked.
+          count=$(echo "$labels" | jq '[.[] | select(. == "release:major" or . == "release:minor" or . == "release:patch")] | length')
+
           if [ "$count" -eq 0 ]; then
-            echo "no_release=true" >> $GITHUB_OUTPUT
+            echo "no_release=true" >> "$GITHUB_OUTPUT"
             echo "No release label found — skipping tag and release"
             exit 0
           fi
-          
+
           if [ "$count" -gt 1 ]; then
             echo "Multiple release:* labels found. Expected exactly one (release:major, release:minor, or release:patch). Failing."
             exit 1
           fi
-          
-          if [ "$major" = "true" ]; then
-            echo "bump_type=major" >> $GITHUB_OUTPUT
-          elif [ "$minor" = "true" ]; then
-            echo "bump_type=minor" >> $GITHUB_OUTPUT
-          elif [ "$patch" = "true" ]; then
-            echo "bump_type=patch" >> $GITHUB_OUTPUT
+
+          if echo "$labels" | jq -e 'contains(["release:major"])' >/dev/null; then
+            echo "bump_type=major" >> "$GITHUB_OUTPUT"
+          elif echo "$labels" | jq -e 'contains(["release:minor"])' >/dev/null; then
+            echo "bump_type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "bump_type=patch" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Compute next version
@@ -111,8 +122,9 @@ jobs:
           tag="${{ steps.version.outputs.next_version }}"
           git config user.name "Noctra Bot"
           git config user.email "noctra-bot@users.noreply.github.com"
-          git tag -a "$tag" -m "Release $tag" "${{ github.event.pull_request.merge_commit_sha }}"
-          echo "Created annotated tag: $tag"
+          # HEAD is the merge commit (we checked it out by SHA above), so tag it directly.
+          git tag -a "$tag" -m "Release $tag"
+          echo "Created annotated tag: $tag at $(git rev-parse HEAD)"
 
       - name: Push tag
         if: steps.check-label.outputs.no_release != 'true'
