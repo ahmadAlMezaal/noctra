@@ -22,9 +22,9 @@ var agentCLIs = map[string]string{
 }
 
 // DefaultConfigDir returns the per-user config directory (~/.nightshift/).
-// This is where .env, repos.json, and logs/ live when Nightshift is installed
-// globally (go install / prebuilt binary). The cwd-checkout override in
-// resolveScriptDir still takes precedence during development.
+// This is where .env and logs/ live when Nightshift is installed globally
+// (go install / prebuilt binary). The cwd-checkout override in resolveScriptDir
+// still takes precedence during development.
 func DefaultConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".nightshift")
@@ -101,18 +101,14 @@ type Config struct {
 	// Derived paths
 	ScriptDir    string
 	EnvFile      string
-	ReposFile    string
 	ReposBase    string
 	WorktreeBase string
 	LogDir       string
-
-	// Loaded registry (may be nil if repos.json is absent)
-	Registry *RepoRegistry
 }
 
-// Load resolves config from .env (in scriptDir), the process environment, and
-// repos.json. To match Nightshift's bash predecessor, values declared in .env
-// take precedence over the process environment.
+// Load resolves config from .env (in scriptDir) and the process environment. To
+// match Nightshift's bash predecessor, values declared in .env take precedence
+// over the process environment.
 func Load(scriptDir string) (*Config, error) {
 	envFile := filepath.Join(scriptDir, ".env")
 	fileEnv, err := LoadEnvFile(envFile)
@@ -122,7 +118,6 @@ func Load(scriptDir string) (*Config, error) {
 
 	home, _ := os.UserHomeDir()
 
-	reposFile := getenv(fileEnv, "REPOS_FILE", filepath.Join(scriptDir, "repos.json"))
 	reposBase := getenv(fileEnv, "REPOS_BASE", filepath.Join(home, ".nightshift-repos"))
 
 	cfg := &Config{
@@ -150,7 +145,6 @@ func Load(scriptDir string) (*Config, error) {
 
 		ScriptDir:    scriptDir,
 		EnvFile:      envFile,
-		ReposFile:    reposFile,
 		ReposBase:    reposBase,
 		WorktreeBase: getenv(fileEnv, "WORKTREE_BASE", filepath.Join(home, ".nightshift-worktrees")),
 		LogDir:       getenv(fileEnv, "LOG_DIR", filepath.Join(scriptDir, "logs")),
@@ -175,26 +169,14 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".nightshift-state.json"))
 
-	// REPOS_JSON supplies the project→repo registry inline (instead of a
-	// repos.json file) — needed for PaaS deploys (Fly/Render/Railway) that have
-	// no file mounts. When set, it takes precedence over REPOS_FILE.
-	if inline := getenv(fileEnv, "REPOS_JSON", ""); inline != "" {
-		cfg.Registry, err = ParseRepoRegistry([]byte(inline))
-	} else {
-		cfg.Registry, err = LoadRepoRegistry(reposFile)
-	}
-	if err != nil {
-		return nil, err
-	}
-
 	return cfg, nil
 }
 
-// Validate checks that required fields are set. It does NOT require a repos.json
-// registry or REPO_PATH: repos are resolved per-ticket — primarily from each
-// Linear project's "Repo:" directive, with the registry/REPO_PATH as optional
-// fallbacks — so a directive-only setup is valid, and a ticket that resolves to
-// nothing is skipped gracefully with a Linear comment (not a startup failure).
+// Validate checks that required fields are set. It does NOT require REPO_PATH:
+// repos are resolved per-ticket from each Linear project's "Repo:" directive,
+// with REPO_PATH as an optional single-repo fallback — so a directive-only setup
+// is valid, and a ticket that resolves to nothing is skipped gracefully with a
+// Linear comment (not a startup failure).
 func (c *Config) Validate() error {
 	var errs []string
 
@@ -227,9 +209,9 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("REPO_PATH (%s) is not a git repository", c.RepoPath))
 	}
 
-	// No registry + no REPO_PATH is fine: repos come from Linear project
-	// "Repo:" directives at dispatch time. An unresolvable ticket is skipped
-	// per-ticket with a Linear comment, so this isn't a startup-fatal condition.
+	// No REPO_PATH is fine: repos come from Linear project "Repo:" directives at
+	// dispatch time. An unresolvable ticket is skipped per-ticket with a Linear
+	// comment, so this isn't a startup-fatal condition.
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(errs, "\n  - "))

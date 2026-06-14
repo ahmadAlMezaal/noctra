@@ -105,11 +105,10 @@ func TestRunManual_CopiesEnvTemplate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
 		t.Errorf(".env should have been created: %v", err)
 	}
-	// Repos are no longer scaffolded from a template — they're declared via the
-	// Linear project Repo: directive (repos.json is an optional hand-written
-	// fallback). runManual must not create one.
-	if _, err := os.Stat(filepath.Join(dir, "repos.json")); err == nil {
-		t.Error("repos.json should not be created by runManual")
+	// Manual setup only copies the .env template; repos are declared via the
+	// Linear project Repo: directive, so no registry file is created.
+	if _, err := os.Stat(filepath.Join(dir, "registry.json")); err == nil {
+		t.Error("manual setup should not create a registry file")
 	}
 }
 

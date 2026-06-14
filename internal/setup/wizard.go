@@ -1,18 +1,16 @@
-// Package setup is the interactive wizard that generates .env (and, only if the
-// user opts in, an optional repos.json fallback). It's the friendlier
-// alternative to hand-editing the config files. Repos are routed per-project
-// from the Linear project's `Repo: owner/name` directive by default.
+// Package setup is the interactive wizard that generates .env. It's the
+// friendlier alternative to hand-editing the config file. Repos are routed
+// per-project from the Linear project's `Repo: owner/name` directive.
 //
 // On re-run, every prompt is pre-filled with the value currently in .env (or
 // the static default if absent). Press Enter to keep, type to replace. The
-// wizard also offers a "manual mode" that just copies the example templates
+// wizard also offers a "manual mode" that just copies the example template
 // into place for users who prefer to edit by hand.
 package setup
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,14 +25,11 @@ import (
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
 )
 
-// Run drives the wizard. It always writes scriptDir/.env, and writes
-// scriptDir/repos.json only when the user opts into the optional fallback.
+// Run drives the wizard. It writes scriptDir/.env.
 func Run(scriptDir string) error {
 	envFile := filepath.Join(scriptDir, ".env")
-	reposFile := filepath.Join(scriptDir, "repos.json")
 
 	existingEnv, _ := config.LoadEnvFile(envFile)
-	existingRepos, _ := config.LoadRepoRegistry(reposFile)
 
 	w := &wizard{in: bufio.NewScanner(os.Stdin)}
 
@@ -42,7 +37,7 @@ func Run(scriptDir string) error {
 	fmt.Println("🌙 Nightshift Setup")
 	fmt.Println("   Generates .env — press Enter to accept [defaults].")
 	fmt.Println("   Repos are declared per-project in Linear (a `Repo: owner/name` line in")
-	fmt.Println("   the project description); repos.json is an optional fallback.")
+	fmt.Println("   the project description).")
 	if len(existingEnv) > 0 {
 		fmt.Println("   Existing values from .env are pre-filled in [brackets].")
 	}
@@ -124,28 +119,18 @@ func Run(scriptDir string) error {
 		fallback: config.DefaultMainBranch,
 	})
 
-	// Repos are routed per-ticket from each Linear project's description. The
-	// repos.json registry is only an optional fallback (SSH/non-GitHub URLs, or
-	// projects without a directive), so we gate the registry loop behind an
-	// explicit opt-in that defaults to No.
+	// Repos are routed per-ticket from each Linear project's description.
 	fmt.Println()
 	fmt.Println("─── Repos ───")
 	fmt.Println("Repos are declared per-project in Linear. Add this to each project's")
 	fmt.Println("description so Nightshift knows where to open PRs:")
 	fmt.Println("  Repo: your-org/your-repo")
 	fmt.Println("  Branch: main   (optional — defaults to the repo's default branch)")
-	fmt.Println()
-	var reg *config.RepoRegistry
-	useRegistry := w.confirm("Configure an optional repos.json fallback now? (most users declare repos in Linear instead)")
-	if useRegistry {
-		reg = w.collectRepos(mainBranch, existingRepos)
-	}
 
 	// ── Optional REPO_PATH fallback ────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Single-repo fallback (optional) ───")
-	fmt.Println("Used only for tickets whose Linear project has no `Repo:` directive")
-	fmt.Println("and no repos.json entry.")
+	fmt.Println("Used only for tickets whose Linear project has no `Repo:` directive.")
 	repoPath := w.askEx("Path to fallback git repo (blank to skip)", askOpts{
 		existing: existingEnv["REPO_PATH"],
 	})
@@ -271,18 +256,7 @@ func Run(scriptDir string) error {
 		fmt.Printf("  TELEGRAM_VERBOSE      = %s\n", tgVerbose)
 	}
 	fmt.Println()
-	if reg != nil {
-		fmt.Printf("  repos.json: %d project(s)\n", len(reg.Repos))
-		for _, name := range reg.ProjectNames() {
-			fmt.Printf("    - %s → %s\n", name, reg.Repos[name].URL)
-		}
-		fmt.Println()
-	}
-	savePrompt := "Save to .env?"
-	if reg != nil {
-		savePrompt = "Save to .env and repos.json?"
-	}
-	if !w.confirm(savePrompt) {
+	if !w.confirm("Save to .env?") {
 		fmt.Println("Setup cancelled — no files changed.")
 		return nil
 	}
@@ -320,15 +294,8 @@ func Run(scriptDir string) error {
 	}
 	fmt.Println()
 	fmt.Printf("✅ Wrote %s\n", envFile)
-	if reg != nil {
-		if err := writeReposFile(reposFile, reg); err != nil {
-			return fmt.Errorf("write %s: %w", reposFile, err)
-		}
-		fmt.Printf("✅ Wrote %s (%d repo(s))\n", reposFile, len(reg.Repos))
-	} else {
-		fmt.Println("ℹ️  No repos.json written — repos are routed via each Linear project's")
-		fmt.Println("   `Repo: owner/name` directive. Add it to your project descriptions.")
-	}
+	fmt.Println("ℹ️  Repos are routed via each Linear project's `Repo: owner/name`")
+	fmt.Println("   directive. Add it to your project descriptions.")
 	fmt.Println()
 	fmt.Println("Start Nightshift with: ./nightshift")
 	return nil
@@ -339,11 +306,9 @@ func Run(scriptDir string) error {
 // constructing a second bufio.Scanner on os.Stdin would risk losing bytes the
 // first scanner already buffered.
 //
-// Repos are no longer scaffolded from a template here: the recommended way to
-// route a ticket to its repo is the Linear project's `Repo:` directive (a
-// `Repo: owner/name` line in the project description). A hand-written
-// repos.json (or REPOS_JSON) remains an optional fallback for SSH/non-GitHub
-// URLs and PaaS inline config.
+// Repos are not scaffolded from a template here: tickets are routed to their
+// repo by the Linear project's `Repo:` directive (a `Repo: owner/name` line in
+// the project description).
 func runManual(scriptDir string, in *bufio.Scanner) error {
 	src := filepath.Join(scriptDir, ".env.example")
 	dst := filepath.Join(scriptDir, ".env")
@@ -374,9 +339,7 @@ func runManual(scriptDir string, in *bufio.Scanner) error {
 	fmt.Println("Repos are routed per-ticket from the Linear project's description:")
 	fmt.Println("  Repo: your-org/your-repo")
 	fmt.Println("  Branch: main   (optional — defaults to the repo's default branch)")
-	fmt.Println("As an optional fallback you can hand-write a repos.json (or set")
-	fmt.Println("REPOS_JSON) mapping a project name → repo URL — needed for SSH/")
-	fmt.Println("non-GitHub URLs or PaaS inline config.")
+	fmt.Println("Full https:// / git@ URLs work too (for SSH or non-GitHub hosts).")
 	return nil
 }
 
@@ -647,59 +610,6 @@ func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate str
 	return autoIterate, maxIter, prPoll, trusted
 }
 
-func (w *wizard) collectRepos(defaultMainBranch string, existing *config.RepoRegistry) *config.RepoRegistry {
-	fmt.Println()
-	fmt.Println("Map each Linear project to a git repo. Nightshift clones these on demand.")
-
-	reg := &config.RepoRegistry{Repos: map[string]config.RepoEntry{}}
-	if existing != nil {
-		for k, v := range existing.Repos {
-			reg.Repos[k] = v
-		}
-	}
-
-	if len(reg.Repos) > 0 {
-		fmt.Printf("Currently registered (%d):\n", len(reg.Repos))
-		for _, name := range reg.ProjectNames() {
-			fmt.Printf("  - %s → %s\n", name, reg.Repos[name].URL)
-		}
-		fmt.Println()
-		if !w.confirm("Add more repos?") {
-			return reg
-		}
-	}
-
-	for {
-		project := w.askEx("Linear project name (blank to finish)", askOpts{})
-		if project == "" {
-			return reg
-		}
-		url := w.askEx("  Git URL", askOpts{})
-		if url == "" {
-			fmt.Println("  Skipped — no URL given.")
-			fmt.Println()
-			continue
-		}
-
-		fmt.Printf("  Checking access to %s ... ", url)
-		if err := checkRemoteAccess(url); err != nil {
-			fmt.Println("FAILED")
-			fmt.Println("  ⚠️  Could not reach that repo. The host running Nightshift needs git")
-			fmt.Println("     auth for it — an SSH key, or 'gh auth login' for HTTPS URLs.")
-			if !w.confirm("  Add it anyway?") {
-				fmt.Println()
-				continue
-			}
-		} else {
-			fmt.Println("ok")
-		}
-
-		branch := w.askEx("  Main branch", askOpts{fallback: defaultMainBranch})
-		reg.Repos[project] = config.RepoEntry{URL: url, MainBranch: branch}
-		fmt.Printf("  ✅ Added %q\n\n", project)
-	}
-}
-
 // ── Helpers (file I/O, validators, formatting) ──────────────────────────────
 
 func pingLinear(apiKey string) (string, error) {
@@ -716,10 +626,6 @@ func testTelegram(botToken, chatID string) error {
 	defer cancel()
 	return notify.New(true, botToken, chatID).SendSync(ctx,
 		"🌙 *Nightshift setup* — this is a test message. If you can read this, your bot is configured correctly.")
-}
-
-func checkRemoteAccess(url string) error {
-	return exec.Command("git", "ls-remote", "--exit-code", url, "HEAD").Run()
 }
 
 func isGitRepo(path string) bool {
@@ -804,7 +710,6 @@ LINEAR_TEAM_KEY="%s"
 %sIN_REVIEW_STATE="%s"
 
 # Optional single-repo fallback for tickets whose project has no Repo: directive
-# and no repos.json entry
 %s
 MAIN_BRANCH="%s"
 
@@ -854,12 +759,4 @@ TRUSTED_REVIEWERS="%s"
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
-}
-
-func writeReposFile(path string, reg *config.RepoRegistry) error {
-	data, err := json.MarshalIndent(reg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, append(data, '\n'), 0o600)
 }

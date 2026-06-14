@@ -19,7 +19,7 @@ var nightshiftEnvKeys = []string{
 	"MAX_DISPATCHES", "MAX_RETRIES", "AGENT_TIMEOUT_MINUTES",
 	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_VERBOSE",
 	"GEMINI_MODE", "GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
-	"REPOS_FILE", "REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
+	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_FILE",
 }
@@ -50,7 +50,6 @@ MAX_CONCURRENT="7"
 POLL_INTERVAL="15"
 AGENT_TIMEOUT_MINUTES="60"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 
 	cfg, err := Load(dir)
 	if err != nil {
@@ -84,10 +83,6 @@ AGENT_TIMEOUT_MINUTES="60"
 	if cfg.MainBranch != DefaultMainBranch {
 		t.Errorf("MainBranch: %q", cfg.MainBranch)
 	}
-
-	if cfg.Registry == nil {
-		t.Fatal("Registry should be loaded (even when empty)")
-	}
 }
 
 func TestLoad_TelegramVerbose(t *testing.T) {
@@ -96,7 +91,6 @@ func TestLoad_TelegramVerbose(t *testing.T) {
 	t.Run("default false when absent", func(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-		writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("Load: %v", err)
@@ -112,7 +106,6 @@ func TestLoad_TelegramVerbose(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 TELEGRAM_VERBOSE="true"
 `)
-		writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("Load: %v", err)
@@ -143,8 +136,8 @@ REPO_PATH="`+initBareRepo(t)+`"
 func TestValidate_AllowsDirectiveOnlySetup(t *testing.T) {
 	isolateEnv(t)
 
-	// No repos.json and no REPO_PATH is valid: repos are routed per-ticket from
-	// each Linear project's "Repo:" directive. Validate must not fail on this.
+	// No REPO_PATH is valid: repos are routed per-ticket from each Linear
+	// project's "Repo:" directive. Validate must not fail on this.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	cfg, err := Load(dir)
@@ -153,21 +146,6 @@ func TestValidate_AllowsDirectiveOnlySetup(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("directive-only setup should validate, got: %v", err)
-	}
-}
-
-func TestValidate_PassesWithRegistry(t *testing.T) {
-	isolateEnv(t)
-
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
-	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("validate: %v", err)
 	}
 }
 
@@ -208,7 +186,6 @@ func TestLoad_AutoIterateDefaults(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +217,6 @@ TRUSTED_REVIEWERS="gemini-code-assist, coderabbit,humanreviewer"
 AUTO_ITERATE_PRS="true"
 MAX_PR_ITERATIONS="5"
 PR_POLL_INTERVAL="60"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -281,7 +257,6 @@ func TestLoad_LogDirDefaultsToLogs(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -297,7 +272,6 @@ func TestLoad_TriggerModeDefaultsToState(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -319,7 +293,6 @@ LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="label"
 TRIGGER_LABEL="nightshift"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -341,7 +314,6 @@ LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="Label"
 TRIGGER_LABEL="nightshift"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -359,7 +331,6 @@ func TestValidate_LabelModeRequiresTriggerLabel(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="label"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -379,7 +350,6 @@ LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="label"
 TRIGGER_LABEL="nightshift"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -397,7 +367,6 @@ func TestValidate_InvalidTriggerModeRejected(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="magic"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -416,7 +385,6 @@ func TestValidate_StateModeDoesNotRequireTriggerLabel(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="state"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -431,7 +399,6 @@ func TestLoad_AgentBackendDefaultsToClaude(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -452,7 +419,6 @@ func TestLoad_GeminiModeDefaultsToAPI(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -468,7 +434,6 @@ func TestLoad_GeminiModeLowercased(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
 GEMINI_MODE="CLI"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -487,7 +452,6 @@ func TestValidate_RejectsUnknownGeminiMode(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
 GEMINI_MODE="other"`)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -505,7 +469,6 @@ func TestLoad_AgentBackendCodexLowercased(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 AGENT_BACKEND="Codex"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -529,7 +492,6 @@ func TestValidate_InvalidAgentBackendRejected(t *testing.T) {
 LINEAR_API_KEY="lin_xyz"
 AGENT_BACKEND="gemini"
 `)
-	writeFile(t, filepath.Join(dir, "repos.json"), `{"repos": {}}`)
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)

@@ -1,11 +1,11 @@
 ---
 name: setup-and-config
-description: Use when installing or configuring Nightshift, running the setup wizard, editing .env or repos.json, resolving config directory behavior, or preparing local, Docker, or cloud runtime config.
+description: Use when installing or configuring Nightshift, running the setup wizard, editing .env, declaring repos via the Linear project Repo: directive, resolving config directory behavior, or preparing local, Docker, or cloud runtime config.
 ---
 
 # Setup And Config Nightshift
 
-Use this playbook when installing Nightshift, generating config, editing `.env` or `repos.json`, or debugging where config is loaded from.
+Use this playbook when installing Nightshift, generating config, editing `.env`, or debugging where config is loaded from.
 
 ## Fast Local Setup
 
@@ -18,7 +18,7 @@ nightshift doctor
 nightshift
 ```
 
-The setup wizard prompts for the agent backend, Linear API key, trigger configuration, optional Gemini and Telegram settings, and repo mappings. It writes `.env` and `repos.json`.
+The setup wizard prompts for the agent backend, Linear API key, trigger configuration, and optional Gemini and Telegram settings. It writes `.env` only — repos are declared per-project in Linear.
 
 ## Manual Setup
 
@@ -26,7 +26,7 @@ The setup wizard prompts for the agent backend, Linear API key, trigger configur
 cp .env.example .env
 ```
 
-Repos are routed per-ticket from the Linear project's description (`Repo: owner/name`, optional `Branch:`). A hand-written `repos.json` is an optional fallback.
+Repos are routed per-ticket from the Linear project's description (`Repo: owner/name`, optional `Branch:`).
 
 Then fill in the required values:
 
@@ -42,32 +42,23 @@ MAIN_BRANCH=main
 
 Use `AGENT_BACKEND=codex` when running Codex instead of Claude.
 
-## Repo Registry
+## Repo Routing
 
-Nightshift chooses the target repository from the ticket's Linear project name.
+Nightshift chooses the target repository per-ticket from a `Repo:` directive in the ticket's Linear project description (or content body):
 
-```json
-{
-  "repos": {
-    "Auth Service": {
-      "url": "git@github.com:your-org/auth-service.git",
-      "main_branch": "main"
-    },
-    "Web App": {
-      "url": "https://github.com/your-org/web-app.git"
-    }
-  }
-}
+```
+Repo: your-org/auth-service
+Branch: main
 ```
 
 Rules:
 
-1. The JSON key must exactly match the Linear project name.
-2. `main_branch` is optional and falls back to `MAIN_BRANCH`.
+1. `owner/name` shorthand expands to a GitHub HTTPS URL; full `https://` / `git@` URLs are used verbatim (so SSH and non-GitHub hosts work).
+2. `Branch:` is optional and falls back to the repo's default branch (then `MAIN_BRANCH`).
 3. Repos are cloned on demand into `~/.nightshift-repos/` unless `REPOS_BASE` overrides it.
 4. Worktrees are created under `~/.nightshift-worktrees/` unless `WORKTREE_BASE` overrides it.
-5. If no project mapping exists, `REPO_PATH` is used as a single-repo fallback when set.
-6. If neither a mapping nor `REPO_PATH` exists, Nightshift skips the ticket and comments on Linear.
+5. If a project has no `Repo:` directive, `REPO_PATH` is used as a single-repo fallback when set.
+6. If neither a directive nor `REPO_PATH` exists, Nightshift skips the ticket and comments on Linear.
 
 ## Config Directory Resolution
 
@@ -75,7 +66,6 @@ Default per-user config lives at:
 
 ```text
 ~/.nightshift/.env
-~/.nightshift/repos.json
 ~/.nightshift/logs/
 ```
 
@@ -83,7 +73,6 @@ During development, a checkout-local config is used when the current directory c
 
 ```text
 .env
-repos.json
 .env.example
 go.mod
 ```
@@ -151,8 +140,6 @@ TELEGRAM_VERBOSE=false
 Container and cloud overrides:
 
 ```env
-REPOS_JSON=
-REPOS_FILE=/data/repos.json
 REPOS_BASE=/data/repos
 WORKTREE_BASE=/data/worktrees
 LOG_DIR=/data/logs
@@ -173,13 +160,7 @@ ANTHROPIC_API_KEY=...
 GH_TOKEN=...
 ```
 
-Use HTTPS repo URLs with `GH_TOKEN` in `repos.json` or `REPOS_JSON`.
-
-For PaaS hosts that cannot mount files, set `REPOS_JSON` inline:
-
-```bash
-REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
-```
+Declare each repo with an HTTPS URL (or `owner/name`) in its Linear project's `Repo:` directive so `GH_TOKEN` authenticates the clone. This works on every host, including PaaS that can't mount files — there's no registry file to supply.
 
 ## Preflight
 

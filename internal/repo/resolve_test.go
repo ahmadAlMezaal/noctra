@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
 )
 
 // TestEnsureCloned_ConcurrentProducesCompleteRepo drives two concurrent
@@ -86,44 +84,16 @@ func fakeGitRepo(t *testing.T) string {
 	return d
 }
 
-func TestResolve_RegistryHitForAlreadyClonedRepo(t *testing.T) {
-	base := t.TempDir()
-	// Pre-create the slug dir as a "clone" — Resolve should skip the clone.
-	clonedPath := filepath.Join(base, "auth-service")
-	if err := os.MkdirAll(filepath.Join(clonedPath, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	reg := &config.RepoRegistry{
-		Repos: map[string]config.RepoEntry{
-			"Auth Service": {URL: "git@example.com:me/auth.git", MainBranch: "develop"},
-		},
-	}
-	r := &Resolver{Registry: reg, ReposBase: base, MainBranch: "main"}
-
-	res, err := r.Resolve(context.Background(), "Auth Service")
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	if res.Path != clonedPath {
-		t.Errorf("Path: got %q, want %q", res.Path, clonedPath)
-	}
-	if res.MainBranch != "develop" {
-		t.Errorf("MainBranch: got %q, want %q", res.MainBranch, "develop")
-	}
-}
-
 func TestResolve_FallbackToRepoPath(t *testing.T) {
 	fallback := fakeGitRepo(t)
 
 	r := &Resolver{
-		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
 		ReposBase:  t.TempDir(),
 		RepoPath:   fallback,
 		MainBranch: "main",
 	}
 
-	res, err := r.Resolve(context.Background(), "Unmapped Project")
+	res, err := r.Resolve(context.Background(), "Project Without Directive")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -135,15 +105,14 @@ func TestResolve_FallbackToRepoPath(t *testing.T) {
 	}
 }
 
-func TestResolve_NoMatchAndNoFallback(t *testing.T) {
+func TestResolve_NoDirectiveAndNoFallback(t *testing.T) {
 	r := &Resolver{
-		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
 		ReposBase:  t.TempDir(),
 		MainBranch: "main",
 	}
-	_, err := r.Resolve(context.Background(), "Unmapped")
-	if err == nil || !strings.Contains(err.Error(), "no repo is mapped") {
-		t.Fatalf("expected mapped-error, got %v", err)
+	_, err := r.Resolve(context.Background(), "Some Project")
+	if err == nil || !strings.Contains(err.Error(), "no `Repo:` directive") {
+		t.Fatalf("expected no-directive error, got %v", err)
 	}
 	_, err = r.Resolve(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "no Linear project") {
@@ -151,23 +120,22 @@ func TestResolve_NoMatchAndNoFallback(t *testing.T) {
 	}
 }
 
-func TestResolve_NoMatchReturnsNonTransient(t *testing.T) {
+func TestResolve_NoDirectiveReturnsNonTransient(t *testing.T) {
 	r := &Resolver{
-		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
 		ReposBase:  t.TempDir(),
 		MainBranch: "main",
 	}
 
-	// Unmapped project, no fallback → NonTransientError.
+	// Project with no directive, no fallback → NonTransientError.
 	_, err := r.Resolve(context.Background(), "Missing Project")
 	if err == nil {
-		t.Fatal("expected error for unmapped project")
+		t.Fatal("expected error for project without a directive")
 	}
 	var nte *NonTransientError
 	if !errors.As(err, &nte) {
 		t.Fatalf("expected NonTransientError, got %T: %v", err, err)
 	}
-	if !strings.Contains(nte.Error(), "no repo is mapped") {
+	if !strings.Contains(nte.Error(), "no `Repo:` directive") {
 		t.Errorf("unexpected message: %q", nte.Error())
 	}
 
@@ -187,14 +155,13 @@ func TestResolve_NoMatchReturnsNonTransient(t *testing.T) {
 func TestResolve_FallbackToRepoPathIsNotNonTransient(t *testing.T) {
 	fallback := fakeGitRepo(t)
 	r := &Resolver{
-		Registry:   &config.RepoRegistry{Repos: map[string]config.RepoEntry{}},
 		ReposBase:  t.TempDir(),
 		RepoPath:   fallback,
 		MainBranch: "main",
 	}
 
-	// Unmapped project WITH a valid fallback → success, no error at all.
-	res, err := r.Resolve(context.Background(), "Unmapped Project")
+	// Project without a directive but WITH a valid fallback → success.
+	res, err := r.Resolve(context.Background(), "Project Without Directive")
 	if err != nil {
 		t.Fatalf("expected success with fallback, got %v", err)
 	}
@@ -203,24 +170,20 @@ func TestResolve_FallbackToRepoPathIsNotNonTransient(t *testing.T) {
 	}
 }
 
-func TestAllRepoPaths_DedupesAndFilters(t *testing.T) {
+func TestAllRepoPaths_ScansReposBaseAndFilters(t *testing.T) {
 	base := t.TempDir()
 
-	// Two registered projects; only one is actually cloned.
-	cloned := filepath.Join(base, "web-app")
+	// A cloned repo under ReposBase, plus a non-git dir that must be skipped.
+	cloned := filepath.Join(base, "owner-web-app")
 	if err := os.MkdirAll(filepath.Join(cloned, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	reg := &config.RepoRegistry{
-		Repos: map[string]config.RepoEntry{
-			"Web App":      {URL: "u"},
-			"Not Yet Used": {URL: "u2"},
-		},
+	if err := os.MkdirAll(filepath.Join(base, "not-a-repo"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	fallback := fakeGitRepo(t)
 
-	r := &Resolver{Registry: reg, ReposBase: base, RepoPath: fallback}
+	r := &Resolver{ReposBase: base, RepoPath: fallback}
 
 	paths := r.AllRepoPaths()
 	if len(paths) != 2 {

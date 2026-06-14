@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/notify"
@@ -17,7 +16,7 @@ import (
 // pipeline (status, kill, requeue). Called from Run when Telegram is enabled.
 func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("status", "Show active runs and session stats", p.handleStatus)
-	d.Register("tickets", "Linear ticket counts by state, or list a state (e.g. /tickets Nightshift Next)", p.handleTickets)
+	d.Register("tickets", "Linear ticket counts by state for a project (e.g. /tickets Nightshift)", p.handleTickets)
 	d.Register("ticket", "Show a ticket's details (e.g. /ticket ENG-42)", p.handleTicket)
 	d.Register("search-tickets", "Search Linear tickets by text (e.g. /search-tickets auth login)", p.handleSearch)
 	d.Register("find", "Alias for /search-tickets", p.handleSearch)
@@ -63,99 +62,20 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	return b.String()
 }
 
-// handleTickets reports Linear ticket counts grouped by workflow state, or —
-// when a trailing state is given — lists the tickets in that state.
+// handleTickets reports a project's Linear ticket counts grouped by workflow
+// state. Directive-only routing means there's no registry to enumerate, so a
+// project name is required.
 //
-//	/tickets                     counts for every project in repos.json
-//	/tickets <project>           counts per state for one project
-//	/tickets <project> <state>   list the tickets in that state
+//	/tickets <project>   counts per state for that project
 func (p *Pipeline) handleTickets(ctx context.Context, args string) string {
-	args = strings.TrimSpace(args)
-
-	if args == "" {
-		names := p.cfg.Registry.ProjectNames()
-		if len(names) == 0 {
-			return "No projects registered in repos.json.\n\nUsage: /tickets <project> [state]"
-		}
-
-		// Each project is an independent paginated query — fan them out so the
-		// reply latency is the slowest single project, not their sum. Goroutines
-		// write to distinct slice indices (no shared-state race), preserving the
-		// sorted project order.
-		results := make([]string, len(names))
-		var wg sync.WaitGroup
-		for i, name := range names {
-			wg.Add(1)
-			go func(idx int, project string) {
-				defer wg.Done()
-				var pb strings.Builder
-				p.writeProjectCounts(ctx, &pb, project)
-				results[idx] = pb.String()
-			}(i, name)
-		}
-		wg.Wait()
-
-		var b strings.Builder
-		b.WriteString("*Linear tickets by project*\n\n")
-		for i, text := range results {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(text)
-		}
-		return b.String()
-	}
-
-	project, state := p.splitProjectState(args)
-	if state != "" {
-		return p.listTickets(ctx, project, state)
+	project := strings.TrimSpace(args)
+	if project == "" {
+		return "Usage: /tickets <project>\n\nExample: /tickets Nightshift"
 	}
 
 	var b strings.Builder
 	b.WriteString("*Linear tickets*\n\n")
 	p.writeProjectCounts(ctx, &b, project)
-	return b.String()
-}
-
-// splitProjectState separates a "/tickets" argument into a project name and an
-// optional trailing state. It matches the longest registered project name that
-// is a case-insensitive prefix of args; the remainder (if any) is the state.
-// With no registry match the whole string is treated as the project name (so
-// counts still work for projects not in repos.json).
-func (p *Pipeline) splitProjectState(args string) (project, state string) {
-	lower := strings.ToLower(args)
-	best := ""
-	for _, name := range p.cfg.Registry.ProjectNames() {
-		ln := strings.ToLower(name)
-		if (lower == ln || strings.HasPrefix(lower, ln+" ")) && len(name) > len(best) {
-			best = name
-		}
-	}
-	if best == "" {
-		return args, ""
-	}
-	return best, strings.TrimSpace(args[len(best):])
-}
-
-// listTickets lists the tickets in one project filtered to a single state.
-func (p *Pipeline) listTickets(ctx context.Context, project, state string) string {
-	issues, err := p.linear.ListProjectIssues(ctx, project, state, 25)
-	if err != nil {
-		return fmt.Sprintf("Could not list %s tickets: %s",
-			notify.EscapeMarkdown(project), notify.EscapeMarkdown(err.Error()))
-	}
-	if len(issues) == 0 {
-		return fmt.Sprintf("No *%s* tickets in *%s* (check the state name).",
-			notify.EscapeMarkdown(state), notify.EscapeMarkdown(project))
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "*%s* — %s (%d)\n",
-		notify.EscapeMarkdown(project), notify.EscapeMarkdown(state), len(issues))
-	for _, is := range issues {
-		fmt.Fprintf(&b, "• %s %s\n",
-			notify.EscapeMarkdown(is.Identifier), notify.EscapeMarkdown(is.Title))
-	}
 	return b.String()
 }
 

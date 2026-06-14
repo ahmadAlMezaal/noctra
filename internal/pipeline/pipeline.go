@@ -100,13 +100,10 @@ func New(cfg *config.Config) *Pipeline {
 		p.store = store
 		p.gh = github.New()
 
-		var repoURLs []string
-		if cfg.Registry != nil {
-			for _, name := range cfg.Registry.ProjectNames() {
-				repoURLs = append(repoURLs, cfg.Registry.Repos[name].URL)
-			}
-		}
-		p.watcher = watch.New(p.gh, store, repoURLs, cfg.TrustedReviewers)
+		// Directive-only routing has no static repo registry: the watcher
+		// discovers which repos to poll from the on-demand clones on disk,
+		// re-read on every scan (the set grows as tickets are dispatched).
+		p.watcher = watch.New(p.gh, store, p.resolver.AllRepoRemotes, cfg.TrustedReviewers)
 	}
 
 	return p
@@ -369,9 +366,10 @@ func (p *Pipeline) bumpSuccess() {
 }
 
 // skipPermanently marks a ticket as permanently skipped (non-transient failure
-// like a missing repos.json mapping). The ticket won't be re-dispatched on
-// future polls, and the dispatch it consumed is refunded so deterministic
-// config errors don't burn the dispatch budget or shut the agent down.
+// like a project with no `Repo:` directive and no REPO_PATH fallback). The
+// ticket won't be re-dispatched on future polls, and the dispatch it consumed
+// is refunded so deterministic config errors don't burn the dispatch budget or
+// shut the agent down.
 // Idempotent: calling multiple times for the same ID only refunds once.
 func (p *Pipeline) skipPermanently(id string) {
 	p.mu.Lock()
@@ -417,13 +415,15 @@ func (p *Pipeline) banner() {
 			p.cfg.MaxPRIterations, p.cfg.PRPollInterval)
 	}
 
-	repoSummary := p.cfg.RepoPath
-	if p.cfg.Registry != nil {
-		count := len(p.cfg.Registry.Repos)
-		repoSummary = fmt.Sprintf("%d registered (repos.json)", count)
-		if p.cfg.RepoPath != "" {
-			repoSummary += " + REPO_PATH fallback"
-		}
+	// Repos are routed per-ticket from each Linear project's "Repo:" directive
+	// and cloned on demand, so there's no static list at startup — report the
+	// routing mode plus however many clones already exist on disk.
+	repoSummary := "Linear project Repo: directives"
+	if n := len(p.resolver.AllRepoPaths()); n > 0 {
+		repoSummary += fmt.Sprintf(" (%d cloned)", n)
+	}
+	if p.cfg.RepoPath != "" {
+		repoSummary += " + REPO_PATH fallback"
 	}
 
 	fmt.Println()

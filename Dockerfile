@@ -48,8 +48,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # All mutable state lives under /data so a single mounted volume persists the
 # repos cache, worktrees, logs, and the PR cursor across restarts. Each path is
 # an env override Nightshift already honours.
-ENV REPOS_FILE=/data/repos.json \
-    REPOS_BASE=/data/repos \
+ENV REPOS_BASE=/data/repos \
     WORKTREE_BASE=/data/worktrees \
     LOG_DIR=/data/logs \
     STATE_FILE=/data/state.json

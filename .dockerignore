@@ -8,7 +8,6 @@ logs/
 *.log
 .env
 .env.local
-repos.json
 # Built artifacts (the image builds its own binary)
 nightshift
 nightshift.new

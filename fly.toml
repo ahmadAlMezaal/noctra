@@ -3,12 +3,12 @@
 #   fly apps create nightshift            # pick your own app name (edit `app` below)
 #   fly volumes create nightshift_data --size 1 --region iad
 #   fly secrets set LINEAR_API_KEY=... AGENT_BACKEND=claude \
-#       ANTHROPIC_API_KEY=... GH_TOKEN=... \
-#       REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}'
+#       ANTHROPIC_API_KEY=... GH_TOKEN=...
 #   fly deploy
 #
-# Secrets become env vars in the container. REPOS_JSON replaces a mounted
-# repos.json (Fly has no file mounts). Use HTTPS git URLs so GH_TOKEN works.
+# Secrets become env vars in the container. Repos are declared per-project in
+# Linear (a `Repo: owner/name` line in the project description) — nothing to
+# mount or configure here. Use HTTPS URLs / owner-name so GH_TOKEN works.
 
 app = "nightshift"
 primary_region = "iad"

@@ -5,7 +5,8 @@
 #   3. Fill in the secret env vars (marked sync:false) when prompted.
 #
 # A worker has no public URL. The disk persists /data (repos cache, worktrees,
-# logs, PR cursor). REPOS_JSON supplies the registry inline (no file mount).
+# logs, PR cursor). Repos are declared per-project in Linear (a `Repo: owner/name`
+# line in the project description) — nothing to configure here.
 services:
   - type: worker
     name: nightshift
@@ -25,6 +26,4 @@ services:
       - key: ANTHROPIC_API_KEY   # or OPENAI_API_KEY for AGENT_BACKEND=codex
         sync: false
       - key: GH_TOKEN
-        sync: false
-      - key: REPOS_JSON          # {"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}
         sync: false

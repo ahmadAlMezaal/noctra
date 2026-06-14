@@ -214,36 +214,21 @@ func checkLinearKey(cfg *config.Config) check {
 	return check{name: "LINEAR_API_KEY", ok: true, detail: fmt.Sprintf("authenticated as %s", name)}
 }
 
-// checkRepos validates repos.json if present. A missing repos.json is fine:
-// repos are routed per-ticket from each Linear project's `Repo: owner/name`
-// directive, with repos.json only an optional fallback. So absence is reported
-// as an informational OK, never a failure.
+// checkRepos reports how repos are routed. Repos are resolved per-ticket from
+// each Linear project's `Repo: owner/name` directive, with REPO_PATH as an
+// optional single-repo fallback — there's nothing to validate up front, so this
+// is always an informational OK.
 func checkRepos(cfg *config.Config) check {
-	if cfg.Registry == nil {
-		if cfg.RepoPath != "" {
-			return check{
-				name:   "repos",
-				ok:     true,
-				detail: fmt.Sprintf("no repos.json; using REPO_PATH fallback (%s)", cfg.RepoPath),
-			}
-		}
+	if cfg.RepoPath != "" {
 		return check{
 			name:   "repos",
 			ok:     true,
-			detail: "no repos.json — repos routed via Linear project `Repo:` directives (repos.json optional)",
-		}
-	}
-	names := cfg.Registry.ProjectNames()
-	if len(names) == 0 {
-		return check{
-			name:   "repos",
-			ok:     true,
-			detail: fmt.Sprintf("repos.json loaded (0 projects) — %s", cfg.ReposFile),
+			detail: fmt.Sprintf("routed via Linear project `Repo:` directives; REPO_PATH fallback (%s)", cfg.RepoPath),
 		}
 	}
 	return check{
 		name:   "repos",
 		ok:     true,
-		detail: fmt.Sprintf("repos.json loaded (%d project(s): %s)", len(names), strings.Join(names, ", ")),
+		detail: "routed via Linear project `Repo:` directives",
 	}
 }

@@ -1,5 +1,5 @@
-// Package config loads Nightshift's runtime configuration from .env, repos.json,
-// and the process environment, and exposes a validated Config struct.
+// Package config loads Nightshift's runtime configuration from .env and the
+// process environment, and exposes a validated Config struct.
 package config
 
 import (

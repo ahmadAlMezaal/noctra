@@ -463,113 +463,11 @@ func TestHandleTickets_NamedProject(t *testing.T) {
 	}
 }
 
-func TestHandleTickets_AllRegisteredProjects(t *testing.T) {
-	srv := ticketCountServer(t, nil)
-	defer srv.Close()
-
-	client := linear.New("test-key")
-	client.Endpoint = srv.URL
-
-	p := &Pipeline{
-		cfg: &config.Config{
-			Registry: &config.RepoRegistry{
-				Repos: map[string]config.RepoEntry{
-					"Nightshift":   {URL: "git@github.com:x/nightshift.git"},
-					"Auth Service": {URL: "git@github.com:x/auth.git"},
-				},
-			},
-		},
-		linear: client,
-	}
-	// Two projects exercise the concurrent fan-out (run under -race).
+func TestHandleTickets_NoArgs(t *testing.T) {
+	p := &Pipeline{cfg: &config.Config{}}
 	reply := p.handleTickets(context.Background(), "")
-	if !strings.Contains(reply, "by project") {
-		t.Errorf("expected 'by project' header, got %q", reply)
-	}
-	for _, want := range []string{"Nightshift", "Auth Service"} {
-		if !strings.Contains(reply, want) {
-			t.Errorf("expected %q in reply, got %q", want, reply)
-		}
-	}
-}
-
-func TestHandleTickets_NoProjectsRegistered(t *testing.T) {
-	p := &Pipeline{cfg: &config.Config{}} // Registry is nil
-	reply := p.handleTickets(context.Background(), "")
-	if !strings.Contains(reply, "No projects registered") {
-		t.Errorf("expected 'No projects registered' in reply, got %q", reply)
-	}
-}
-
-func TestSplitProjectState(t *testing.T) {
-	p := &Pipeline{cfg: &config.Config{
-		Registry: &config.RepoRegistry{
-			Repos: map[string]config.RepoEntry{
-				"Nightshift":   {URL: "x"},
-				"Auth Service": {URL: "y"},
-			},
-		},
-	}}
-	tests := []struct {
-		args, wantProject, wantState string
-	}{
-		{"Nightshift", "Nightshift", ""},
-		{"Nightshift Next", "Nightshift", "Next"},
-		{"Nightshift In Review", "Nightshift", "In Review"},
-		{"nightshift next", "Nightshift", "next"},     // case-insensitive project match
-		{"Auth Service Done", "Auth Service", "Done"}, // multi-word project name
-		{"Unknown Project", "Unknown Project", ""},    // not in registry → whole string is project
-	}
-	for _, tt := range tests {
-		gotProject, gotState := p.splitProjectState(tt.args)
-		if gotProject != tt.wantProject || gotState != tt.wantState {
-			t.Errorf("splitProjectState(%q) = (%q, %q), want (%q, %q)",
-				tt.args, gotProject, gotState, tt.wantProject, tt.wantState)
-		}
-	}
-}
-
-func TestHandleTickets_ListMode(t *testing.T) {
-	var gotState string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Variables map[string]any `json:"variables"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if s, ok := req.Variables["state"].(string); ok {
-			gotState = s
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": map[string]any{
-				"issues": map[string]any{
-					"nodes": []map[string]any{
-						{"id": "i1", "identifier": "ENG-7", "title": "Wire it up",
-							"state": map[string]any{"name": "Next", "type": "unstarted"}},
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	client := linear.New("test-key")
-	client.Endpoint = srv.URL
-
-	p := &Pipeline{
-		cfg: &config.Config{
-			Registry: &config.RepoRegistry{
-				Repos: map[string]config.RepoEntry{"Nightshift": {URL: "x"}},
-			},
-		},
-		linear: client,
-	}
-	reply := p.handleTickets(context.Background(), "Nightshift Next")
-	if gotState != "Next" {
-		t.Errorf("expected state filter 'Next', got %q", gotState)
-	}
-	if !strings.Contains(reply, "ENG-7") || !strings.Contains(reply, "Wire it up") {
-		t.Errorf("expected listed ticket in reply, got %q", reply)
+	if !strings.Contains(reply, "Usage") {
+		t.Errorf("expected usage in reply, got %q", reply)
 	}
 }
 
