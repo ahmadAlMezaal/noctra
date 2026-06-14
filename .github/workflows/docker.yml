@@ -25,7 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # QEMU is only needed to emulate the non-native arch (arm64). PRs build
+      # amd64-only (see platforms below), so skip the emulation setup there.
       - uses: docker/setup-qemu-action@v4
+        if: github.event_name != 'pull_request'
       - uses: docker/setup-buildx-action@v4
 
       # Only authenticate (and thus push) when this isn't a fork PR.
@@ -50,7 +53,9 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # PRs only validate that the image builds — do that natively on amd64.
+          # The full multi-arch image is built (and pushed) on main/tags.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

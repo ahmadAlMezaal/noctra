@@ -2,8 +2,13 @@
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 # Compile the static Noctra binary. CGO is disabled so the result runs on
-# any Linux without libc surprises.
-FROM golang:1.23-bookworm AS build
+# any Linux without libc surprises — and so the compiler can cross-compile.
+#
+# Pin the build stage to BUILDPLATFORM (the native builder arch) and let Go
+# cross-compile to TARGETARCH. For a multi-arch build this keeps the Go
+# toolchain running natively instead of emulating the compiler under QEMU for
+# the non-native arch — much faster, with an identical static result.
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS build
 WORKDIR /src
 
 # Dependency layer first for caching. Noctra is stdlib-only today (no
@@ -13,7 +18,13 @@ RUN go mod download
 
 COPY . .
 ARG VERSION=docker
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+# TARGETOS/TARGETARCH are injected by buildx for each target platform. They're
+# empty under a plain `docker build` (legacy builder / BuildKit off), so fall
+# back to the native arch via `go env` — keeping GOARCH= a literal assignment
+# prefix (a VAR=val produced by expansion is NOT treated as an assignment).
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -trimpath \
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/noctra ./cmd/noctra
 
