@@ -288,6 +288,28 @@ func (c *Config) RequiredCLIs() []string {
 	return clis
 }
 
+// AllCandidateCLIs returns the base CLIs plus every agent backend's CLI.
+// Used by the doctor to surface missing backends that per-ticket label
+// selection could request at runtime (e.g. "agent:codex" on a ticket when
+// only claude is installed).
+func (c *Config) AllCandidateCLIs() []string {
+	seen := map[string]bool{}
+	clis := make([]string, 0, len(baseCLIs)+len(agentCLIs))
+	for _, cli := range baseCLIs {
+		if !seen[cli] {
+			clis = append(clis, cli)
+			seen[cli] = true
+		}
+	}
+	for _, cli := range agentCLIs {
+		if !seen[cli] {
+			clis = append(clis, cli)
+			seen[cli] = true
+		}
+	}
+	return clis
+}
+
 // CheckCLIs returns the subset of RequiredCLIs that are missing from PATH.
 // `Validate` hard-errors on config; this is the softer PATH check used by
 // `run`/`cleanup` and the setup wizard's status block.

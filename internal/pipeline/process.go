@@ -16,12 +16,33 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/review"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
 // maxReviewDiffBytes caps the diff sent to the optional Gemini review gate.
 // Review prompts only need enough context to catch obvious issues; an
 // unbounded diff can make the gate slow, expensive, or exceed model limits.
 const maxReviewDiffBytes = 60000
+
+// resolveBackend returns the coding-agent backend for a ticket. If the issue
+// carries an "agent:<name>" label, that backend is used; otherwise the
+// pipeline's default (p.agent) is returned. An unknown label value degrades
+// to the default with a warning — never a hard failure.
+func (p *Pipeline) resolveBackend(issue linear.Issue) agent.Backend {
+	label := issue.BackendLabel()
+	if label == "" {
+		return p.agent
+	}
+	b, err := agent.New(label)
+	if err != nil {
+		slog.Warn("unknown backend label — using default",
+			"id", issue.Identifier, "label", label, "default", p.agent.Name(), "err", err)
+		return p.agent
+	}
+	slog.Info("per-ticket backend from label",
+		"id", issue.Identifier, "backend", b.Name(), "label", label)
+	return b
+}
 
 // process is one ticket's full lifecycle: resolve repo → worktree → run
 // Claude → check output → (optional) Gemini review → commit/push → create PR
@@ -31,6 +52,10 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
 	logger.Info("starting", "title", issue.Title)
+
+	// Select the coding-agent backend for this ticket — an "agent:<name>"
+	// label overrides the configured default.
+	backend := p.resolveBackend(issue)
 
 	if p.cfg.TelegramVerbose {
 		p.telegram.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNoctra picked it up — working on it.",
@@ -110,7 +135,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	})
 
 	logger.Info("running agent",
-		"backend", p.agent.Name(),
+		"backend", backend.Name(),
 		"log", logFile,
 		"timeout", p.cfg.AgentTimeout,
 		"agent_teams", p.cfg.UseAgentTeams)
@@ -119,7 +144,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// BLOCKED / rate-limit checks only inspect this attempt's output.
 	offset := agent.OffsetBefore(logFile)
 
-	runErr := p.agent.Run(ctx, agent.RunOptions{
+	runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -162,7 +187,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// legitimately writing the words "rate limit" into a file got its completed
 	// work discarded (ENG-178 — Codex built the Noctra landing page, whose
 	// copy advertises "rate-limit detection"; three good runs were thrown away).
-	if rateLimited(p.agent, runErr, output) {
+	if rateLimited(backend, runErr, output) {
 		logger.Warn("usage/rate limit detected — triggering shutdown")
 		p.bumpFailed(id)
 		p.flagRateLimit()
@@ -298,7 +323,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 				logger.Info("asking the agent to fix review issues")
 				fixOffset := agent.OffsetBefore(logFile)
-				fixErr := p.agent.Run(ctx, agent.RunOptions{
+				fixErr := backend.Run(ctx, agent.RunOptions{
 					Workdir:       wt.Path,
 					Prompt:        fixPrompt,
 					LogFile:       logFile,
@@ -318,13 +343,13 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 				}
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
-				switch classifyAgentRun(p.agent, fixErr, fixOutput) {
+				switch classifyAgentRun(backend, fixErr, fixOutput) {
 				case agentRunTimedOut:
 					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
 					p.bumpFailed(id)
 					p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 						"⏰ **Noctra: Agent timed out**\n\n%s timed out after %s while fixing Gemini review feedback.\n\nTicket moved back to **%s**.",
-						p.agent.Label(), p.cfg.AgentTimeout, p.cfg.TriggerState))
+						backend.Label(), p.cfg.AgentTimeout, p.cfg.TriggerState))
 					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 					return
 				case agentRunRateLimited:
@@ -354,8 +379,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
 	commitMsg := appendCoAuthorTrailer(
 		fmt.Sprintf("feat: implement %s — %s\n\nImplemented by Noctra using %s\n\nLinear: %s",
-			id, issue.Title, p.agent.Label(), issue.URL),
-		p.agent.CoAuthor())
+			id, issue.Title, backend.Label(), issue.URL),
+		backend.CoAuthor())
 
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
@@ -401,7 +426,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	prBody := fmt.Sprintf(
 		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*",
-		id, issue.Title, issue.URL, summary, reviewSection, p.agent.Label())
+		id, issue.Title, issue.URL, summary, reviewSection, backend.Label())
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,
@@ -419,7 +444,18 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	logger.Info("✅ PR created", "url", prURL)
 	p.bumpSuccess()
 	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
-		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(p.agent.Label()), prURL))
+		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(backend.Label()), prURL))
+
+	// Persist the chosen backend so auto-iterate uses the same one for
+	// follow-up commits on this PR.
+	if p.store != nil {
+		if err := p.store.Update(prURL, func(r *state.PRState) {
+			r.TicketID = id
+			r.AgentBackend = backend.Name()
+		}); err != nil {
+			logger.Warn("could not persist backend in PR state", "err", err)
+		}
+	}
 
 	// ── Move to In Review + remove trigger label ────────────────────────────
 	if p.cfg.TriggerMode == "label" && p.labelID != "" {
@@ -432,7 +468,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 	if err := p.linear.Comment(ctx, issue.ID, fmt.Sprintf(
 		"🌙 **Noctra created a PR** (via %s)\n\n**PR:** %s\n\nMoved to **%s**. Ready for your review!",
-		p.agent.Label(), prURL, p.cfg.InReviewState)); err != nil {
+		backend.Label(), prURL, p.cfg.InReviewState)); err != nil {
 		logger.Warn("could not post Linear comment", "err", err)
 	}
 

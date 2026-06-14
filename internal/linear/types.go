@@ -66,6 +66,16 @@ type User struct {
 	Name string `json:"name"`
 }
 
+// Label is a Linear label attached to an issue.
+type Label struct {
+	Name string `json:"name"`
+}
+
+// LabelConnection is the GraphQL connection wrapper around an issue's labels.
+type LabelConnection struct {
+	Nodes []Label `json:"nodes"`
+}
+
 // Comment is a single Linear comment. Body is Markdown; User is the author
 // (nil for app/integration comments). Only populated by queries that request
 // comments — the trigger fetches — and empty otherwise.
@@ -82,7 +92,8 @@ type CommentConnection struct {
 // Issue is the subset of a Linear issue Noctra acts on. State and Assignee
 // are only populated by the read queries that request them (e.g.
 // GetIssueByIdentifier); they are nil otherwise. Comments is only populated by
-// the trigger fetches (FetchTriggerIssues / FetchLabeledIssues).
+// the trigger fetches (FetchTriggerIssues / FetchLabeledIssues). Labels is
+// populated by the trigger fetches and GetIssueByIdentifier.
 type Issue struct {
 	ID          string            `json:"id"`
 	Identifier  string            `json:"identifier"`
@@ -93,6 +104,7 @@ type Issue struct {
 	State       *WorkflowState    `json:"state,omitempty"`
 	Assignee    *User             `json:"assignee,omitempty"`
 	Comments    CommentConnection `json:"comments,omitempty"`
+	Labels      LabelConnection   `json:"labels,omitempty"`
 }
 
 // systemCommentMarkers identify comments that Noctra (or the Linear↔GitHub
@@ -178,4 +190,23 @@ func (i Issue) AssigneeName() string {
 		return ""
 	}
 	return i.Assignee.Name
+}
+
+// BackendLabelPrefix is the label-name prefix that selects a per-ticket
+// coding-agent backend (e.g. "agent:codex" → backend "codex").
+const BackendLabelPrefix = "agent:"
+
+// BackendLabel extracts the backend name from the issue's labels by looking
+// for one prefixed with "agent:" (e.g. "agent:codex" → "codex"). Returns ""
+// when no such label is present or the suffix is empty/whitespace-only.
+func (i Issue) BackendLabel() string {
+	for _, l := range i.Labels.Nodes {
+		name := strings.ToLower(strings.TrimSpace(l.Name))
+		if strings.HasPrefix(name, BackendLabelPrefix) {
+			if v := strings.TrimSpace(strings.TrimPrefix(name, BackendLabelPrefix)); v != "" {
+				return v
+			}
+		}
+	}
+	return ""
 }

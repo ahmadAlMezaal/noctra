@@ -81,3 +81,39 @@ func TestProjectRepoDirective_NilSafe(t *testing.T) {
 		t.Errorf("nil project: got (%q,%q)", r, b)
 	}
 }
+
+func TestBackendLabel(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels []Label
+		want   string
+	}{
+		{"no labels", nil, ""},
+		{"unrelated labels", []Label{{Name: "bug"}, {Name: "noctra"}}, ""},
+		{"agent:codex", []Label{{Name: "agent:codex"}}, "codex"},
+		{"agent:claude", []Label{{Name: "priority"}, {Name: "agent:claude"}}, "claude"},
+		{"agent:copilot", []Label{{Name: "agent:copilot"}}, "copilot"},
+		// Case-insensitive + trimmed.
+		{"Agent:Codex", []Label{{Name: "Agent:Codex"}}, "codex"},
+		{"spaces", []Label{{Name: " agent: claude "}}, "claude"},
+		// Empty suffix ignored.
+		{"agent: (empty)", []Label{{Name: "agent:"}}, ""},
+		{"agent: (spaces)", []Label{{Name: "agent:   "}}, ""},
+		// First match wins.
+		{"first wins", []Label{{Name: "agent:codex"}, {Name: "agent:claude"}}, "codex"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			issue := Issue{Labels: LabelConnection{Nodes: c.labels}}
+			if got := issue.BackendLabel(); got != c.want {
+				t.Errorf("BackendLabel() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestBackendLabel_EmptyIssue(t *testing.T) {
+	if got := (Issue{}).BackendLabel(); got != "" {
+		t.Errorf("empty issue BackendLabel() = %q, want empty", got)
+	}
+}
