@@ -13,8 +13,13 @@ import (
 // ticket to a repo either by a "Repo:" directive in Description (preferred) or,
 // failing that, by looking Name up in repos.json.
 type Project struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// Description is Linear's SHORT project description (GraphQL `description`).
 	Description string `json:"description,omitempty"`
+	// Content is the project's markdown BODY (GraphQL `content`) — this is where
+	// a human writes the multi-line `Repo:` directive, so it's the field
+	// RepoDirective reads first.
+	Content string `json:"content,omitempty"`
 }
 
 var (
@@ -30,16 +35,23 @@ func (p *Project) RepoDirective() (repo, branch string) {
 	if p == nil {
 		return "", ""
 	}
-	if m := repoDirectiveRe.FindStringSubmatch(p.Description); m != nil {
+	// The directive lives in the project's markdown body (GraphQL `content`);
+	// fall back to the short `description` in case it was written there instead.
+	for _, src := range []string{p.Content, p.Description} {
+		m := repoDirectiveRe.FindStringSubmatch(src)
+		if m == nil {
+			continue
+		}
 		repo = strings.TrimSpace(m[1])
+		if repo == "" {
+			continue
+		}
+		if bm := branchDirectiveRe.FindStringSubmatch(src); bm != nil {
+			branch = strings.TrimSpace(bm[1])
+		}
+		return repo, branch
 	}
-	if repo == "" {
-		return "", ""
-	}
-	if m := branchDirectiveRe.FindStringSubmatch(p.Description); m != nil {
-		branch = strings.TrimSpace(m[1])
-	}
-	return repo, branch
+	return "", ""
 }
 
 // WorkflowState is the column a ticket sits in (e.g. "Next", "In Review") and
