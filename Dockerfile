@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)}
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Noctra shells out to git (worktrees/clone), gh (PR creation), and a coding
-# agent CLI (claude/codex via npm, copilot via gh extension), so the runtime
+# agent CLI (claude/codex via npm, copilot via built-in gh subcommand), so the runtime
 # needs all of them. The node base supplies the agent runtime; git + gh on top.
 FROM node:20-bookworm-slim AS runtime
 
@@ -53,12 +53,10 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code @openai/codex \
  && npm cache clean --force
 
-# GitHub Copilot CLI is distributed as a gh extension, not an npm package.
-# Install it via gh and create a wrapper so `copilot` is on PATH for the agent
-# runner. The extension download is unauthenticated (public repo); auth
+# GitHub Copilot CLI is a built-in `gh copilot` subcommand (no extension install
+# needed). Create a wrapper so `copilot` is on PATH for the agent runner. Auth
 # (GH_TOKEN / Copilot subscription) is only needed at runtime.
-RUN gh extension install github/gh-copilot \
- && printf '#!/bin/sh\nexec gh copilot "$@"\n' > /usr/local/bin/copilot \
+RUN printf '#!/bin/sh\nexec gh copilot "$@"\n' > /usr/local/bin/copilot \
  && chmod +x /usr/local/bin/copilot
 
 COPY --from=build /out/noctra /usr/local/bin/noctra

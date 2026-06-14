@@ -92,7 +92,7 @@ Noctra is a single Go binary. Beyond Go for the build, it shells out to a few st
 | Tool | Install | Purpose |
 |------|---------|---------|
 | Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
-| `claude`, `codex`, **or** `copilot` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude), `npm i -g @openai/codex` (Codex), or `gh extension install github/gh-copilot` (Copilot) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
+| `claude`, `codex`, **or** `copilot` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude), `npm i -g @openai/codex` (Codex), or built-in `gh copilot` (Copilot) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
 | `gh` CLI | `brew install gh` | PR creation |
 | `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
