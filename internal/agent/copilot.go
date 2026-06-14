@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -51,6 +52,17 @@ func copilotEnv(ctx context.Context) []string {
 	}
 	token := strings.TrimSpace(string(out))
 	if token == "" {
+		return nil
+	}
+	// Copilot rejects classic PATs (ghp_) outright. Injecting one would make
+	// copilot fail even when the user has a valid `copilot /login` credential,
+	// because it reads the env token before its own store. Only bridge tokens
+	// Copilot actually accepts — OAuth (gho_) or fine-grained (github_pat_) —
+	// and otherwise stay out of the way so copilot's own auth can take over.
+	if strings.HasPrefix(token, "ghp_") {
+		slog.Warn("copilot: gh is authenticated with a classic PAT, which Copilot does not accept; " +
+			"not injecting GH_TOKEN. Re-auth gh with the OAuth web flow (`gh auth login`), use a " +
+			"fine-grained PAT, or run `copilot /login`.")
 		return nil
 	}
 	return append(os.Environ(), "GH_TOKEN="+token)
