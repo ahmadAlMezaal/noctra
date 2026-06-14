@@ -314,7 +314,10 @@ func logsArgs(follow bool) []string {
 	if follow {
 		args = append(args, "-f")
 	} else {
-		args = append(args, "-n", "200")
+		// --no-pager dumps straight to stdout (newest line last) instead of
+		// opening the journalctl pager at the TOP of the 200 lines, which forces
+		// scrolling to reach the latest entry.
+		args = append(args, "--no-pager", "-n", "200")
 	}
 	return args
 }

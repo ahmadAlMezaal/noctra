@@ -379,7 +379,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	logger.Info("✅ PR created", "url", prURL)
 	p.bumpSuccess()
-	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready: %s", id, notify.EscapeMarkdown(issue.Title), prURL))
+	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
+		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(p.agent.Label()), prURL))
 
 	// ── Move to In Review + remove trigger label ────────────────────────────
 	if p.cfg.TriggerMode == "label" && p.labelID != "" {
@@ -391,8 +392,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		logger.Warn("could not set in-review state", "err", err)
 	}
 	if err := p.linear.Comment(ctx, issue.ID, fmt.Sprintf(
-		"🌙 **Noctra created a PR**\n\n**PR:** %s\n\nMoved to **%s**. Ready for your review!",
-		prURL, p.cfg.InReviewState)); err != nil {
+		"🌙 **Noctra created a PR** (via %s)\n\n**PR:** %s\n\nMoved to **%s**. Ready for your review!",
+		p.agent.Label(), prURL, p.cfg.InReviewState)); err != nil {
 		logger.Warn("could not post Linear comment", "err", err)
 	}
 
