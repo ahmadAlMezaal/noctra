@@ -36,6 +36,9 @@ func New(apiKey string) *Client {
 // that token was issued with `actor=app`, Noctra's comments and state changes
 // are attributed to the application identity rather than the authorizing user.
 func NewOAuth(token string) *Client {
+	// Defensively trim whitespace and strip any accidental "Bearer " prefix.
+	token = strings.TrimSpace(token)
+	token = strings.TrimPrefix(token, "Bearer ")
 	c := New(token)
 	c.Bearer = true
 	return c

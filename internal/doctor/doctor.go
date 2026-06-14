@@ -197,10 +197,12 @@ func checkGHAuth() check {
 func checkLinearKey(cfg *config.Config) check {
 	name := "LINEAR_API_KEY"
 	var client *linear.Client
+	var isOAuth bool
 	switch {
 	case cfg.LinearOAuthToken != "":
 		name = "LINEAR_OAUTH_TOKEN"
 		client = linear.NewOAuth(cfg.LinearOAuthToken)
+		isOAuth = true
 	case cfg.LinearAPIKey != "":
 		client = linear.New(cfg.LinearAPIKey)
 	default:
@@ -216,10 +218,14 @@ func checkLinearKey(cfg *config.Config) check {
 
 	who, err := client.Ping(ctx)
 	if err != nil {
+		hint := "Check your credential in .env or at https://linear.app/settings/api."
+		if isOAuth {
+			hint = "Check your OAuth token in .env or create/revoke tokens at https://linear.app/settings/api."
+		}
 		return check{
 			name:   name,
 			detail: fmt.Sprintf("unreachable (%v)", err),
-			hint:   "Check your credential in .env or at https://linear.app/settings/api.",
+			hint:   hint,
 		}
 	}
 	return check{name: name, ok: true, detail: fmt.Sprintf("authenticated as %s", who)}
