@@ -45,6 +45,24 @@ func gather(scriptDir string) []check {
 		checks = append(checks, checkCLI(cli))
 	}
 
+	// ── Optional agent CLIs (per-ticket label selection) ─────────────────────
+	// Tickets can override the default backend with an "agent:<name>" label,
+	// so non-default agent CLIs are surfaced as advisory (always marked OK).
+	if loadErr == nil {
+		defaultCLI := cfg.AgentCLI()
+		for _, cli := range cfg.AllCandidateCLIs() {
+			if cli == defaultCLI || cli == "git" || cli == "gh" {
+				continue // already checked above
+			}
+			c := checkCLI(cli)
+			if !c.ok {
+				c.ok = true // advisory, not a hard failure
+				c.detail = "not installed (optional — needed if a ticket uses agent:" + cli + " label)"
+			}
+			checks = append(checks, c)
+		}
+	}
+
 	// ── gh auth ──────────────────────────────────────────────────────────────
 	checks = append(checks, checkGHAuth())
 

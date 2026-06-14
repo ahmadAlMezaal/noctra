@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -306,6 +307,35 @@ func (c *Config) RequiredCLIs() []string {
 	clis := make([]string, 0, len(baseCLIs)+1)
 	clis = append(clis, baseCLIs...)
 	clis = append(clis, c.AgentCLI())
+	return clis
+}
+
+// AllCandidateCLIs returns the base CLIs plus every agent backend's CLI.
+// Used by the doctor to surface missing backends that per-ticket label
+// selection could request at runtime (e.g. "agent:codex" on a ticket when
+// only claude is installed).
+func (c *Config) AllCandidateCLIs() []string {
+	seen := map[string]bool{}
+	clis := make([]string, 0, len(baseCLIs)+len(agentCLIs))
+	for _, cli := range baseCLIs {
+		if !seen[cli] {
+			clis = append(clis, cli)
+			seen[cli] = true
+		}
+	}
+	// Collect agent CLIs into a sorted slice so the output order is
+	// deterministic (Go map iteration is randomized).
+	sorted := make([]string, 0, len(agentCLIs))
+	for _, cli := range agentCLIs {
+		sorted = append(sorted, cli)
+	}
+	slices.Sort(sorted)
+	for _, cli := range sorted {
+		if !seen[cli] {
+			clis = append(clis, cli)
+			seen[cli] = true
+		}
+	}
 	return clis
 }
 

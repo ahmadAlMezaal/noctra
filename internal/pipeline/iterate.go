@@ -167,12 +167,43 @@ func countEvents(events []watch.Event) (comments, reviews int) {
 	return
 }
 
+// resolveIterateBackend picks the coding-agent backend for a PR iteration.
+// Priority: persisted state → issue's current labels → pipeline default.
+func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier string) agent.Backend {
+	// 1. Persisted state — the backend the PR was created with.
+	if p.store != nil {
+		if cursor := p.store.Get(prURL); cursor.AgentBackend != "" {
+			if b, err := agent.New(cursor.AgentBackend); err == nil {
+				return b
+			}
+			slog.Warn("persisted backend invalid — trying labels",
+				"id", identifier, "backend", cursor.AgentBackend)
+		}
+	}
+
+	// 2. Re-derive from the issue's current labels.
+	if issue, err := p.linear.GetIssueByIdentifier(ctx, identifier); err == nil {
+		if label := issue.BackendLabel(); label != "" {
+			if b, err := agent.New(label); err == nil {
+				return b
+			}
+		}
+	}
+
+	// 3. Pipeline default.
+	return p.agent
+}
+
 // iteratePR is one re-engagement on an open PR. Resolves the repo, resumes
 // the existing remote branch, builds a fix prompt from the new feedback,
 // runs Claude, and pushes the follow-up commit.
 func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier string) {
 	logger := slog.With("id", identifier, "pr", ch.PR.URL)
 	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
+
+	// Select the backend for this iteration — persisted state (from when the
+	// PR was created) takes priority so follow-up commits use the same backend.
+	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
 
 	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
 	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
@@ -271,9 +302,9 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	_ = agent.AttemptHeader(logFile)
 	offset := agent.OffsetBefore(logFile)
 
-	logger.Info("running agent", "backend", p.agent.Name(), "log", logFile)
+	logger.Info("running agent", "backend", backend.Name(), "log", logFile)
 
-	runErr := p.agent.Run(ctx, agent.RunOptions{
+	runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -306,7 +337,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// Rate limit is only classified on a failed run (see rateLimited), so a
 	// successful iteration whose transcript merely mentions "rate limit" (file
 	// content / diff) doesn't trigger a false shutdown.
-	if rateLimited(p.agent, runErr, output) {
+	if rateLimited(backend, runErr, output) {
 		logger.Warn("rate limit detected during iteration")
 		p.flagRateLimit()
 		return
@@ -348,7 +379,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		commitMsg := appendCoAuthorTrailer(
 			fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Noctra (%s).",
 				identifier, engagementSummary(ch)),
-			p.agent.CoAuthor())
+			backend.CoAuthor())
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)

@@ -415,7 +415,7 @@ func (p *Pipeline) banner() {
 	if p.telegram.Enabled {
 		notifyMode = "Telegram"
 	}
-	agentMode := fmt.Sprintf("%s (%s)", p.agent.Label(), p.agent.CLI())
+	agentMode := fmt.Sprintf("per-ticket via label (default: %s)", p.agent.Label())
 	if p.cfg.UseAgentTeams {
 		agentMode += " + agent teams"
 	}

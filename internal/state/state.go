@@ -23,6 +23,11 @@ type PRState struct {
 	// Used to route comments on Linear when re-engaging or capping.
 	TicketID string `json:"ticket_id,omitempty"`
 
+	// AgentBackend is the coding-agent backend the PR was created with
+	// (e.g. "claude", "codex", "copilot"). Persisted so the auto-iterate
+	// path uses the same backend for follow-up commits on this PR.
+	AgentBackend string `json:"agent_backend,omitempty"`
+
 	// LastCommentAt is the createdAt of the most recent issue-conversation
 	// comment the watcher has already processed for this PR. Anything with
 	// a later timestamp is "new" and worth acting on. Tracking by timestamp

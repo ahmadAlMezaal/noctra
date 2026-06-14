@@ -545,6 +545,39 @@ AGENT_BACKEND="gemini"
 	}
 }
 
+func TestAllCandidateCLIs_ContainsAllBackends(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	clis := cfg.AllCandidateCLIs()
+	// Must contain the base CLIs (git, gh) and all agent CLIs.
+	want := map[string]bool{"git": false, "gh": false, "claude": false, "codex": false, "copilot": false}
+	for _, c := range clis {
+		if _, ok := want[c]; ok {
+			want[c] = true
+		}
+	}
+	for k, found := range want {
+		if !found {
+			t.Errorf("AllCandidateCLIs() missing %q", k)
+		}
+	}
+	// No duplicates.
+	seen := map[string]bool{}
+	for _, c := range clis {
+		if seen[c] {
+			t.Errorf("AllCandidateCLIs() has duplicate %q", c)
+		}
+		seen[c] = true
+	}
+}
+
 // initBareRepo creates a minimal-looking git repo (just a .git directory) so
 // isGitRepo returns true without us shelling out to git in tests.
 func initBareRepo(t *testing.T) string {

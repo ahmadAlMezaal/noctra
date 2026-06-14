@@ -77,7 +77,7 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 func (c *Client) FetchTriggerIssues(ctx context.Context, stateName string) ([]Issue, error) {
 	query := `query($state: String!) {
 	  teams { nodes { issues(filter: { state: { name: { eq: $state } } }, orderBy: updatedAt, first: 20) {
-	    nodes { id identifier title description url project { name description content } comments(last: 50) { nodes { body user { name } } } }
+	    nodes { id identifier title description url project { name description content } comments(last: 50) { nodes { body user { name } } } labels { nodes { name } } }
 	  } } }
 	}`
 
@@ -239,7 +239,7 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 // to UUIDs for the `issue(id:)` argument.
 func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (Issue, error) {
 	query := `query($id: String!) {
-	  issue(id: $id) { id identifier title description url project { name } state { name type } assignee { name } }
+	  issue(id: $id) { id identifier title description url project { name } state { name type } assignee { name } labels { nodes { name } } }
 	}`
 
 	var resp struct {
@@ -318,7 +318,7 @@ func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Is
 func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Issue, error) {
 	query := `query($label: String!) {
 	  teams { nodes { issues(filter: { labels: { name: { eq: $label } } }, orderBy: updatedAt, first: 20) {
-	    nodes { id identifier title description url project { name description content } comments(last: 50) { nodes { body user { name } } } }
+	    nodes { id identifier title description url project { name description content } comments(last: 50) { nodes { body user { name } } } labels { nodes { name } } }
 	  } } }
 	}`
 
