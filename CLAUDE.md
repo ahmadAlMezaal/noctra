@@ -146,4 +146,37 @@ The startup banner (`pipeline.banner`) prints the resolved runtime config — re
 
 ## Releasing
 
-Releases are automated with GoReleaser (`.goreleaser.yaml`) via `.github/workflows/release.yml`, triggered by pushing a `v*` tag. It cross-compiles linux `amd64`/`arm64`/`armv7` + darwin `amd64`/`arm64`, archives them with checksums, and publishes a GitHub Release. `main.version` is a `var` (not const) so the tag is stamped in via `-ldflags "-X main.version=..."`. Validate config changes locally with `goreleaser check` and `goreleaser release --snapshot --clean --skip=publish`.
+Releases are automated with GoReleaser (`.goreleaser.yaml`). Two paths:
+
+### Path 1: Label-driven (default on main)
+
+When a PR is merged to `main`, `.github/workflows/tag-on-merge.yml`:
+1. Checks for exactly one `release:major`, `release:minor`, or `release:patch` label
+2. No label → no-op (safe default)
+3. Multiple labels → fails (prevents mistakes)
+4. Computes the next semver from the latest `v*` tag (e.g., `v0.5.2` + `release:patch` → `v0.5.3`)
+5. Creates an annotated tag at the merge commit and pushes it
+6. Invokes GoReleaser directly to publish the release with cross-compiled binaries and checksums
+
+**Why GoReleaser runs in tag-on-merge:** Tags pushed with `GITHUB_TOKEN` don't trigger other workflows (GitHub policy). So rather than push a tag and hope `release.yml` fires, we call GoReleaser inline.
+
+**Advantages:** Explicit per-PR control, no manual tagging, safe (unlabeled PRs never release).
+
+### Path 2: Manual (always available)
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+`.github/workflows/release.yml` fires on any pushed `v*` tag and publishes a release via GoReleaser. This path is unchanged and always works — useful for hotfixes, backdates, or testing.
+
+### Config validation
+
+Validate GoReleaser config locally:
+```bash
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
+```
+
+`main.version` is a `var` (not const) so the tag is stamped in via `-ldflags "-X main.version=..."`.

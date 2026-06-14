@@ -1,0 +1,138 @@
+name: tag-on-merge
+
+# Automatically tag and release when a PR is merged to main with a release:* label.
+# This workflow:
+#  1. Reads the merged PR's labels
+#  2. Recognizes release:major / release:minor / release:patch
+#  3. Computes the next semver from the latest v* tag
+#  4. Creates and pushes an annotated tag
+#  5. Invokes GoReleaser to publish the release
+#
+# Why GoReleaser is called here (not via release.yml trigger):
+# Tags pushed with GITHUB_TOKEN don't trigger other workflows (GitHub policy to prevent loops).
+# So tag-on-merge calls GoReleaser directly, keeping release.yml for manual tag pushes.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  tag-on-merge:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for release labels
+        id: check-label
+        run: |
+          labels='${{ toJson(github.event.pull_request.labels[*].name) }}'
+          
+          major=$(echo "$labels" | jq 'contains(["release:major"])')
+          minor=$(echo "$labels" | jq 'contains(["release:minor"])')
+          patch=$(echo "$labels" | jq 'contains(["release:patch"])')
+          
+          count=$(($(echo "$major" | grep -c true) + $(echo "$minor" | grep -c true) + $(echo "$patch" | grep -c true)))
+          
+          if [ "$count" -eq 0 ]; then
+            echo "no_release=true" >> $GITHUB_OUTPUT
+            echo "No release label found — skipping tag and release"
+            exit 0
+          fi
+          
+          if [ "$count" -gt 1 ]; then
+            echo "Multiple release:* labels found. Expected exactly one (release:major, release:minor, or release:patch). Failing."
+            exit 1
+          fi
+          
+          if [ "$major" = "true" ]; then
+            echo "bump_type=major" >> $GITHUB_OUTPUT
+          elif [ "$minor" = "true" ]; then
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
+          elif [ "$patch" = "true" ]; then
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compute next version
+        if: steps.check-label.outputs.no_release != 'true'
+        id: version
+        run: |
+          # Get latest v* tag, sorted by version
+          latest_tag=$(git tag --sort=-v:refname --list 'v*' | head -1)
+          
+          if [ -z "$latest_tag" ]; then
+            echo "No existing v* tags found. Starting from v0.0.0"
+            current="0.0.0"
+          else
+            current="${latest_tag#v}"
+          fi
+          
+          # Parse semver
+          IFS='.' read -r major minor patch <<< "$current"
+          
+          # Apply bump
+          bump_type="${{ steps.check-label.outputs.bump_type }}"
+          if [ "$bump_type" = "major" ]; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif [ "$bump_type" = "minor" ]; then
+            minor=$((minor + 1))
+            patch=0
+          elif [ "$bump_type" = "patch" ]; then
+            patch=$((patch + 1))
+          fi
+          
+          next_version="v${major}.${minor}.${patch}"
+          echo "next_version=$next_version" >> $GITHUB_OUTPUT
+          echo "Computed next version: $next_version (from $current, bump: $bump_type)"
+
+      - name: Check if tag already exists
+        if: steps.check-label.outputs.no_release != 'true'
+        run: |
+          tag="${{ steps.version.outputs.next_version }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists. Refusing to overwrite."
+            exit 1
+          fi
+          echo "Tag $tag does not exist — safe to create"
+
+      - name: Create annotated tag
+        if: steps.check-label.outputs.no_release != 'true'
+        run: |
+          tag="${{ steps.version.outputs.next_version }}"
+          git config user.name "Noctra Bot"
+          git config user.email "noctra-bot@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag" "${{ github.event.pull_request.merge_commit_sha }}"
+          echo "Created annotated tag: $tag"
+
+      - name: Push tag
+        if: steps.check-label.outputs.no_release != 'true'
+        run: |
+          tag="${{ steps.version.outputs.next_version }}"
+          git push origin "$tag"
+          echo "Pushed tag: $tag"
+
+      - name: Set up Go
+        if: steps.check-label.outputs.no_release != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.23"
+
+      - name: Run GoReleaser
+        if: steps.check-label.outputs.no_release != 'true'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

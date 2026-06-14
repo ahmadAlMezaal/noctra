@@ -212,13 +212,32 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o noctra ./cmd/noctra      # Pi 3 / 32-b
 scp noctra pi@your-pi:/srv/noctra/
 ```
 
-### Cutting a release
 
-Releases are automated by [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml` + `.github/workflows/release.yml`). Push a semver tag and a GitHub Release with cross-compiled archives + checksums is published automatically:
+## Releasing
+
+Releases are published automatically with GoReleaser, creating cross-platform binaries (linux amd64/arm64/armv7 + darwin) and a checksums file.
+
+### Automatic on PR merge (recommended)
+
+Label your PR with one of:
+- `release:major` — bump major version (e.g., v0.5.2 → v1.0.0)
+- `release:minor` — bump minor version (e.g., v0.5.2 → v0.6.0)
+- `release:patch` — bump patch version (e.g., v0.5.2 → v0.5.3)
+
+When merged to `main`, `.github/workflows/tag-on-merge.yml` automatically:
+1. Detects the label (no label = no release, safe default)
+2. Computes the next semver from the latest tag
+3. Creates and pushes an annotated tag
+4. Runs GoReleaser to publish the release
+
+### Manual (always available)
 
 ```bash
-git tag v2.0.0 && git push origin v2.0.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
+
+`.github/workflows/release.yml` triggers on any `v*` tag push and publishes a release. Useful for hotfixes or testing.
 
 ---
 
