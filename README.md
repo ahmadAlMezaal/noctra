@@ -212,15 +212,6 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o noctra ./cmd/noctra      # Pi 3 / 32-b
 scp noctra pi@your-pi:/srv/noctra/
 ```
 
-### Cutting a release
-
-Releases are automated by [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml` + `.github/workflows/release.yml`). Push a semver tag and a GitHub Release with cross-compiled archives + checksums is published automatically:
-
-```bash
-git tag v2.0.0 && git push origin v2.0.0
-```
-
----
 
 ## Releasing
 
