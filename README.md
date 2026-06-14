@@ -458,7 +458,7 @@ Noctra is only as good as your tickets. See the [`writing-good-tickets` skill](.
 
 ### Unattended, no-confirmation execution
 
-Noctra runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-permissions`, `codex exec --dangerously-bypass-approvals-and-sandbox` for the Codex backend, or `copilot --allow-all-tools` for the Copilot backend. Either way, the agent can read, write, and execute commands in your repository without asking for confirmation on each action.
+Noctra runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-permissions`, `codex exec --dangerously-bypass-approvals-and-sandbox` for the Codex backend, or `copilot --allow-all-tools --no-ask-user` for the Copilot backend. Either way, the agent can read, write, and execute commands in your repository without asking for confirmation on each action.
 
 **Only use Noctra on repositories where you accept this risk:**
 - ✅ Personal projects and side projects

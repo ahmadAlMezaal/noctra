@@ -32,7 +32,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)}
 # Noctra shells out to git (worktrees/clone), gh (PR creation), and a coding
 # agent CLI (claude/codex/copilot, all via npm), so the runtime needs all of
 # them. The node base supplies the agent runtime; git + gh on top.
-FROM node:20-bookworm-slim AS runtime
+# Node 22+ is required: @github/copilot lists Node.js 22 as its prerequisite but
+# declares no `engines` field, so an older base installs cleanly yet fails at
+# runtime — claude/codex are happy on 22 too.
+FROM node:22-bookworm-slim AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git gnupg \

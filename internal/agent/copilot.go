@@ -6,7 +6,7 @@ import (
 )
 
 // copilotBackend runs GitHub's Copilot CLI (`copilot`) in its non-interactive
-// headless mode (`copilot -p <prompt> --allow-all-tools`). It authenticates via
+// headless mode (`copilot --allow-all-tools --no-ask-user -p <prompt>`). It authenticates via
 // a Copilot subscription tied to `gh` (so `GH_TOKEN` or a prior `gh auth login`
 // is enough); Noctra does not manage those credentials.
 //
@@ -19,7 +19,7 @@ func (copilotBackend) Name() string  { return "copilot" }
 func (copilotBackend) Label() string { return "GitHub Copilot" }
 func (copilotBackend) CLI() string   { return "copilot" }
 
-// Run invokes `copilot -p <prompt> --allow-all-tools` in opts.Workdir.
+// Run invokes `copilot --allow-all-tools --no-ask-user -p <prompt>` in opts.Workdir.
 // UseAgentTeams is Claude-only and is ignored here.
 func (b copilotBackend) Run(ctx context.Context, opts RunOptions) error {
 	// nil env → inherit os.Environ (so GH_TOKEN / gh auth state flow through).
@@ -30,11 +30,16 @@ func (b copilotBackend) Run(ctx context.Context, opts RunOptions) error {
 // non-interactive prompt flag; `--allow-all-tools` auto-approves file edits and
 // commands (the Copilot analogue of Claude's --dangerously-skip-permissions /
 // Codex's --dangerously-bypass-approvals-and-sandbox) since Noctra runs
-// unattended in a throwaway worktree. Split out from Run so the flag set is
+// unattended in a throwaway worktree. `--no-ask-user` disables the `ask_user`
+// tool: --allow-all-tools auto-approves tool *execution* but does NOT stop
+// Copilot from pausing to ask a clarifying question, which on a headless run
+// (no stdin) would hang until AGENT_TIMEOUT instead of returning so our
+// BLOCKED: retry path can act. Split out from Run so the flag set is
 // unit-testable without executing the CLI.
 func copilotArgs(opts RunOptions) []string {
 	return []string{
 		"--allow-all-tools",
+		"--no-ask-user",
 		"-p", opts.Prompt,
 	}
 }

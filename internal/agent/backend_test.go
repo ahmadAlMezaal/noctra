@@ -97,6 +97,10 @@ func TestCopilotArgs_UsesAllowAllToolsAndPromptFlag(t *testing.T) {
 	if !slices.Contains(args, "--allow-all-tools") {
 		t.Errorf("copilotArgs missing --allow-all-tools: %v", args)
 	}
+	// --no-ask-user keeps a headless run from hanging on a clarifying question.
+	if !slices.Contains(args, "--no-ask-user") {
+		t.Errorf("copilotArgs missing --no-ask-user: %v", args)
+	}
 	// Prompt is passed via -p <prompt>.
 	i := slices.Index(args, "-p")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
