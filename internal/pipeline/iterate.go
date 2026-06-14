@@ -182,19 +182,24 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// same feedback, re-runs, and fails again — an infinite retry loop. The
 	// only exceptions are infra failures (timeout / rate-limit), handled
 	// further down, which intentionally retry.
-	// Resolve the repo this PR lives in by cloning it directly from the PR's
-	// own owner/name — directive-only routing means there's no registry to
-	// reverse-map against.
-	var resolved repo.Resolved
-	ownerRepo, err := prRepoOwnerRepo(ch.PR.URL)
-	if err != nil {
-		logger.Error("could not parse PR repo from URL", "err", err)
-		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
-		return
+	// Resolve the repo this PR lives in. Prefer the remote URL of the clone the
+	// watcher discovered it through (ch.PR.RepoURL) — that preserves the clone's
+	// transport (e.g. an SSH `git@…` URL for a private repo). Only fall back to
+	// the PR's bare owner/name when that's unavailable; ResolveDirect would then
+	// synthesize an HTTPS URL, which fails on SSH-only hosts.
+	ref := ch.PR.RepoURL
+	if ref == "" {
+		var err error
+		ref, err = prRepoOwnerRepo(ch.PR.URL)
+		if err != nil {
+			logger.Error("could not parse PR repo from URL", "err", err)
+			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+			return
+		}
 	}
-	resolved, err = p.resolver.ResolveDirect(ctx, ownerRepo, "")
+	resolved, err := p.resolver.ResolveDirect(ctx, ref, "")
 	if err != nil {
-		logger.Error("repo resolve (direct) failed", "err", err)
+		logger.Error("repo resolve (direct) failed", "err", err, "ref", ref)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}

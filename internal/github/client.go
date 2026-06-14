@@ -62,6 +62,9 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 
 		for _, pr := range prs {
 			if strings.HasPrefix(pr.HeadRefName, "nightshift/") {
+				// Remember the remote this PR was found through so the iterate
+				// path can re-resolve over the same transport (e.g. SSH).
+				pr.RepoURL = raw
 				out = append(out, pr)
 			}
 		}

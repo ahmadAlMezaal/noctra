@@ -23,6 +23,13 @@ type PR struct {
 	Number      int    `json:"number"`
 	Title       string `json:"title"`
 	HeadRefName string `json:"headRefName"`
+
+	// RepoURL is the git remote URL of the clone this PR was discovered from
+	// (set by ListNightshiftPRs, not from gh's JSON). It preserves the clone's
+	// original scheme — e.g. an SSH `git@…` URL — so the auto-iterate path can
+	// re-resolve the repo over the same transport instead of synthesizing an
+	// HTTPS URL from owner/name, which would fail on SSH-only private repos.
+	RepoURL string `json:"-"`
 }
 
 // Comment is a top-level PR conversation comment (not an inline review
