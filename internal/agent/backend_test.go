@@ -7,11 +7,13 @@ import (
 
 func TestNew_SelectsBackend(t *testing.T) {
 	cases := map[string]string{
-		"":        "claude", // default
-		"claude":  "claude",
-		"Claude":  "claude", // case-insensitive
-		" codex ": "codex",  // trimmed
-		"codex":   "codex",
+		"":          "claude", // default
+		"claude":    "claude",
+		"Claude":    "claude", // case-insensitive
+		" codex ":   "codex",  // trimmed
+		"codex":     "codex",
+		"copilot":   "copilot",
+		" Copilot ": "copilot", // case-insensitive + trimmed
 	}
 	for in, wantName := range cases {
 		b, err := New(in)
@@ -49,6 +51,16 @@ func TestBackend_CLIAndLabel(t *testing.T) {
 	if codex.Label() != "OpenAI Codex" {
 		t.Errorf("codex Label = %q, want \"OpenAI Codex\"", codex.Label())
 	}
+	copilot, err := New("copilot")
+	if err != nil {
+		t.Fatalf("New(\"copilot\") error: %v", err)
+	}
+	if copilot.CLI() != "copilot" {
+		t.Errorf("copilot CLI = %q, want copilot", copilot.CLI())
+	}
+	if copilot.Label() != "GitHub Copilot" {
+		t.Errorf("copilot Label = %q, want \"GitHub Copilot\"", copilot.Label())
+	}
 }
 
 func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
@@ -80,11 +92,28 @@ func TestCodexArgs_UsesExecAndPositionalPrompt(t *testing.T) {
 	}
 }
 
+func TestCopilotArgs_UsesAllowAllToolsAndPromptFlag(t *testing.T) {
+	args := copilotArgs(RunOptions{Prompt: "do the thing"})
+	if !slices.Contains(args, "--allow-all-tools") {
+		t.Errorf("copilotArgs missing --allow-all-tools: %v", args)
+	}
+	// --no-ask-user keeps a headless run from hanging on a clarifying question.
+	if !slices.Contains(args, "--no-ask-user") {
+		t.Errorf("copilotArgs missing --no-ask-user: %v", args)
+	}
+	// Prompt is passed via -p <prompt>.
+	i := slices.Index(args, "-p")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
+		t.Errorf("copilotArgs did not pass prompt after -p: %v", args)
+	}
+}
+
 func TestHasRateLimit_PerBackend(t *testing.T) {
 	claude, _ := New("claude")
 	codex, _ := New("codex")
+	copilot, _ := New("copilot")
 
-	// Shared phrasings both backends must catch.
+	// Shared phrasings all backends must catch.
 	shared := map[string]bool{
 		"All good":                                     false,
 		"Error: rate limit exceeded":                   true,
@@ -100,6 +129,9 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		if got := codex.HasRateLimit(in); got != want {
 			t.Errorf("codex.HasRateLimit(%q) = %v, want %v", in, got, want)
 		}
+		if got := copilot.HasRateLimit(in); got != want {
+			t.Errorf("copilot.HasRateLimit(%q) = %v, want %v", in, got, want)
+		}
 	}
 
 	// Codex / OpenAI-specific phrasings the claude regex doesn't need to catch.
@@ -110,6 +142,17 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 	for _, in := range codexOnly {
 		if !codex.HasRateLimit(in) {
 			t.Errorf("codex.HasRateLimit(%q) = false, want true", in)
+		}
+	}
+
+	// Copilot / GitHub-specific phrasings.
+	copilotOnly := []string{
+		"Error: rate_limit_exceeded",
+		"You have exceeded your current quota",
+	}
+	for _, in := range copilotOnly {
+		if !copilot.HasRateLimit(in) {
+			t.Errorf("copilot.HasRateLimit(%q) = false, want true", in)
 		}
 	}
 }

@@ -484,6 +484,29 @@ AGENT_BACKEND="Codex"
 	}
 }
 
+func TestLoad_AgentBackendCopilotLowercased(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+AGENT_BACKEND="Copilot"
+`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AgentBackend != "copilot" {
+		t.Errorf("AgentBackend should be lowercased, got %q", cfg.AgentBackend)
+	}
+	if cfg.AgentCLI() != "copilot" {
+		t.Errorf("AgentCLI: got %q, want \"copilot\"", cfg.AgentCLI())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate should pass with copilot backend: %v", err)
+	}
+}
+
 func TestValidate_InvalidAgentBackendRejected(t *testing.T) {
 	isolateEnv(t)
 

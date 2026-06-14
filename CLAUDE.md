@@ -55,14 +55,14 @@ Because there's no static registry, the set of repos Noctra knows about is just 
 
 ## Coding-agent backend (`AGENT_BACKEND`)
 
-The runner is pluggable behind `agent.Backend` — `AGENT_BACKEND=claude` (default) or `codex`. `agent.New(name)` returns the implementation; the `Pipeline` holds one instance and routes `Run` / `HasRateLimit` through it.
+The runner is pluggable behind `agent.Backend` — `AGENT_BACKEND=claude` (default), `codex`, or `copilot`. `agent.New(name)` returns the implementation; the `Pipeline` holds one instance and routes `Run` / `HasRateLimit` through it.
 
-Almost everything in `internal/agent` is **backend-agnostic** and shared: the prompt builders (`BuildPrompt`, `BuildFixPrompt`), `BlockedLine` (keys off the `BLOCKED:` line our own prompt asks for), the log_offset helpers, and `ExtractSummary`. Only two things differ per backend, so a third agent later only needs these:
+Almost everything in `internal/agent` is **backend-agnostic** and shared: the prompt builders (`BuildPrompt`, `BuildFixPrompt`), `BlockedLine` (keys off the `BLOCKED:` line our own prompt asks for), the log_offset helpers, and `ExtractSummary`. Only two things differ per backend:
 
-1. **Invocation** — `claudeArgs` (`claude --print`) vs `codexArgs` (`codex exec --dangerously-bypass-approvals-and-sandbox <prompt>`). Both go through the shared `runCLI` (timeout → `ErrTimedOut`, DEBUG header, log streaming).
-2. **Rate-limit parsing** — `HasRateLimit` is per-backend (`claudeRateLimitRe` / `codexRateLimitRe`) since the CLIs phrase usage/quota errors differently.
+1. **Invocation** — `claudeArgs` (`claude --print`) vs `codexArgs` (`codex exec --dangerously-bypass-approvals-and-sandbox <prompt>`) vs `copilotArgs` (`copilot --allow-all-tools --no-ask-user -p <prompt>`). All go through the shared `runCLI` (timeout → `ErrTimedOut`, DEBUG header, log streaming).
+2. **Rate-limit parsing** — `HasRateLimit` is per-backend (`claudeRateLimitRe` / `codexRateLimitRe` / `copilotRateLimitRe`) since the CLIs phrase usage/quota errors differently.
 
-The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`config.RequiredCLIs` / `CheckCLIs`; `doctor` and the wizard surface it). Codex auth is a one-time `codex login` on the host (or `OPENAI_API_KEY`) — Noctra doesn't manage it.
+The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`config.RequiredCLIs` / `CheckCLIs`; `doctor` and the wizard surface it). Codex auth is a one-time `codex login` on the host (or `OPENAI_API_KEY`); Copilot auth is via `gh auth login` (or `GH_TOKEN`) — Noctra doesn't manage either.
 
 ## Package map
 
@@ -72,7 +72,7 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | `internal/config` | `.env` parser, validated `Config`, `DefaultConfigDir` (`~/.noctra/`) |
 | `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues` (both fetch each issue's `comments` so human clarifications reach the agent — see `Issue.ClarificationComments`, which filters out Noctra's own automated notices; project descriptions are fetched too, parsed by `Project.RepoDirective` for `Repo:`/`Branch:` routing), `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
 | `internal/repo` | Repo resolution: `ResolveDirect` (explicit `owner/name`/URL from a Linear project's `Repo:` directive or a PR's own repo, with `origin/HEAD` default-branch detection) + `Resolve` (the `REPO_PATH`-only fallback); `AllRepoPaths`/`AllRepoRemotes` (scan `ReposBase`); clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
-| `internal/agent` | Pluggable coding-agent backends behind the `Backend` interface (`agent.New` selects `claude`/`codex` from `AGENT_BACKEND`); shared `exec` plumbing with timeout; per-backend invocation flags + rate-limit parsing (`claude.go` / `codex.go`); backend-agnostic implement-prompt builder, `BuildFixPrompt`, `BlockedLine`, and log_offset parsing |
+| `internal/agent` | Pluggable coding-agent backends behind the `Backend` interface (`agent.New` selects `claude`/`codex`/`copilot` from `AGENT_BACKEND`); shared `exec` plumbing with timeout; per-backend invocation flags + rate-limit parsing (`claude.go` / `codex.go` / `copilot.go`); backend-agnostic implement-prompt builder, `BuildFixPrompt`, `BlockedLine`, and log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |
 | `internal/telegram` | Inbound Telegram listener: long-polling `getUpdates`, sender auth, command dispatcher; started inline by `Pipeline.Run` (the `noctra run` process) when Telegram is configured |
@@ -132,7 +132,7 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o noctra ./cmd/noctra
 
 ## Docker
 
-`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + both agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) — Noctra shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section. Cloud deploy templates consuming this image live at the repo root: `fly.toml`, `render.yaml`, `railway.json`, and `deploy/digitalocean-cloud-init.yaml` (repos are declared per-project in Linear, so PaaS needs no file mount).
+`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + all agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`, `@github/copilot`, all via npm) — Noctra shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section. Cloud deploy templates consuming this image live at the repo root: `fly.toml`, `render.yaml`, `railway.json`, and `deploy/digitalocean-cloud-init.yaml` (repos are declared per-project in Linear, so PaaS needs no file mount).
 
 ## Operating (systemd)
 

@@ -510,30 +510,41 @@ func (w *wizard) chooseTriggerMode(existing string) string {
 }
 
 // chooseEngine asks which coding-agent backend to dispatch tickets with and
-// returns the canonical backend name ("claude" / "codex") for AGENT_BACKEND.
+// returns the canonical backend name ("claude" / "codex" / "copilot") for
+// AGENT_BACKEND.
 func (w *wizard) chooseEngine(existing string) string {
 	fmt.Println("Coding-agent engine:")
 	fmt.Println("  1) Claude Code      (claude CLI)")
 	fmt.Println("  2) OpenAI Codex     (codex CLI — run `codex login` once on the host)")
+	fmt.Println("  3) GitHub Copilot   (copilot CLI — uses your Copilot subscription via `gh`)")
 	fallback := "1"
-	if strings.EqualFold(existing, "codex") {
+	switch {
+	case strings.EqualFold(existing, "codex"):
 		fallback = "2"
+	case strings.EqualFold(existing, "copilot"):
+		fallback = "3"
 	}
 	for {
 		s := w.askEx("Choose", askOpts{fallback: fallback})
 		if w.eof {
-			if strings.EqualFold(existing, "codex") {
+			switch {
+			case strings.EqualFold(existing, "codex"):
 				return "codex"
+			case strings.EqualFold(existing, "copilot"):
+				return "copilot"
+			default:
+				return "claude"
 			}
-			return "claude"
 		}
 		switch s {
 		case "1":
 			return "claude"
 		case "2":
 			return "codex"
+		case "3":
+			return "copilot"
 		default:
-			fmt.Println("  Enter 1 or 2.")
+			fmt.Println("  Enter 1, 2, or 3.")
 		}
 	}
 }
@@ -713,8 +724,9 @@ LINEAR_TEAM_KEY="%s"
 %s
 MAIN_BRANCH="%s"
 
-# Coding-agent backend: "claude" (default) or "codex".
+# Coding-agent backend: "claude" (default), "codex", or "copilot".
 # codex requires the OpenAI Codex CLI on PATH + a one-time 'codex login'.
+# copilot requires the GitHub Copilot CLI on PATH + a Copilot subscription via gh.
 AGENT_BACKEND="%s"
 
 MAX_CONCURRENT="%s"
