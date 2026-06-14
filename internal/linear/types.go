@@ -31,7 +31,7 @@ var (
 // "Branch: <name>" line) from the project description, letting a Linear project
 // declare its target repo without a repos.json entry. Returns ("","") when no
 // Repo line is present. branch is ignored unless a repo is also given.
-func (p *Project) RepoDirective() (repo, branch string) {
+func (p *Project) RepoDirective() (string, string) {
 	if p == nil {
 		return "", ""
 	}
@@ -42,14 +42,15 @@ func (p *Project) RepoDirective() (repo, branch string) {
 		if m == nil {
 			continue
 		}
-		repo = strings.TrimSpace(m[1])
-		if repo == "" {
+		r := strings.TrimSpace(m[1])
+		if r == "" {
 			continue
 		}
+		var b string
 		if bm := branchDirectiveRe.FindStringSubmatch(src); bm != nil {
-			branch = strings.TrimSpace(bm[1])
+			b = strings.TrimSpace(bm[1])
 		}
-		return repo, branch
+		return r, b
 	}
 	return "", ""
 }
