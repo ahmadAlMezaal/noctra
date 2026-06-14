@@ -131,14 +131,17 @@ func realMain() error {
 		}
 		return service.Install(force, start)
 	case "uninstall":
-		purge, force := false, false
-		for _, a := range os.Args[2:] {
-			switch a {
-			case "--purge":
-				purge = true
-			case "--force", "-y":
-				force = true
-			}
+		purge, force, help, err := parseUninstallArgs(os.Args[2:])
+		if err != nil {
+			// Unknown/typo'd flag (e.g. "--pruge"): refuse rather than silently
+			// fall through to removing the service + binary.
+			fmt.Fprint(os.Stderr, uninstallUsage)
+			return err
+		}
+		if help {
+			// Help must never trigger the destructive action.
+			fmt.Print(uninstallUsage)
+			return nil
 		}
 		if purge && !force {
 			if !isInteractive() {
@@ -193,6 +196,41 @@ func printBanner() {
 	fmt.Print(ansiAmber, bannerArt, ansiReset)
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
 }
+
+// parseUninstallArgs interprets the flags for the destructive `uninstall`
+// subcommand. help reports that usage was requested (a no-op); an unrecognized
+// flag returns an error so a typo never falls through to the uninstall. Pure,
+// so the flag handling is unit-testable.
+func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--purge":
+			purge = true
+		case "--force", "-y":
+			force = true
+		case "--help", "-h":
+			help = true
+		default:
+			return false, false, false, fmt.Errorf("unknown flag %q for uninstall", a)
+		}
+	}
+	return purge, force, help, nil
+}
+
+// uninstallUsage is the help text for the destructive `uninstall` subcommand,
+// shown on `--help` and on an unrecognized flag (so a typo never falls through
+// to removing the service + binary).
+const uninstallUsage = `Usage: noctra uninstall [--purge] [--force|-y]
+
+Remove the systemd --user service and the installed binary. State is kept
+unless --purge is given.
+
+  --purge       also delete ~/.noctra* state (config + logs, cloned repos,
+                worktrees, and the PR cursor)
+  --force, -y   skip the --purge confirmation prompt (required for --purge
+                when running non-interactively)
+  --help, -h    show this message
+`
 
 // printUsage prints the CLI usage/help screen.
 func printUsage() {
