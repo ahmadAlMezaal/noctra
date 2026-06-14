@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -301,7 +302,14 @@ func (c *Config) AllCandidateCLIs() []string {
 			seen[cli] = true
 		}
 	}
+	// Collect agent CLIs into a sorted slice so the output order is
+	// deterministic (Go map iteration is randomized).
+	sorted := make([]string, 0, len(agentCLIs))
 	for _, cli := range agentCLIs {
+		sorted = append(sorted, cli)
+	}
+	slices.Sort(sorted)
+	for _, cli := range sorted {
 		if !seen[cli] {
 			clis = append(clis, cli)
 			seen[cli] = true

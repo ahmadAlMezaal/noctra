@@ -171,12 +171,14 @@ func countEvents(events []watch.Event) (comments, reviews int) {
 // Priority: persisted state → issue's current labels → pipeline default.
 func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier string) agent.Backend {
 	// 1. Persisted state — the backend the PR was created with.
-	if cursor := p.store.Get(prURL); cursor.AgentBackend != "" {
-		if b, err := agent.New(cursor.AgentBackend); err == nil {
-			return b
+	if p.store != nil {
+		if cursor := p.store.Get(prURL); cursor.AgentBackend != "" {
+			if b, err := agent.New(cursor.AgentBackend); err == nil {
+				return b
+			}
+			slog.Warn("persisted backend invalid — trying labels",
+				"id", identifier, "backend", cursor.AgentBackend)
 		}
-		slog.Warn("persisted backend invalid — trying labels",
-			"id", identifier, "backend", cursor.AgentBackend)
 	}
 
 	// 2. Re-derive from the issue's current labels.
