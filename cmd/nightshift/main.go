@@ -243,6 +243,18 @@ func runCleanup(scriptDir string, force bool) error {
 	return cleanup.Run(ctx, cfg, force)
 }
 
+// logsArgs returns the journalctl arguments for `nightshift logs`. Extracted
+// as a pure function so the flag logic is unit-testable.
+func logsArgs(follow bool) []string {
+	args := []string{"--user-unit=nightshift.service"}
+	if follow {
+		args = append(args, "-f")
+	} else {
+		args = append(args, "-n", "200")
+	}
+	return args
+}
+
 // runLogs tails Nightshift's own service logs. On a systemd host it execs
 // journalctl for the user unit (optionally following). When journalctl isn't
 // available (macOS dev box, Docker), it points the user at where logs actually
@@ -257,11 +269,7 @@ func runLogs(scriptDir string, follow bool) error {
 		return nil
 	}
 
-	args := []string{"--user-unit=nightshift.service"}
-	if follow {
-		args = append(args, "-f")
-	}
-	cmd := exec.Command(jctl, args...)
+	cmd := exec.Command(jctl, logsArgs(follow)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
