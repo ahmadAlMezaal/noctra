@@ -61,7 +61,7 @@ func IsNewer(latest, current string) bool {
 	if current == "" || current == "dev" {
 		return false
 	}
-	// Development / snapshot builds (e.g. "2.0.0-dev") can't be meaningfully
+	// Development / snapshot builds (e.g. "0.4.0-dev") can't be meaningfully
 	// compared to a release tag — don't nag.
 	if i := strings.IndexAny(current, "-+"); i >= 0 {
 		if suf := current[i:]; strings.Contains(suf, "dev") || strings.Contains(suf, "snapshot") {

@@ -17,7 +17,7 @@ func TestIsNewer(t *testing.T) {
 		{"mixed v prefix", "v1.2.3", "1.2.2", true},
 		{"dev current", "v0.1.0", "dev", false},
 		{"empty current", "v0.1.0", "", false},
-		{"snapshot suffix current", "v0.2.0", "2.0.0-dev", false},
+		{"snapshot suffix current", "v0.2.0", "0.4.0-dev", false},
 		{"snapshot suffix current2", "v0.2.0", "0.1.0-snapshot", false},
 		{"prerelease latest still newer", "v0.2.0-rc1", "v0.1.0", true},
 		{"two-component versions", "v1.3", "v1.2", true},
