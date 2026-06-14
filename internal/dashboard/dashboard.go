@@ -44,14 +44,14 @@ type Controller interface {
 
 // Status is the JSON payload for the /api/status endpoint.
 type Status struct {
-	Active     []string `json:"active"`
-	Killed     []string `json:"killed"`
-	Skipped    []string `json:"skipped"`
-	Failed     map[string]int `json:"failed"`
-	Stats      SessionStats `json:"stats"`
+	Active     []string                 `json:"active"`
+	Killed     []string                 `json:"killed"`
+	Skipped    []string                 `json:"skipped"`
+	Failed     map[string]int           `json:"failed"`
+	Stats      SessionStats             `json:"stats"`
 	PRState    map[string]state.PRState `json:"pr_state"`
-	MaxWorkers int `json:"max_workers"`
-	Uptime     string `json:"uptime"`
+	MaxWorkers int                      `json:"max_workers"`
+	Uptime     string                   `json:"uptime"`
 }
 
 // SessionStats holds the aggregate counters for the running session.
@@ -129,7 +129,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // handleStatus returns the current pipeline snapshot as JSON.
@@ -147,7 +147,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Sanitise: only allow alphanumeric, dash, underscore to prevent path traversal.
 	for _, c := range id {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			http.Error(w, `{"error":"invalid ticket id"}`, http.StatusBadRequest)
 			return
 		}
@@ -281,7 +281,7 @@ func (s *Server) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, c := range id {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			http.Error(w, `{"error":"invalid ticket id"}`, http.StatusBadRequest)
 			return
 		}
@@ -338,7 +338,7 @@ func (s *Server) StreamLogs(w http.ResponseWriter, r *http.Request) {
 				for _, line := range lines {
 					fmt.Fprintf(w, "data: %s\n", line)
 				}
-				fmt.Fprint(w, "\n")
+				_, _ = fmt.Fprint(w, "\n")
 				flusher.Flush()
 				offset += int64(n)
 			}

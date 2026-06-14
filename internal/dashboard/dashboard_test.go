@@ -294,7 +294,9 @@ func TestHandleKill_Error(t *testing.T) {
 	defer resp.Body.Close()
 
 	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
 	if result["error"] == "" {
 		t.Error("expected error in response")
 	}
@@ -407,7 +409,9 @@ func TestHandleLogs_LargeFile(t *testing.T) {
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
 
 	tail, ok := result["tail"].(string)
 	if !ok {
@@ -474,7 +478,7 @@ func TestStreamLogs(t *testing.T) {
 		if err != nil {
 			return
 		}
-		f.WriteString("streamed line\n")
+		_, _ = f.WriteString("streamed line\n")
 		f.Close()
 	}()
 
