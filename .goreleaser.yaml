@@ -62,8 +62,10 @@ release:
   draft: false
   prerelease: auto
 
-brews:
+homebrew_casks:
   - name: nightshift
+    binaries:
+      - nightshift
     repository:
       owner: ahmadAlMezaal
       name: homebrew-tap
@@ -75,8 +77,12 @@ brews:
     description: >-
       Autonomous Linear-to-PR agent — polls Linear for tickets, implements
       them with Claude Code or OpenAI Codex, and creates pull requests.
-    license: MIT
-    install: |
-      bin.install "nightshift"
-    test: |
-      system "#{bin}/nightshift", "version"
+    # The release binaries are unsigned, so macOS quarantines them after a cask
+    # download and Gatekeeper blocks the first run. Strip the quarantine xattr
+    # on install so `nightshift` runs straight away.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nightshift"]
+          end

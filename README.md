@@ -119,7 +119,7 @@ Nightshift never stores or manages agent credentials — it inherits whatever th
 Nightshift is a single static binary — pick whichever you prefer:
 
 ```bash
-# A. Homebrew (macOS / Linux)
+# A. Homebrew (macOS — installs the cask)
 brew install ahmadAlMezaal/tap/nightshift
 
 # B. Go toolchain (installs the latest tagged release to $GOPATH/bin)
