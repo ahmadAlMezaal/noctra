@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 // unitFile renders the systemd --user unit content for Noctra. It is a pure
@@ -143,6 +144,31 @@ func PurgePaths() ([]string, error) {
 	}, nil
 }
 
+// installedBinaryPath parses the ExecStart path out of the installed unit file
+// so uninstall removes the *service's* binary, not whichever binary the command
+// happened to be invoked with (e.g. a dev `./noctra` run from a checkout).
+// Returns "" when the unit is absent or has no parseable ExecStart, leaving the
+// caller to fall back to the running executable.
+func installedBinaryPath() string {
+	dest, err := unitPath()
+	if err != nil {
+		return ""
+	}
+	content, err := os.ReadFile(dest)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if v := strings.TrimPrefix(strings.TrimSpace(line), "ExecStart="); v != strings.TrimSpace(line) {
+			// ExecStart is "<binary> run" — take the first field.
+			if fields := strings.Fields(v); len(fields) > 0 {
+				return fields[0]
+			}
+		}
+	}
+	return ""
+}
+
 // Uninstall is the inverse of Install: it stops + disables the systemd --user
 // unit, removes it, reloads the daemon, and deletes the installed binary. When
 // purge is true it also removes Noctra's state (see PurgePaths). It is lenient —
@@ -151,6 +177,10 @@ func PurgePaths() ([]string, error) {
 // The caller is responsible for confirming a purge (this function performs no
 // prompting, so it stays free of stdin and unit-testable around the edges).
 func Uninstall(purge bool) error {
+	// Resolve the binary to delete from the unit's ExecStart BEFORE we remove
+	// the unit — falling back to the running executable when there's no unit.
+	binPath := installedBinaryPath()
+
 	// Service teardown — best-effort, and skipped entirely without systemd.
 	if sctl, err := exec.LookPath("systemctl"); err != nil {
 		fmt.Println("systemctl not found — no systemd service to remove (skipping).")
@@ -176,6 +206,9 @@ func Uninstall(purge bool) error {
 			return err
 		}
 		for _, p := range paths {
+			if _, err := os.Stat(p); os.IsNotExist(err) {
+				continue // never created (e.g. custom paths) — don't claim we removed it
+			}
 			if err := os.RemoveAll(p); err != nil {
 				fmt.Fprintf(os.Stderr, "⚠️  could not remove %s: %v\n", p, err)
 			} else {
@@ -187,11 +220,16 @@ func Uninstall(purge bool) error {
 
 	// Remove the binary last: once the service is stopped, deleting the running
 	// executable is safe on Unix (the open file is unlinked, not truncated).
-	if exe, err := resolveExe(); err == nil {
-		if err := os.Remove(exe); err == nil {
-			fmt.Printf("✓ Removed %s\n", exe)
+	if binPath == "" {
+		if exe, err := resolveExe(); err == nil {
+			binPath = exe
+		}
+	}
+	if binPath != "" {
+		if err := os.Remove(binPath); err == nil {
+			fmt.Printf("✓ Removed %s\n", binPath)
 		} else if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "⚠️  could not remove the binary at %s: %v\n", exe, err)
+			fmt.Fprintf(os.Stderr, "⚠️  could not remove the binary at %s: %v\n", binPath, err)
 		}
 	}
 

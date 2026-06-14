@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +20,32 @@ func TestUnitFile(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("unit file missing %q\n---\n%s", want, out)
 		}
+	}
+}
+
+func TestInstalledBinaryPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// No unit yet → empty (caller falls back to the running exe).
+	if got := installedBinaryPath(); got != "" {
+		t.Errorf("installedBinaryPath with no unit = %q, want \"\"", got)
+	}
+
+	// Write a unit and confirm the ExecStart binary (sans the "run" arg) is parsed.
+	dest, err := unitPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const wantExe = "/home/u/.local/bin/noctra"
+	if err := os.WriteFile(dest, []byte(unitFile(wantExe, "/usr/bin")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedBinaryPath(); got != wantExe {
+		t.Errorf("installedBinaryPath = %q, want %q", got, wantExe)
 	}
 }
 
