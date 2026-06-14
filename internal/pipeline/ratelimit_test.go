@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/agent"
 )
 
 // TestRateLimited_OnlyOnFailure locks in the ENG-178 fix: a usage/rate limit is

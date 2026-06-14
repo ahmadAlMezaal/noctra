@@ -47,7 +47,7 @@ func TestExtractSummary_StripsDebugAndKeepsLastAttempt(t *testing.T) {
 First attempt that should be ignored.
 --- Attempt 2024-01-01T01:00:00 ---
 DEBUG: pwd = /repo
-DEBUG: branch = nightshift/eng-42
+DEBUG: branch = noctra/eng-42
 Here is the summary of changes.
 Added a new feature.
 `

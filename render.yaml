@@ -1,4 +1,4 @@
-# Render Blueprint — run Nightshift as a background worker.
+# Render Blueprint — run Noctra as a background worker.
 #
 #   1. Push this repo (or your fork) to GitHub.
 #   2. Render Dashboard → New → Blueprint → pick the repo.
@@ -9,13 +9,13 @@
 # line in the project description) — nothing to configure here.
 services:
   - type: worker
-    name: nightshift
+    name: noctra
     runtime: image
     image:
-      url: ghcr.io/ahmadalmezaal/nightshift:latest
+      url: ghcr.io/ahmadalmezaal/noctra:latest
     plan: starter
     disk:
-      name: nightshift-data
+      name: noctra-data
       mountPath: /data
       sizeGB: 1
     envVars:

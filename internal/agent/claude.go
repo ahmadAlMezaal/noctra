@@ -7,7 +7,7 @@ import (
 )
 
 // claudeBackend runs Anthropic's Claude Code CLI (`claude`) in non-interactive
-// print mode. This is Nightshift's default and original backend.
+// print mode. This is Noctra's default and original backend.
 type claudeBackend struct{}
 
 func (claudeBackend) Name() string  { return "claude" }

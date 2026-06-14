@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/linear"
 )
 
 func TestNormalizeIdentifier(t *testing.T) {
@@ -324,7 +324,7 @@ func TestHandleRequeue_LabelMode(t *testing.T) {
 		cfg: &config.Config{
 			LinearTeamKey: "ENG",
 			TriggerMode:   "label",
-			TriggerLabel:  "nightshift",
+			TriggerLabel:  "noctra",
 		},
 		linear:  client,
 		labelID: "label-id-123",
@@ -444,12 +444,12 @@ func TestHandleTickets_NamedProject(t *testing.T) {
 	client.Endpoint = srv.URL
 
 	p := &Pipeline{cfg: &config.Config{}, linear: client}
-	reply := p.handleTickets(context.Background(), "Nightshift")
+	reply := p.handleTickets(context.Background(), "Noctra")
 
-	if gotProject != "Nightshift" {
-		t.Errorf("queried project: got %q, want %q", gotProject, "Nightshift")
+	if gotProject != "Noctra" {
+		t.Errorf("queried project: got %q, want %q", gotProject, "Noctra")
 	}
-	if !strings.Contains(reply, "Nightshift") {
+	if !strings.Contains(reply, "Noctra") {
 		t.Errorf("expected project name in reply, got %q", reply)
 	}
 	if !strings.Contains(reply, "3 total") {
@@ -480,7 +480,7 @@ func TestHandleTicket(t *testing.T) {
 					"id": "u42", "identifier": "ENG-42", "title": "Fix login",
 					"description": "Some details about the login bug.",
 					"url":         "https://linear.app/eng/issue/ENG-42",
-					"project":     map[string]any{"name": "Nightshift"},
+					"project":     map[string]any{"name": "Noctra"},
 					"state":       map[string]any{"name": "In Review", "type": "started"},
 					"assignee":    map[string]any{"name": "Ada Lovelace"},
 				},
@@ -494,7 +494,7 @@ func TestHandleTicket(t *testing.T) {
 
 	p := &Pipeline{cfg: &config.Config{LinearTeamKey: "ENG"}, linear: client}
 	reply := p.handleTicket(context.Background(), "42") // number-only → ENG-42
-	for _, want := range []string{"ENG-42", "Fix login", "In Review", "Nightshift", "Ada Lovelace"} {
+	for _, want := range []string{"ENG-42", "Fix login", "In Review", "Noctra", "Ada Lovelace"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("expected %q in reply, got %q", want, reply)
 		}

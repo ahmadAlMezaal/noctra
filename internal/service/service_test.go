@@ -6,12 +6,12 @@ import (
 )
 
 func TestUnitFile(t *testing.T) {
-	out := unitFile("/home/u/.local/bin/nightshift", "/home/u/.local/bin:/usr/bin")
+	out := unitFile("/home/u/.local/bin/noctra", "/home/u/.local/bin:/usr/bin")
 
 	for _, want := range []string{
-		"ExecStart=/home/u/.local/bin/nightshift run",
+		"ExecStart=/home/u/.local/bin/noctra run",
 		"Environment=PATH=/home/u/.local/bin:/usr/bin",
-		"Description=Nightshift — autonomous Linear→PR agent",
+		"Description=Noctra — autonomous Linear→PR agent",
 		"WantedBy=default.target",
 		"Restart=on-failure",
 	} {

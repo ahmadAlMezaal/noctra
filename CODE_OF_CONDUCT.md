@@ -2,7 +2,7 @@
 
 This project adopts the **[Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)** as its Code of Conduct. The full text (standards of behavior and enforcement guidelines) lives at that link.
 
-In short: be respectful, welcoming, and collaborative. We want participation in Nightshift to be a harassment-free experience for everyone, regardless of background or identity.
+In short: be respectful, welcoming, and collaborative. We want participation in Noctra to be a harassment-free experience for everyone, regardless of background or identity.
 
 ## Reporting
 

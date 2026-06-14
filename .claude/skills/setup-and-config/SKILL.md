@@ -1,21 +1,21 @@
 ---
 name: setup-and-config
-description: Use when installing or configuring Nightshift, running the setup wizard, editing .env, declaring repos via the Linear project Repo: directive, resolving config directory behavior, or preparing local, Docker, or cloud runtime config.
+description: Use when installing or configuring Noctra, running the setup wizard, editing .env, declaring repos via the Linear project Repo: directive, resolving config directory behavior, or preparing local, Docker, or cloud runtime config.
 ---
 
-# Setup And Config Nightshift
+# Setup And Config Noctra
 
-Use this playbook when installing Nightshift, generating config, editing `.env`, or debugging where config is loaded from.
+Use this playbook when installing Noctra, generating config, editing `.env`, or debugging where config is loaded from.
 
 ## Fast Local Setup
 
 ```bash
-go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
+go install github.com/ahmadAlMezaal/noctra/cmd/noctra@latest
 claude            # or: codex login
 gh auth login
-nightshift setup
-nightshift doctor
-nightshift
+noctra setup
+noctra doctor
+noctra
 ```
 
 The setup wizard prompts for the agent backend, Linear API key, trigger configuration, and optional Gemini and Telegram settings. It writes `.env` only — repos are declared per-project in Linear.
@@ -44,7 +44,7 @@ Use `AGENT_BACKEND=codex` when running Codex instead of Claude.
 
 ## Repo Routing
 
-Nightshift chooses the target repository per-ticket from a `Repo:` directive in the ticket's Linear project description (or content body):
+Noctra chooses the target repository per-ticket from a `Repo:` directive in the ticket's Linear project description (or content body):
 
 ```
 Repo: your-org/auth-service
@@ -55,18 +55,18 @@ Rules:
 
 1. `owner/name` shorthand expands to a GitHub HTTPS URL; full `https://` / `git@` URLs are used verbatim (so SSH and non-GitHub hosts work).
 2. `Branch:` is optional and falls back to the repo's default branch (then `MAIN_BRANCH`).
-3. Repos are cloned on demand into `~/.nightshift-repos/` unless `REPOS_BASE` overrides it.
-4. Worktrees are created under `~/.nightshift-worktrees/` unless `WORKTREE_BASE` overrides it.
+3. Repos are cloned on demand into `~/.noctra-repos/` unless `REPOS_BASE` overrides it.
+4. Worktrees are created under `~/.noctra-worktrees/` unless `WORKTREE_BASE` overrides it.
 5. If a project has no `Repo:` directive, `REPO_PATH` is used as a single-repo fallback when set.
-6. If neither a directive nor `REPO_PATH` exists, Nightshift skips the ticket and comments on Linear.
+6. If neither a directive nor `REPO_PATH` exists, Noctra skips the ticket and comments on Linear.
 
 ## Config Directory Resolution
 
 Default per-user config lives at:
 
 ```text
-~/.nightshift/.env
-~/.nightshift/logs/
+~/.noctra/.env
+~/.noctra/logs/
 ```
 
 During development, a checkout-local config is used when the current directory contains any of:
@@ -77,11 +77,11 @@ During development, a checkout-local config is used when the current directory c
 go.mod
 ```
 
-This lets `go run` and local binaries use checkout files without touching `~/.nightshift/`.
+This lets `go run` and local binaries use checkout files without touching `~/.noctra/`.
 
 The relevant implementation is:
 
-1. `resolveScriptDir()` in `cmd/nightshift/main.go` for runtime config root selection.
+1. `resolveScriptDir()` in `cmd/noctra/main.go` for runtime config root selection.
 2. `config.DefaultConfigDir()` in `internal/config` for the per-user default.
 
 ## Important Env Vars
@@ -145,8 +145,8 @@ WORKTREE_BASE=/data/worktrees
 LOG_DIR=/data/logs
 STATE_FILE=/data/state.json
 GH_TOKEN=
-GIT_USER_NAME=Nightshift
-GIT_USER_EMAIL=nightshift@example.local
+GIT_USER_NAME=Noctra
+GIT_USER_EMAIL=noctra@example.local
 ```
 
 ## Docker And Cloud Config
@@ -167,7 +167,7 @@ Declare each repo with an HTTPS URL (or `owner/name`) in its Linear project's `R
 After setup or config edits:
 
 ```bash
-nightshift doctor
+noctra doctor
 ```
 
 Confirm:

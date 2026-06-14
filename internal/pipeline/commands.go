@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/notify"
-	"github.com/ahmadAlMezaal/nightshift/internal/telegram"
+	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 )
 
 // registerCommands wires the Telegram command handlers that require a running
 // pipeline (status, kill, requeue). Called from Run when Telegram is enabled.
 func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("status", "Show active runs and session stats", p.handleStatus)
-	d.Register("tickets", "Linear ticket counts by state for a project (e.g. /tickets Nightshift)", p.handleTickets)
+	d.Register("tickets", "Linear ticket counts by state for a project (e.g. /tickets Noctra)", p.handleTickets)
 	d.Register("ticket", "Show a ticket's details (e.g. /ticket ENG-42)", p.handleTicket)
 	d.Register("search-tickets", "Search Linear tickets by text (e.g. /search-tickets auth login)", p.handleSearch)
 	d.Register("find", "Alias for /search-tickets", p.handleSearch)
@@ -43,7 +43,7 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	uptime := time.Since(p.sessionStart).Round(time.Second)
 
 	var b strings.Builder
-	b.WriteString("*Nightshift Status*\n\n")
+	b.WriteString("*Noctra Status*\n\n")
 
 	if len(active) == 0 {
 		fmt.Fprintf(&b, "*Active runs:* 0/%d (idle)\n", maxC)
@@ -70,7 +70,7 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 func (p *Pipeline) handleTickets(ctx context.Context, args string) string {
 	project := strings.TrimSpace(args)
 	if project == "" {
-		return "Usage: /tickets <project>\n\nExample: /tickets Nightshift"
+		return "Usage: /tickets <project>\n\nExample: /tickets Noctra"
 	}
 
 	var b strings.Builder

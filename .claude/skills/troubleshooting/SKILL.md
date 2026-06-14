@@ -1,15 +1,15 @@
 ---
 name: troubleshooting
-description: Use when Nightshift fails to pick up tickets, run an agent, create PRs, pass review, iterate on feedback, or when logs/worktrees/branches need diagnosis or cleanup.
+description: Use when Noctra fails to pick up tickets, run an agent, create PRs, pass review, iterate on feedback, or when logs/worktrees/branches need diagnosis or cleanup.
 ---
 
-# Troubleshooting Nightshift
+# Troubleshooting Noctra
 
-Use this runbook when Nightshift behaves unexpectedly. Prefer `nightshift doctor`, service logs, and per-ticket agent logs before changing code.
+Use this runbook when Noctra behaves unexpectedly. Prefer `noctra doctor`, service logs, and per-ticket agent logs before changing code.
 
 ## First Checks
 
-1. Run `nightshift doctor` from the same host and config context as the service.
+1. Run `noctra doctor` from the same host and config context as the service.
 2. Check the startup banner in service logs; it prints the resolved backend, trigger mode, states or label, repo routing, review gate, auto-iterate, and notifications.
 3. Inspect the per-ticket transcript under the configured log directory:
 
@@ -19,7 +19,7 @@ make tail TICKET=ENG-42
 tail -f logs/ENG-42.log
 ```
 
-Config defaults to `~/.nightshift/` for `.env` and `logs/`, but a checkout containing `.env`, `.env.example`, or `go.mod` uses the current directory.
+Config defaults to `~/.noctra/` for `.env` and `logs/`, but a checkout containing `.env`, `.env.example`, or `go.mod` uses the current directory.
 
 ## Tickets Are Not Picked Up
 
@@ -35,7 +35,7 @@ or:
 
 ```env
 TRIGGER_MODE=label
-TRIGGER_LABEL=nightshift
+TRIGGER_LABEL=noctra
 IN_REVIEW_STATE=In Review
 ```
 
@@ -58,14 +58,14 @@ curl -s -X POST \
 
 ## Wrong Repo Or No Changes
 
-Nightshift routes each ticket to the repo named in its Linear project's `Repo:` directive. Confirm the project description (or content body) contains a line like:
+Noctra routes each ticket to the repo named in its Linear project's `Repo:` directive. Confirm the project description (or content body) contains a line like:
 
 ```
 Repo: your-org/web-app
 Branch: main
 ```
 
-`owner/name` expands to a GitHub HTTPS URL; full `https://` / `git@` URLs work verbatim. `Branch:` is optional (defaults to the repo's default branch). If the directive is missing, Nightshift falls back to `REPO_PATH` when present. If neither exists, it skips the ticket with a Linear comment.
+`owner/name` expands to a GitHub HTTPS URL; full `https://` / `git@` URLs work verbatim. `Branch:` is optional (defaults to the repo's default branch). If the directive is missing, Noctra falls back to `REPO_PATH` when present. If neither exists, it skips the ticket with a Linear comment.
 
 If the agent changed irrelevant files, improve the ticket with the `writing-good-tickets` skill and requeue it with specific files, errors, and acceptance criteria.
 
@@ -91,7 +91,7 @@ codex --version
 codex login
 ```
 
-Nightshift inherits CLI auth from the host unless API keys are supplied. In containers, use API-key auth instead of interactive login:
+Noctra inherits CLI auth from the host unless API keys are supplied. In containers, use API-key auth instead of interactive login:
 
 ```env
 ANTHROPIC_API_KEY=...
@@ -144,7 +144,7 @@ Common fixes:
 2. Delete a stale remote branch if a prior run left one behind:
 
 ```bash
-git push origin --delete nightshift/eng-42
+git push origin --delete noctra/eng-42
 ```
 
 3. Check the ticket log for the exact `gh pr create` error.
@@ -160,27 +160,27 @@ PR_POLL_INTERVAL=120
 TRUSTED_REVIEWERS=
 ```
 
-Nightshift only watches PRs it authored, identified by the `nightshift/<id>` branch prefix. It ignores bot feedback unless the bot login is in `TRUSTED_REVIEWERS`. CI failures are keyed by head commit SHA and are acted on once per failing commit.
+Noctra only watches PRs it authored, identified by the `noctra/<id>` branch prefix. It ignores bot feedback unless the bot login is in `TRUSTED_REVIEWERS`. CI failures are keyed by head commit SHA and are acted on once per failing commit.
 
-The restart-safe cursor is stored in `~/.nightshift-state.json` unless `STATE_FILE` overrides it.
+The restart-safe cursor is stored in `~/.noctra-state.json` unless `STATE_FILE` overrides it.
 
 ## Cleanup After A Crash Or Bad Run
 
 Prefer the built-in cleanup command:
 
 ```bash
-./nightshift cleanup
-./nightshift cleanup --force
+./noctra cleanup
+./noctra cleanup --force
 ```
 
 Manual cleanup, when needed:
 
 ```bash
 cd /path/to/repo
-git worktree remove --force ~/.nightshift-worktrees/ENG-42
+git worktree remove --force ~/.noctra-worktrees/ENG-42
 git worktree prune
-git branch -D nightshift/eng-42 2>/dev/null || true
-git push origin --delete nightshift/eng-42
+git branch -D noctra/eng-42 2>/dev/null || true
+git push origin --delete noctra/eng-42
 ```
 
 Move the Linear ticket back to the trigger state, or requeue it from Telegram:
@@ -198,5 +198,5 @@ make tail TICKET=ENG-42      # one ticket transcript
 ls -lt logs/*.log | head     # recent local checkout logs
 ```
 
-Nightshift has no inbound server, webhook, ngrok tunnel, or port requirement. It polls Linear and GitHub over outbound HTTPS.
+Noctra has no inbound server, webhook, ngrok tunnel, or port requirement. It polls Linear and GitHub over outbound HTTPS.
 

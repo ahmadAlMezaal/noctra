@@ -1,10 +1,10 @@
-# Nightshift — common dev + ops commands
+# Noctra — common dev + ops commands
 #
 # Run `make` (no target) to see this list. Tab-indent all recipes — Make
 # requires real tabs, not spaces.
 
-BINARY := nightshift
-PKG    := ./cmd/nightshift
+BINARY := noctra
+PKG    := ./cmd/noctra
 
 # Where per-ticket agent transcripts live. Defaults to ./logs (the config dir
 # when running from a repo checkout); override if you set LOG_DIR in .env.
@@ -55,22 +55,22 @@ update: ## Pull, rebuild, and restart the systemd service
 	# inode alive for the running process; the path gets the new inode).
 	go build -o $(BINARY).new $(PKG)
 	mv $(BINARY).new $(BINARY)
-	systemctl --user restart nightshift
+	systemctl --user restart noctra
 
 start: ## Start the systemd service
-	systemctl --user start nightshift
+	systemctl --user start noctra
 
 stop: ## Stop the systemd service
-	systemctl --user stop nightshift
+	systemctl --user stop noctra
 
 restart: ## Restart the systemd service (does not rebuild)
-	systemctl --user restart nightshift
+	systemctl --user restart noctra
 
 status: ## Show service status
-	systemctl --user status nightshift
+	systemctl --user status noctra
 
-logs: ## Tail Nightshift's own service logs (Ctrl+C to stop)
-	journalctl --user-unit=nightshift.service -f
+logs: ## Tail Noctra's own service logs (Ctrl+C to stop)
+	journalctl --user-unit=noctra.service -f
 
 # ── Agent transcripts (what Claude/Codex is actually doing) ─────────────────
 

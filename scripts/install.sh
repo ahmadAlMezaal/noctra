@@ -1,23 +1,23 @@
 #!/bin/sh
-# Nightshift installer — turnkey one-liner install of the latest release binary.
+# Noctra installer — turnkey one-liner install of the latest release binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/nightshift/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/noctra/main/scripts/install.sh | sh
 #
-# (This same script is intended to be served at https://getnightshift.dev/install.sh later.)
+# (This same script is intended to be served at https://getnoctra.dev/install.sh later.)
 #
 # It detects your OS/arch, downloads the matching GoReleaser archive + checksums
 # from the latest GitHub release, verifies the SHA-256, and installs the
-# `nightshift` binary to ~/.local/bin (override with NIGHTSHIFT_BIN). Pin a
+# `noctra` binary to ~/.local/bin (override with NOCTRA_BIN). Pin a
 # specific release with VERSION=v1.2.3.
 set -e
 
-REPO="ahmadAlMezaal/nightshift"
-INSTALL_DIR="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"
+REPO="ahmadAlMezaal/noctra"
+INSTALL_DIR="${NOCTRA_BIN:-$HOME/.local/bin}"
 
 err() { echo "error: $*" >&2; exit 1; }
 
 # --- temp dir + cleanup -----------------------------------------------------
-TMP="$(mktemp -d 2>/dev/null || mktemp -d -t nightshift)"
+TMP="$(mktemp -d 2>/dev/null || mktemp -d -t noctra)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # --- detect OS --------------------------------------------------------------
@@ -25,7 +25,7 @@ os="$(uname -s)"
 case "$os" in
 	Linux)  OS="linux" ;;
 	Darwin) OS="darwin" ;;
-	*)      err "unsupported OS: $os (Nightshift ships linux + darwin binaries; use Docker elsewhere)" ;;
+	*)      err "unsupported OS: $os (Noctra ships linux + darwin binaries; use Docker elsewhere)" ;;
 esac
 
 # --- detect arch ------------------------------------------------------------
@@ -51,10 +51,10 @@ fi
 
 # GoReleaser strips the leading "v" from {{ .Version }} in archive names.
 VER_NO_V="$(printf '%s' "$TAG" | sed 's/^v//')"
-ASSET="nightshift_${VER_NO_V}_${OS}_${ARCH}.tar.gz"
+ASSET="noctra_${VER_NO_V}_${OS}_${ARCH}.tar.gz"
 BASE="https://github.com/$REPO/releases/download/$TAG"
 
-echo "Installing nightshift $TAG ($OS/$ARCH) …"
+echo "Installing noctra $TAG ($OS/$ARCH) …"
 
 # --- download archive + checksums ------------------------------------------
 curl -fsSL "$BASE/$ASSET" -o "$TMP/$ASSET" \
@@ -76,17 +76,17 @@ fi
 [ "$got" = "$want" ] || err "checksum mismatch for $ASSET (got $got, want $want)"
 
 # --- extract + install ------------------------------------------------------
-tar -xzf "$TMP/$ASSET" -C "$TMP" nightshift \
-	|| err "could not extract nightshift from $ASSET"
+tar -xzf "$TMP/$ASSET" -C "$TMP" noctra \
+	|| err "could not extract noctra from $ASSET"
 
 mkdir -p "$INSTALL_DIR"
-# Unlink any existing binary first so reinstalling over a running nightshift
+# Unlink any existing binary first so reinstalling over a running noctra
 # doesn't fail with "text file busy" (applies to both install and the cp fallback).
-rm -f "$INSTALL_DIR/nightshift" 2>/dev/null
-install -m 0755 "$TMP/nightshift" "$INSTALL_DIR/nightshift" 2>/dev/null \
-	|| { cp "$TMP/nightshift" "$INSTALL_DIR/nightshift" && chmod 0755 "$INSTALL_DIR/nightshift"; }
+rm -f "$INSTALL_DIR/noctra" 2>/dev/null
+install -m 0755 "$TMP/noctra" "$INSTALL_DIR/noctra" 2>/dev/null \
+	|| { cp "$TMP/noctra" "$INSTALL_DIR/noctra" && chmod 0755 "$INSTALL_DIR/noctra"; }
 
-echo "✓ Installed nightshift to $INSTALL_DIR/nightshift"
+echo "✓ Installed noctra to $INSTALL_DIR/noctra"
 
 # --- PATH hint --------------------------------------------------------------
 case ":$PATH:" in
@@ -117,15 +117,15 @@ esac
 cat <<EOF
 
 Next steps:
-  1. Authenticate the tools Nightshift drives:
+  1. Authenticate the tools Noctra drives:
        gh auth login
        claude   (or: codex login)
-  2. Configure Nightshift:
-       nightshift setup
+  2. Configure Noctra:
+       noctra setup
   3. Run it as a background service (systemd hosts):
-       nightshift install-service --start
+       noctra install-service --start
      …or just run it directly:
-       nightshift run
+       noctra run
 
-Upgrade later with:  nightshift update
+Upgrade later with:  noctra update
 EOF

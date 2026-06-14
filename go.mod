@@ -1,3 +1,3 @@
-module github.com/ahmadAlMezaal/nightshift
+module github.com/ahmadAlMezaal/noctra
 
 go 1.23

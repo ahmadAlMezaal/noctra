@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// BranchName returns the branch Nightshift creates for a ticket
-// (e.g. "nightshift/eng-42").
+// BranchName returns the branch Noctra creates for a ticket
+// (e.g. "noctra/eng-42").
 func BranchName(identifier string) string {
-	return "nightshift/" + strings.ToLower(identifier)
+	return "noctra/" + strings.ToLower(identifier)
 }
 
 // Worktree describes a freshly created git worktree.
@@ -43,7 +43,7 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 }
 
 // ResumeWorktree creates a worktree from an EXISTING remote branch instead of
-// starting fresh from main. Used when Nightshift re-engages on an open PR to
+// starting fresh from main. Used when Noctra re-engages on an open PR to
 // address review comments or CI failures — prior commits stay intact and
 // follow-up work appears as additional commits on the same branch.
 //

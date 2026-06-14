@@ -1,4 +1,4 @@
-// Package config loads Nightshift's runtime configuration from .env and the
+// Package config loads Noctra's runtime configuration from .env and the
 // process environment, and exposes a validated Config struct.
 package config
 
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// LoadEnvFile reads a KEY=VALUE file (Nightshift's .env format).
+// LoadEnvFile reads a KEY=VALUE file (Noctra's .env format).
 //
 // Lines starting with # are treated as comments; blank lines are skipped.
 // Values may optionally be wrapped in single or double quotes (which are

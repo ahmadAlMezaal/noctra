@@ -11,7 +11,7 @@ func TestCompletionScript_Bash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bash: unexpected error: %v", err)
 	}
-	if !strings.Contains(got, "complete -F _nightshift nightshift") {
+	if !strings.Contains(got, "complete -F _noctra noctra") {
 		t.Errorf("bash script missing complete registration:\n%s", got)
 	}
 	// Every subcommand must appear in the completion word list.
@@ -27,10 +27,10 @@ func TestCompletionScript_Zsh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("zsh: unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(got, "#compdef nightshift") {
+	if !strings.HasPrefix(got, "#compdef noctra") {
 		t.Errorf("zsh script must start with #compdef directive:\n%s", got)
 	}
-	if !strings.Contains(got, "compdef _nightshift nightshift") {
+	if !strings.Contains(got, "compdef _noctra noctra") {
 		t.Errorf("zsh script missing compdef registration:\n%s", got)
 	}
 	for _, c := range subcommands {
@@ -51,7 +51,7 @@ func TestCompletionScript_UnknownShell(t *testing.T) {
 
 func TestLogsArgs_Default(t *testing.T) {
 	args := logsArgs(false)
-	if !slices.Contains(args, "--user-unit=nightshift.service") {
+	if !slices.Contains(args, "--user-unit=noctra.service") {
 		t.Error("missing --user-unit flag")
 	}
 	if !slices.Contains(args, "-n") {
@@ -68,7 +68,7 @@ func TestLogsArgs_Default(t *testing.T) {
 
 func TestLogsArgs_Follow(t *testing.T) {
 	args := logsArgs(true)
-	if !slices.Contains(args, "--user-unit=nightshift.service") {
+	if !slices.Contains(args, "--user-unit=noctra.service") {
 		t.Error("missing --user-unit flag")
 	}
 	if !slices.Contains(args, "-f") {

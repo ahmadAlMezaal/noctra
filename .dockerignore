@@ -9,8 +9,8 @@ logs/
 .env
 .env.local
 # Built artifacts (the image builds its own binary)
-nightshift
-nightshift.new
-nightshift-pi
-nightshift-arm64
+noctra
+noctra.new
+noctra-pi
+noctra-arm64
 .DS_Store

@@ -10,7 +10,7 @@ import "strings"
 //
 //	"Auth Service" → "auth-service"
 //	"My API   v2"  → "my-api-v2"
-//	"Nightshift!"  → "nightshift"
+//	"Noctra!"  → "noctra"
 func Slug(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))

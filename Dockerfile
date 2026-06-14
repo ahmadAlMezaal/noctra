@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-# Compile the static Nightshift binary. CGO is disabled so the result runs on
+# Compile the static Noctra binary. CGO is disabled so the result runs on
 # any Linux without libc surprises.
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 
-# Dependency layer first for caching. Nightshift is stdlib-only today (no
+# Dependency layer first for caching. Noctra is stdlib-only today (no
 # go.sum); the wildcard keeps this working if dependencies are added later.
 COPY go.mod go.su[m] ./
 RUN go mod download
@@ -15,10 +15,10 @@ COPY . .
 ARG VERSION=docker
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
       -ldflags "-s -w -X main.version=${VERSION}" \
-      -o /out/nightshift ./cmd/nightshift
+      -o /out/noctra ./cmd/noctra
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-# Nightshift shells out to git (worktrees/clone), gh (PR creation), and a coding
+# Noctra shells out to git (worktrees/clone), gh (PR creation), and a coding
 # agent CLI (claude/codex — both are npm packages), so the runtime needs all of
 # them. The node base supplies the agent runtime; git + gh are added on top.
 FROM node:20-bookworm-slim AS runtime
@@ -41,13 +41,13 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code @openai/codex \
  && npm cache clean --force
 
-COPY --from=build /out/nightshift /usr/local/bin/nightshift
+COPY --from=build /out/noctra /usr/local/bin/noctra
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # All mutable state lives under /data so a single mounted volume persists the
 # repos cache, worktrees, logs, and the PR cursor across restarts. Each path is
-# an env override Nightshift already honours.
+# an env override Noctra already honours.
 ENV REPOS_BASE=/data/repos \
     WORKTREE_BASE=/data/worktrees \
     LOG_DIR=/data/logs \
@@ -55,7 +55,7 @@ ENV REPOS_BASE=/data/repos \
 WORKDIR /data
 VOLUME /data
 
-# The container's only process is Nightshift (PID 1 via exec); if it dies the
+# The container's only process is Noctra (PID 1 via exec); if it dies the
 # container exits, so an orchestrator's restart policy is the health mechanism.
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["nightshift"]
+CMD ["noctra"]

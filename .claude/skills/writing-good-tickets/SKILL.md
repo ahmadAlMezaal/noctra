@@ -1,13 +1,13 @@
 ---
 name: writing-good-tickets
-description: Use when drafting, reviewing, or improving Linear tickets so Nightshift can implement them autonomously with clear context, scope, acceptance criteria, and likely files.
+description: Use when drafting, reviewing, or improving Linear tickets so Noctra can implement them autonomously with clear context, scope, acceptance criteria, and likely files.
 ---
 
-# Writing Good Nightshift Tickets
+# Writing Good Noctra Tickets
 
-Use this playbook when preparing a ticket for Nightshift or diagnosing a PR that missed the intended scope.
+Use this playbook when preparing a ticket for Noctra or diagnosing a PR that missed the intended scope.
 
-Nightshift hands the ticket text to a coding agent with no shared hallway context. Write the ticket as if a competent developer joined the team for one day and needs enough context to finish the work without asking follow-up questions.
+Noctra hands the ticket text to a coding agent with no shared hallway context. Write the ticket as if a competent developer joined the team for one day and needs enough context to finish the work without asking follow-up questions.
 
 ## Ticket Template
 
@@ -115,7 +115,7 @@ AsyncStorage.
 - Do not add new theme tokens.
 ```
 
-## If A Nightshift PR Missed The Mark
+## If A Noctra PR Missed The Mark
 
 1. Check whether the ticket named the relevant files and observable acceptance criteria.
 2. Add the missing context directly to the ticket or as a requeue note.

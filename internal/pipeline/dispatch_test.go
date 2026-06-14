@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/repo"
 )
 
 func TestSkipPermanently_AddToSetAndRefundsDispatch(t *testing.T) {

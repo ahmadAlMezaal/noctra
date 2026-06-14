@@ -41,12 +41,12 @@ func TestAssetName(t *testing.T) {
 		want                  string
 	}{
 		// .Version strips the leading "v".
-		{"v0.1.0", "linux", "amd64", "nightshift_0.1.0_linux_amd64.tar.gz"},
-		{"v0.1.0", "linux", "arm64", "nightshift_0.1.0_linux_arm64.tar.gz"},
-		{"v0.1.0", "linux", "arm", "nightshift_0.1.0_linux_armv7.tar.gz"},
-		{"v0.1.0", "darwin", "amd64", "nightshift_0.1.0_darwin_amd64.tar.gz"},
-		{"v0.1.0", "darwin", "arm64", "nightshift_0.1.0_darwin_arm64.tar.gz"},
-		{"1.2.3", "linux", "amd64", "nightshift_1.2.3_linux_amd64.tar.gz"},
+		{"v0.1.0", "linux", "amd64", "noctra_0.1.0_linux_amd64.tar.gz"},
+		{"v0.1.0", "linux", "arm64", "noctra_0.1.0_linux_arm64.tar.gz"},
+		{"v0.1.0", "linux", "arm", "noctra_0.1.0_linux_armv7.tar.gz"},
+		{"v0.1.0", "darwin", "amd64", "noctra_0.1.0_darwin_amd64.tar.gz"},
+		{"v0.1.0", "darwin", "arm64", "noctra_0.1.0_darwin_arm64.tar.gz"},
+		{"1.2.3", "linux", "amd64", "noctra_1.2.3_linux_amd64.tar.gz"},
 	}
 	for _, c := range cases {
 		got := assetName(c.version, c.goos, c.goarch)

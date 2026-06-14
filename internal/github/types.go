@@ -1,5 +1,5 @@
-// Package github wraps the `gh` CLI for the operations Nightshift's watcher
-// needs: listing PRs Nightshift authored, fetching their comments, reviews and
+// Package github wraps the `gh` CLI for the operations Noctra's watcher
+// needs: listing PRs Noctra authored, fetching their comments, reviews and
 // check-run status, and pulling failed-check logs. Stays thin — types mirror
 // what `gh` returns under --json, so decoding is JSON unmarshal onto these.
 package github
@@ -7,7 +7,7 @@ package github
 import "time"
 
 // Actor is the GitHub user/bot that authored a comment or review. `gh`
-// returns `type: "User"|"Bot"` — Nightshift treats bots specially in the
+// returns `type: "User"|"Bot"` — Noctra treats bots specially in the
 // trusted-reviewer filter.
 type Actor struct {
 	Login string `json:"login"`
@@ -25,7 +25,7 @@ type PR struct {
 	HeadRefName string `json:"headRefName"`
 
 	// RepoURL is the git remote URL of the clone this PR was discovered from
-	// (set by ListNightshiftPRs, not from gh's JSON). It preserves the clone's
+	// (set by ListNoctraPRs, not from gh's JSON). It preserves the clone's
 	// original scheme — e.g. an SSH `git@…` URL — so the auto-iterate path can
 	// re-resolve the repo over the same transport instead of synthesizing an
 	// HTTPS URL from owner/name, which would fail on SSH-only private repos.
@@ -124,7 +124,7 @@ func (c Check) IsFailure() bool {
 	return false
 }
 
-// Details is the full view of a PR Nightshift needs to decide whether to
+// Details is the full view of a PR Noctra needs to decide whether to
 // re-engage and how. Mirrors the JSON shape `gh pr view --json ...` returns.
 type Details struct {
 	URL               string    `json:"url"`

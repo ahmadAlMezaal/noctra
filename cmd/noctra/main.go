@@ -1,22 +1,22 @@
-// Command nightshift is the autonomous Linear→PR agent.
+// Command noctra is the autonomous Linear→PR agent.
 //
 // Subcommands:
 //
-//	nightshift            start the poll loop (default)
-//	nightshift setup      interactive .env wizard
-//	nightshift cleanup    clean up stale branches and worktrees
-//	nightshift cleanup --force
-//	nightshift doctor     preflight dependency and config checks
-//	nightshift update     self-update to the latest release (--restart)
-//	nightshift install-service  install the systemd --user unit (--start, --force)
-//	nightshift logs       tail the service logs (-f to follow)
-//	nightshift start      start the systemd --user service
-//	nightshift stop       stop the systemd --user service
-//	nightshift restart    restart the systemd --user service
-//	nightshift status     show service status + installed version
-//	nightshift completion print a bash/zsh completion script
-//	nightshift version
-//	nightshift --help
+//	noctra            start the poll loop (default)
+//	noctra setup      interactive .env wizard
+//	noctra cleanup    clean up stale branches and worktrees
+//	noctra cleanup --force
+//	noctra doctor     preflight dependency and config checks
+//	noctra update     self-update to the latest release (--restart)
+//	noctra install-service  install the systemd --user unit (--start, --force)
+//	noctra logs       tail the service logs (-f to follow)
+//	noctra start      start the systemd --user service
+//	noctra stop       stop the systemd --user service
+//	noctra restart    restart the systemd --user service
+//	noctra status     show service status + installed version
+//	noctra completion print a bash/zsh completion script
+//	noctra version
+//	noctra --help
 package main
 
 import (
@@ -31,13 +31,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/cleanup"
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/doctor"
-	"github.com/ahmadAlMezaal/nightshift/internal/pipeline"
-	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
-	"github.com/ahmadAlMezaal/nightshift/internal/service"
-	"github.com/ahmadAlMezaal/nightshift/internal/setup"
+	"github.com/ahmadAlMezaal/noctra/internal/cleanup"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/doctor"
+	"github.com/ahmadAlMezaal/noctra/internal/pipeline"
+	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
+	"github.com/ahmadAlMezaal/noctra/internal/service"
+	"github.com/ahmadAlMezaal/noctra/internal/setup"
 )
 
 // version is the build version. Defaults to a dev marker for `go build`/`go
@@ -51,7 +51,7 @@ const (
 	ansiReset = "\033[0m"
 )
 
-// bannerArt is the figlet "standard" font rendering of "Nightshift".
+// bannerArt is the figlet "standard" font rendering of "Noctra".
 // Defined as a regular string (not raw) because the font uses backticks.
 var bannerArt = "" +
 	"  _   _ _       _     _       _     _  __ _   \n" +
@@ -138,14 +138,14 @@ func realMain() error {
 		}
 		script, err := completionScript(shell)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Usage: nightshift completion bash|zsh")
+			fmt.Fprintln(os.Stderr, "Usage: noctra completion bash|zsh")
 			return err
 		}
 		fmt.Print(script)
 		return nil
 	case "version", "--version", "-v":
 		printBanner()
-		fmt.Println("nightshift", version)
+		fmt.Println("noctra", version)
 		return nil
 	case "help", "--help", "-h":
 		printBanner()
@@ -157,7 +157,7 @@ func realMain() error {
 	}
 }
 
-// printBanner prints a styled ASCII "Nightshift" banner with a moon emoji,
+// printBanner prints a styled ASCII "Noctra" banner with a moon emoji,
 // the version, and a tagline. TTY-aware: skipped when stdout is not a
 // terminal (systemd, cron, piped) so service logs stay clean.
 func printBanner() {
@@ -170,7 +170,7 @@ func printBanner() {
 
 // printUsage prints the CLI usage/help screen.
 func printUsage() {
-	fmt.Println("Usage: nightshift [command]")
+	fmt.Println("Usage: noctra [command]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  run       Start the poll loop (default)")
@@ -193,10 +193,10 @@ func printUsage() {
 	fmt.Printf("Config dir: %s (override by running from a checkout with .env)\n", config.DefaultConfigDir())
 }
 
-// resolveScriptDir picks the directory Nightshift treats as its "home" —
+// resolveScriptDir picks the directory Noctra treats as its "home" —
 // where .env and logs/ live. We prefer the current working directory when it
-// looks like a Nightshift checkout (for `go run`), and otherwise fall back to
-// the per-user config dir (~/.nightshift/).
+// looks like a Noctra checkout (for `go run`), and otherwise fall back to
+// the per-user config dir (~/.noctra/).
 func resolveScriptDir() (string, error) {
 	if cwd, err := os.Getwd(); err == nil {
 		for _, marker := range []string{".env", ".env.example", "go.mod"} {
@@ -220,7 +220,7 @@ func runPoll(scriptDir string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("nightshift starting", "version", version)
+	slog.Info("noctra starting", "version", version)
 	pipeline.Version = version
 	return pipeline.New(cfg).Run(ctx)
 }
@@ -243,10 +243,10 @@ func runCleanup(scriptDir string, force bool) error {
 	return cleanup.Run(ctx, cfg, force)
 }
 
-// logsArgs returns the journalctl arguments for `nightshift logs`. Extracted
+// logsArgs returns the journalctl arguments for `noctra logs`. Extracted
 // as a pure function so the flag logic is unit-testable.
 func logsArgs(follow bool) []string {
-	args := []string{"--user-unit=nightshift.service"}
+	args := []string{"--user-unit=noctra.service"}
 	if follow {
 		args = append(args, "-f")
 	} else {
@@ -255,14 +255,14 @@ func logsArgs(follow bool) []string {
 	return args
 }
 
-// runLogs tails Nightshift's own service logs. On a systemd host it execs
+// runLogs tails Noctra's own service logs. On a systemd host it execs
 // journalctl for the user unit (optionally following). When journalctl isn't
 // available (macOS dev box, Docker), it points the user at where logs actually
 // live instead of failing cryptically.
 func runLogs(scriptDir string, follow bool) error {
 	jctl, err := exec.LookPath("journalctl")
 	if err != nil {
-		fmt.Println("journalctl not found — Nightshift isn't running under systemd here.")
+		fmt.Println("journalctl not found — Noctra isn't running under systemd here.")
 		fmt.Println()
 		fmt.Printf("Per-ticket agent logs:  %s\n", filepath.Join(scriptDir, "logs"))
 		fmt.Println("Running in Docker?       use `docker logs <container>`")
@@ -276,7 +276,7 @@ func runLogs(scriptDir string, follow bool) error {
 	return cmd.Run()
 }
 
-// runService is a thin wrapper over `systemctl --user <verb> nightshift.service`
+// runService is a thin wrapper over `systemctl --user <verb> noctra.service`
 // for the start/stop/restart/status subcommands. stdout/stderr stream through.
 // On a non-systemd host (macOS dev box, Docker) systemctl isn't on PATH, so we
 // print a clear hint instead of crashing — mirroring runLogs. For `status` we
@@ -284,17 +284,17 @@ func runLogs(scriptDir string, follow bool) error {
 func runService(verb string) error {
 	sctl, err := exec.LookPath("systemctl")
 	if err != nil {
-		fmt.Println("systemctl not found — Nightshift isn't running under systemd here.")
+		fmt.Println("systemctl not found — Noctra isn't running under systemd here.")
 		fmt.Println()
 		fmt.Println("Running in Docker?  use `docker start/stop/restart <container>`.")
-		fmt.Println("On macOS / a dev box, run `nightshift run` directly instead.")
+		fmt.Println("On macOS / a dev box, run `noctra run` directly instead.")
 		if verb == "status" {
-			fmt.Println("nightshift", version)
+			fmt.Println("noctra", version)
 		}
 		return nil
 	}
 
-	cmd := exec.Command(sctl, "--user", verb, "nightshift.service")
+	cmd := exec.Command(sctl, "--user", verb, "noctra.service")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -302,7 +302,7 @@ func runService(verb string) error {
 	// informational, not an error we want to surface as a failed command.
 	runErr := cmd.Run()
 	if verb == "status" {
-		fmt.Println("nightshift", version)
+		fmt.Println("noctra", version)
 		return nil
 	}
 	return runErr
@@ -322,23 +322,23 @@ func completionScript(shell string) (string, error) {
 	cmds := strings.Join(subcommands, " ")
 	switch shell {
 	case "bash":
-		return "# bash completion for nightshift\n" +
-			"_nightshift() {\n" +
+		return "# bash completion for noctra\n" +
+			"_noctra() {\n" +
 			"    local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n" +
 			"    if [ \"$COMP_CWORD\" -eq 1 ]; then\n" +
 			"        COMPREPLY=( $(compgen -W \"" + cmds + "\" -- \"$cur\") )\n" +
 			"    fi\n" +
 			"}\n" +
-			"complete -F _nightshift nightshift\n", nil
+			"complete -F _noctra noctra\n", nil
 	case "zsh":
-		return "#compdef nightshift\n" +
-			"# zsh completion for nightshift\n" +
-			"_nightshift() {\n" +
+		return "#compdef noctra\n" +
+			"# zsh completion for noctra\n" +
+			"_noctra() {\n" +
 			"    local -a cmds\n" +
 			"    cmds=(" + cmds + ")\n" +
 			"    _describe 'command' cmds\n" +
 			"}\n" +
-			"compdef _nightshift nightshift\n", nil
+			"compdef _noctra noctra\n", nil
 	default:
 		return "", fmt.Errorf("unsupported shell %q (want bash or zsh)", shell)
 	}
@@ -363,7 +363,7 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	}
 
 	fmt.Println()
-	fmt.Println("🌙 Welcome to Nightshift!")
+	fmt.Println("🌙 Welcome to Noctra!")
 	fmt.Println()
 	fmt.Println("Your configuration has gaps:")
 	for _, line := range strings.Split(verr.Error(), "\n") {
@@ -388,7 +388,7 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// requireCLIs fails fast if any of the external commands Nightshift needs
+// requireCLIs fails fast if any of the external commands Noctra needs
 // (git/gh + the selected agent backend's CLI) aren't on PATH. Surfaces all
 // missing ones at once so the user can install them in a single round.
 func requireCLIs(cfg *config.Config) error {

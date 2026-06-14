@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/github"
-	"github.com/ahmadAlMezaal/nightshift/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
 // newTestWatcher returns a Watcher with no gh client (we don't exercise gh

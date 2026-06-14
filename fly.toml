@@ -1,7 +1,7 @@
-# Fly.io — run Nightshift as an always-on worker (no public ports).
+# Fly.io — run Noctra as an always-on worker (no public ports).
 #
-#   fly apps create nightshift            # pick your own app name (edit `app` below)
-#   fly volumes create nightshift_data --size 1 --region iad
+#   fly apps create noctra            # pick your own app name (edit `app` below)
+#   fly volumes create noctra_data --size 1 --region iad
 #   fly secrets set LINEAR_API_KEY=... AGENT_BACKEND=claude \
 #       ANTHROPIC_API_KEY=... GH_TOKEN=...
 #   fly deploy
@@ -10,15 +10,15 @@
 # Linear (a `Repo: owner/name` line in the project description) — nothing to
 # mount or configure here. Use HTTPS URLs / owner-name so GH_TOKEN works.
 
-app = "nightshift"
+app = "noctra"
 primary_region = "iad"
 
 [build]
-  image = "ghcr.io/ahmadalmezaal/nightshift:latest"
+  image = "ghcr.io/ahmadalmezaal/noctra:latest"
 
 # Persists the repos cache, worktrees, logs, and PR cursor across restarts.
 [[mounts]]
-  source = "nightshift_data"
+  source = "noctra_data"
   destination = "/data"
 
 [[vm]]

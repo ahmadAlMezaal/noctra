@@ -1,20 +1,20 @@
-# GoReleaser config — cross-compiles Nightshift and publishes a GitHub Release
+# GoReleaser config — cross-compiles Noctra and publishes a GitHub Release
 # with archives + checksums on every pushed `v*` tag. See .github/workflows/release.yml.
 #
 #   Local dry run:  goreleaser release --snapshot --clean
 #   Validate:       goreleaser check
 version: 2
 
-project_name: nightshift
+project_name: noctra
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: nightshift
-    main: ./cmd/nightshift
-    binary: nightshift
+  - id: noctra
+    main: ./cmd/noctra
+    binary: noctra
     env:
       - CGO_ENABLED=0
     ldflags:
@@ -58,31 +58,31 @@ changelog:
 release:
   github:
     owner: ahmadAlMezaal
-    name: nightshift
+    name: noctra
   draft: false
   prerelease: auto
 
 homebrew_casks:
-  - name: nightshift
+  - name: noctra
     binaries:
-      - nightshift
+      - noctra
     repository:
       owner: ahmadAlMezaal
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     commit_author:
-      name: nightshift-bot
-      email: nightshift-bot@users.noreply.github.com
-    homepage: https://getnightshift.dev
+      name: noctra-bot
+      email: noctra-bot@users.noreply.github.com
+    homepage: https://getnoctra.dev
     description: >-
       Autonomous Linear-to-PR agent — polls Linear for tickets, implements
       them with Claude Code or OpenAI Codex, and creates pull requests.
     # The release binaries are unsigned, so macOS quarantines them after a cask
     # download and Gatekeeper blocks the first run. Strip the quarantine xattr
-    # on install so `nightshift` runs straight away.
+    # on install so `noctra` runs straight away.
     hooks:
       post:
         install: |
           if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nightshift"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/noctra"]
           end

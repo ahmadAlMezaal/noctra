@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint for the Nightshift container. Configures the bits Nightshift
+# Entrypoint for the Noctra container. Configures the bits Noctra
 # normally inherits from a developer's machine (git identity, GitHub auth) so a
 # fresh container can commit and push without manual setup, then execs the CMD.
 set -e
@@ -11,10 +11,10 @@ if [ ! -w "${HOME:-/root}" ]; then
   export HOME=/tmp
 fi
 
-# Nightshift commits with the ambient git identity; a fresh container has none,
+# Noctra commits with the ambient git identity; a fresh container has none,
 # so `git commit` would fail. Default to a bot identity, overridable via env.
-git config --global user.name  "${GIT_USER_NAME:-Nightshift}"
-git config --global user.email "${GIT_USER_EMAIL:-nightshift@users.noreply.github.com}"
+git config --global user.name  "${GIT_USER_NAME:-Noctra}"
+git config --global user.email "${GIT_USER_EMAIL:-noctra@users.noreply.github.com}"
 # Worktrees/clones live on a mounted volume that may be owned by a different
 # uid than the container user — avoid git's "dubious ownership" refusal.
 # --replace-all keeps this idempotent so restarts don't pile up duplicate entries.

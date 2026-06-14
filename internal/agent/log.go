@@ -76,8 +76,8 @@ func BlockedLine(output string) string {
 // counts. ExtractSummary falls back to the last-N-lines heuristic when the
 // markers are absent (older logs, or an agent that didn't comply).
 const (
-	SummaryStartMarker = "===NIGHTSHIFT SUMMARY==="
-	SummaryEndMarker   = "===END NIGHTSHIFT SUMMARY==="
+	SummaryStartMarker = "===NOCTRA SUMMARY==="
+	SummaryEndMarker   = "===END NOCTRA SUMMARY==="
 )
 
 // ExtractSummary returns the agent's final-attempt summary for the PR body.

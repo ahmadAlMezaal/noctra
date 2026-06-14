@@ -23,15 +23,15 @@ type Client struct{}
 // New returns a ready-to-use Client.
 func New() *Client { return &Client{} }
 
-// ListNightshiftPRs returns every open PR that Nightshift created across the
-// given repositories (any branch matching the `nightshift/` prefix authored
+// ListNoctraPRs returns every open PR that Noctra created across the
+// given repositories (any branch matching the `noctra/` prefix authored
 // by the current `gh` user).
 //
-// repoURLs are the git URLs of the repos Nightshift has cloned (plus the
+// repoURLs are the git URLs of the repos Noctra has cloned (plus the
 // REPO_PATH fallback). Each is reduced to `owner/name` before being passed to
 // `gh`. Per-repo errors are logged (not returned) so a single unreachable repo
 // doesn't kill the whole sweep.
-func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR, error) {
+func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, error) {
 	var out []PR
 	for _, raw := range repoURLs {
 		ownerRepo, err := ExtractOwnerRepo(raw)
@@ -61,7 +61,7 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 		}
 
 		for _, pr := range prs {
-			if strings.HasPrefix(pr.HeadRefName, "nightshift/") {
+			if strings.HasPrefix(pr.HeadRefName, "noctra/") {
 				// Remember the remote this PR was found through so the iterate
 				// path can re-resolve over the same transport (e.g. SSH).
 				pr.RepoURL = raw

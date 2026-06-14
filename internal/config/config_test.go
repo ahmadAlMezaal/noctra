@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// nightshiftEnvKeys are every env var Nightshift reads. Tests clear them all
+// noctraEnvKeys are every env var Noctra reads. Tests clear them all
 // up front so the dev's shell environment (direnv, exported .env, etc.) can't
 // leak through and quietly satisfy a check the test means to fail.
-var nightshiftEnvKeys = []string{
+var noctraEnvKeys = []string{
 	"LINEAR_API_KEY", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
 	"TRIGGER_LABEL", "IN_REVIEW_STATE",
 	"REPO_PATH", "MAIN_BRANCH",
@@ -26,7 +26,7 @@ var nightshiftEnvKeys = []string{
 
 func isolateEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range nightshiftEnvKeys {
+	for _, k := range noctraEnvKeys {
 		t.Setenv(k, "")
 	}
 }
@@ -247,8 +247,8 @@ func TestDefaultConfigDir(t *testing.T) {
 	if dir == "" {
 		t.Fatal("DefaultConfigDir returned empty string")
 	}
-	if !strings.HasSuffix(dir, ".nightshift") {
-		t.Errorf("DefaultConfigDir = %q, want suffix .nightshift", dir)
+	if !strings.HasSuffix(dir, ".noctra") {
+		t.Errorf("DefaultConfigDir = %q, want suffix .noctra", dir)
 	}
 }
 
@@ -291,7 +291,7 @@ func TestLoad_TriggerModeLabel(t *testing.T) {
 	writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="label"
-TRIGGER_LABEL="nightshift"
+TRIGGER_LABEL="noctra"
 `)
 	cfg, err := Load(dir)
 	if err != nil {
@@ -300,8 +300,8 @@ TRIGGER_LABEL="nightshift"
 	if cfg.TriggerMode != "label" {
 		t.Errorf("TriggerMode: got %q, want \"label\"", cfg.TriggerMode)
 	}
-	if cfg.TriggerLabel != "nightshift" {
-		t.Errorf("TriggerLabel: got %q, want \"nightshift\"", cfg.TriggerLabel)
+	if cfg.TriggerLabel != "noctra" {
+		t.Errorf("TriggerLabel: got %q, want \"noctra\"", cfg.TriggerLabel)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestLoad_TriggerModeCaseInsensitive(t *testing.T) {
 	writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="Label"
-TRIGGER_LABEL="nightshift"
+TRIGGER_LABEL="noctra"
 `)
 	cfg, err := Load(dir)
 	if err != nil {
@@ -348,7 +348,7 @@ func TestValidate_LabelModePassesWithLabel(t *testing.T) {
 	writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY="lin_xyz"
 TRIGGER_MODE="label"
-TRIGGER_LABEL="nightshift"
+TRIGGER_LABEL="noctra"
 `)
 	cfg, err := Load(dir)
 	if err != nil {
@@ -511,4 +511,64 @@ func initBareRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func TestMigrateLegacyPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Old Nightshift state present; new Noctra counterparts absent.
+	if err := os.MkdirAll(filepath.Join(home, ".nightshift", "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".nightshift", ".env"), []byte("X=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".nightshift-worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".nightshift-state.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A counterpart that ALREADY exists must not be clobbered.
+	if err := os.MkdirAll(filepath.Join(home, ".nightshift-repos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".noctra-repos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".noctra-repos", "keep"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	MigrateLegacyPaths()
+
+	// Migrated: new path exists, old path gone, contents preserved.
+	if b, err := os.ReadFile(filepath.Join(home, ".noctra", ".env")); err != nil || string(b) != "X=1" {
+		t.Errorf("config dir not migrated: %v / %q", err, b)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".nightshift")); !os.IsNotExist(err) {
+		t.Errorf("old config dir should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".noctra-worktrees")); err != nil {
+		t.Errorf("worktrees not migrated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".noctra-state.json")); err != nil {
+		t.Errorf("state file not migrated: %v", err)
+	}
+
+	// Not clobbered: existing .noctra-repos kept its content; old left in place.
+	if _, err := os.Stat(filepath.Join(home, ".noctra-repos", "keep")); err != nil {
+		t.Errorf("existing .noctra-repos was clobbered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".nightshift-repos")); err != nil {
+		t.Errorf("old .nightshift-repos should remain when target exists: %v", err)
+	}
+
+	// Idempotent: a second run is a clean no-op.
+	MigrateLegacyPaths()
+	if b, err := os.ReadFile(filepath.Join(home, ".noctra", ".env")); err != nil || string(b) != "X=1" {
+		t.Errorf("second migration disturbed state: %v / %q", err, b)
+	}
 }

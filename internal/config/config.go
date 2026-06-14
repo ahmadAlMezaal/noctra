@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// baseCLIs are the external commands Nightshift always shells out to,
+// baseCLIs are the external commands Noctra always shells out to,
 // regardless of which coding-agent backend is selected. The agent CLI itself
 // (claude / codex) is appended per-backend — see AgentCLI / RequiredCLIs.
 var baseCLIs = []string{"git", "gh"}
@@ -21,13 +21,52 @@ var agentCLIs = map[string]string{
 	"codex":  "codex",
 }
 
-// DefaultConfigDir returns the per-user config directory (~/.nightshift/).
-// This is where .env and logs/ live when Nightshift is installed globally
+// DefaultConfigDir returns the per-user config directory (~/.noctra/).
+// This is where .env and logs/ live when Noctra is installed globally
 // (go install / prebuilt binary). The cwd-checkout override in resolveScriptDir
 // still takes precedence during development.
 func DefaultConfigDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".nightshift")
+	return filepath.Join(home, ".noctra")
+}
+
+// legacyPathMigrations maps each old Nightshift home-relative path to its
+// Noctra replacement. Nightshift was renamed to Noctra (ENG-204); a live
+// instance may still hold all of its state (PR cursor, cloned repos,
+// worktrees, .env, logs) under the old ~/.nightshift* locations. We rename
+// them in place on startup so the upgrade doesn't lose that state.
+var legacyPathMigrations = [][2]string{
+	{".nightshift", ".noctra"},                       // config dir (.env + logs/)
+	{".nightshift-repos", ".noctra-repos"},           // clone cache
+	{".nightshift-worktrees", ".noctra-worktrees"},   // per-ticket worktrees
+	{".nightshift-state.json", ".noctra-state.json"}, // PR cursor store
+}
+
+// MigrateLegacyPaths renames any surviving ~/.nightshift* paths to their
+// ~/.noctra* equivalents, but only when the old path exists and the new one
+// does not — so it's a safe no-op on fresh installs and on already-migrated
+// hosts, and never clobbers newer state. It's best-effort: a failed rename is
+// logged to stderr and does not abort startup.
+func MigrateLegacyPaths() {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	for _, m := range legacyPathMigrations {
+		oldPath := filepath.Join(home, m[0])
+		newPath := filepath.Join(home, m[1])
+		if _, err := os.Stat(oldPath); err != nil {
+			continue // old path absent — nothing to migrate
+		}
+		if _, err := os.Stat(newPath); err == nil {
+			continue // new path already exists — don't clobber
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not migrate %s -> %s: %v\n", oldPath, newPath, err)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "migrated legacy path %s -> %s\n", oldPath, newPath)
+	}
 }
 
 // Defaults — used when a setting is absent from both .env and the process
@@ -54,7 +93,7 @@ const (
 	DefaultPRPollInterval  = 2 * time.Minute
 )
 
-// Config is Nightshift's resolved runtime configuration.
+// Config is Noctra's resolved runtime configuration.
 type Config struct {
 	// Linear
 	LinearAPIKey  string
@@ -95,7 +134,7 @@ type Config struct {
 	AutoIteratePRs   bool
 	MaxPRIterations  int
 	PRPollInterval   time.Duration
-	TrustedReviewers []string // GitHub logins/bots Nightshift will act on (default: humans only)
+	TrustedReviewers []string // GitHub logins/bots Noctra will act on (default: humans only)
 	StateFile        string   // where the per-PR cursor + iteration count is persisted
 
 	// Derived paths
@@ -107,9 +146,13 @@ type Config struct {
 }
 
 // Load resolves config from .env (in scriptDir) and the process environment. To
-// match Nightshift's bash predecessor, values declared in .env take precedence
+// match Noctra's bash predecessor, values declared in .env take precedence
 // over the process environment.
 func Load(scriptDir string) (*Config, error) {
+	// Rename any surviving ~/.nightshift* state into ~/.noctra* before we
+	// resolve paths, so an upgraded instance keeps its cursor/worktrees/repos.
+	MigrateLegacyPaths()
+
 	envFile := filepath.Join(scriptDir, ".env")
 	fileEnv, err := LoadEnvFile(envFile)
 	if err != nil {
@@ -118,7 +161,7 @@ func Load(scriptDir string) (*Config, error) {
 
 	home, _ := os.UserHomeDir()
 
-	reposBase := getenv(fileEnv, "REPOS_BASE", filepath.Join(home, ".nightshift-repos"))
+	reposBase := getenv(fileEnv, "REPOS_BASE", filepath.Join(home, ".noctra-repos"))
 
 	cfg := &Config{
 		LinearAPIKey:  getenv(fileEnv, "LINEAR_API_KEY", ""),
@@ -146,7 +189,7 @@ func Load(scriptDir string) (*Config, error) {
 		ScriptDir:    scriptDir,
 		EnvFile:      envFile,
 		ReposBase:    reposBase,
-		WorktreeBase: getenv(fileEnv, "WORKTREE_BASE", filepath.Join(home, ".nightshift-worktrees")),
+		WorktreeBase: getenv(fileEnv, "WORKTREE_BASE", filepath.Join(home, ".noctra-worktrees")),
 		LogDir:       getenv(fileEnv, "LOG_DIR", filepath.Join(scriptDir, "logs")),
 	}
 
@@ -167,7 +210,7 @@ func Load(scriptDir string) (*Config, error) {
 	prPollSecs := getint(fileEnv, "PR_POLL_INTERVAL", int(DefaultPRPollInterval/time.Second))
 	cfg.PRPollInterval = time.Duration(prPollSecs) * time.Second
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
-	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".nightshift-state.json"))
+	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".noctra-state.json"))
 
 	return cfg, nil
 }
@@ -181,7 +224,7 @@ func (c *Config) Validate() error {
 	var errs []string
 
 	if c.LinearAPIKey == "" {
-		errs = append(errs, "LINEAR_API_KEY is required — run ./nightshift setup or set it in .env")
+		errs = append(errs, "LINEAR_API_KEY is required — run ./noctra setup or set it in .env")
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {
@@ -229,7 +272,7 @@ func (c *Config) AgentCLI() string {
 	return agentCLIs[DefaultAgentBackend]
 }
 
-// RequiredCLIs returns the external commands Nightshift relies on for the
+// RequiredCLIs returns the external commands Noctra relies on for the
 // configured backend: the always-on base set plus the selected agent CLI.
 func (c *Config) RequiredCLIs() []string {
 	clis := make([]string, 0, len(baseCLIs)+1)
