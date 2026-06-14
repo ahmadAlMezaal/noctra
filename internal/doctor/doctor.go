@@ -191,28 +191,38 @@ func checkGHAuth() check {
 	return check{name: "gh auth", ok: true, detail: "authenticated"}
 }
 
-// checkLinearKey tests whether the configured LINEAR_API_KEY can reach Linear.
+// checkLinearKey tests whether the configured Linear credential can reach
+// Linear. It prefers an app-actor OAuth token (LINEAR_OAUTH_TOKEN) when set,
+// falling back to the personal API key.
 func checkLinearKey(cfg *config.Config) check {
-	if cfg.LinearAPIKey == "" {
+	name := "LINEAR_API_KEY"
+	var client *linear.Client
+	switch {
+	case cfg.LinearOAuthToken != "":
+		name = "LINEAR_OAUTH_TOKEN"
+		client = linear.NewOAuth(cfg.LinearOAuthToken)
+	case cfg.LinearAPIKey != "":
+		client = linear.New(cfg.LinearAPIKey)
+	default:
 		return check{
-			name:   "LINEAR_API_KEY",
+			name:   name,
 			detail: "not set",
-			hint:   "Run `noctra setup` or set LINEAR_API_KEY in .env.",
+			hint:   "Run `noctra setup` or set LINEAR_API_KEY (or LINEAR_OAUTH_TOKEN) in .env.",
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	name, err := linear.New(cfg.LinearAPIKey).Ping(ctx)
+	who, err := client.Ping(ctx)
 	if err != nil {
 		return check{
-			name:   "LINEAR_API_KEY",
+			name:   name,
 			detail: fmt.Sprintf("unreachable (%v)", err),
-			hint:   "Check your API key in .env or at https://linear.app/settings/api.",
+			hint:   "Check your credential in .env or at https://linear.app/settings/api.",
 		}
 	}
-	return check{name: "LINEAR_API_KEY", ok: true, detail: fmt.Sprintf("authenticated as %s", name)}
+	return check{name: name, ok: true, detail: fmt.Sprintf("authenticated as %s", who)}
 }
 
 // checkRepos reports how repos are routed. Repos are resolved per-ticket from

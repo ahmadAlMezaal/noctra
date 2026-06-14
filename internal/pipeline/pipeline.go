@@ -75,7 +75,7 @@ func New(cfg *config.Config) *Pipeline {
 
 	p := &Pipeline{
 		cfg:            cfg,
-		linear:         linear.New(cfg.LinearAPIKey),
+		linear:         newLinearClient(cfg),
 		resolver:       repo.FromConfig(cfg),
 		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
 		review:         review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
@@ -396,6 +396,16 @@ func rateLimited(b agent.Backend, runErr error, output string) bool {
 	return runErr != nil && b.HasRateLimit(output)
 }
 
+// newLinearClient picks the Linear auth: an `actor=app` OAuth token (so Noctra
+// posts under its own app identity) when configured, otherwise the personal API
+// key. The OAuth token, when set, is used for every Linear call.
+func newLinearClient(cfg *config.Config) *linear.Client {
+	if cfg.LinearOAuthToken != "" {
+		return linear.NewOAuth(cfg.LinearOAuthToken)
+	}
+	return linear.New(cfg.LinearAPIKey)
+}
+
 func (p *Pipeline) banner() {
 	reviewMode := "Disabled"
 	if p.review.Enabled() {
@@ -431,6 +441,11 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Repos:          %s\n", repoSummary)
 	fmt.Printf("   Worktrees:      %s\n", p.cfg.WorktreeBase)
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
+	linearIdentity := "personal API key"
+	if p.cfg.LinearOAuthToken != "" {
+		linearIdentity = "Noctra app (OAuth actor=app)"
+	}
+	fmt.Printf("   Linear as:      %s\n", linearIdentity)
 	if p.cfg.TriggerMode == "label" {
 		fmt.Printf("   Watching:       label %q\n", p.cfg.TriggerLabel)
 	} else {
