@@ -55,12 +55,11 @@ const (
 // bannerArt is the figlet "standard" font rendering of "Noctra".
 // Defined as a regular string (not raw) because the font uses backticks.
 var bannerArt = "" +
-	"  _   _ _       _     _       _     _  __ _   \n" +
-	" | \\ | (_) __ _| |__ | |_ ___| |__ (_)/ _| |_ \n" +
-	" |  \\| | |/ _` | '_ \\| __/ __| '_ \\| | |_| __|\n" +
-	" | |\\  | | (_| | | | | |_\\__ \\ | | | |  _| |_ \n" +
-	" |_| \\_|_|\\__, |_| |_|\\__|___/_| |_|_|_|  \\__|\n" +
-	"           |___/                                \n"
+	" _   _            _             \n" +
+	"| \\ | | ___   ___| |_ _ __ __ _ \n" +
+	"|  \\| |/ _ \\ / __| __| '__/ _` |\n" +
+	"| |\\  | (_) | (__| |_| | | (_| |\n" +
+	"|_| \\_|\\___/ \\___|\\__|_|  \\__,_|\n"
 
 func main() {
 	if err := realMain(); err != nil {
