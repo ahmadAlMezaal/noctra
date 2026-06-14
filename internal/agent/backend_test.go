@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -105,6 +108,37 @@ func TestCopilotArgs_UsesAllowAllToolsAndPromptFlag(t *testing.T) {
 	i := slices.Index(args, "-p")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
 		t.Errorf("copilotArgs did not pass prompt after -p: %v", args)
+	}
+}
+
+func TestCopilotEnv_SkipsWhenTokenAlreadySet(t *testing.T) {
+	t.Setenv("COPILOT_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "already-here")
+	if env := copilotEnv(context.Background()); env != nil {
+		t.Errorf("expected nil (inherit os.Environ) when a token env is set, got %v", env)
+	}
+}
+
+func TestCopilotEnv_InjectsGhTokenWhenNoneSet(t *testing.T) {
+	t.Setenv("COPILOT_GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	// Fake `gh` on PATH that prints a token for `gh auth token`.
+	dir := t.TempDir()
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = token ]; then echo faketoken123; fi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	env := copilotEnv(context.Background())
+	if env == nil {
+		t.Fatal("expected env with injected GH_TOKEN, got nil")
+	}
+	if !slices.Contains(env, "GH_TOKEN=faketoken123") {
+		t.Errorf("expected GH_TOKEN=faketoken123 in env, got %v", env)
 	}
 }
 

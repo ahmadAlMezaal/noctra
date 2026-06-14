@@ -64,6 +64,9 @@ func TestLogsArgs_Default(t *testing.T) {
 	if slices.Contains(args, "-f") {
 		t.Error("-f should not be present when follow is false")
 	}
+	if !slices.Contains(args, "--no-pager") {
+		t.Error("default (no follow) should include --no-pager so the latest line shows without scrolling")
+	}
 }
 
 func TestLogsArgs_Follow(t *testing.T) {
