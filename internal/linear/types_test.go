@@ -15,6 +15,9 @@ func TestClarificationComments_FiltersSystemComments(t *testing.T) {
 			// Noctra's own BLOCKED notification — filtered (would otherwise be
 			// echoed back at the agent).
 			{Body: "🚧 **Noctra needs your input** (attempt 1/3)\n\nThe agent got blocked..."},
+			// Legacy pre-rename (Nightshift) automated notice — still filtered so a
+			// re-dispatched older ticket doesn't echo it back to the agent (ENG-204).
+			{Body: "🚧 **Nightshift needs your input** (attempt 2/3)\n\nThe agent got blocked..."},
 			// Whitespace-only — skipped.
 			{Body: "   "},
 			// Author missing — kept, attributed to "Someone".

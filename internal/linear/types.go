@@ -100,8 +100,14 @@ type Issue struct {
 // clarification — otherwise the agent's own BLOCKED notice would be echoed
 // straight back at it. Every Noctra status comment is bold-prefixed with
 // "**Noctra", which a human reply would not be.
+//
+// "**Nightshift" is retained for backward compatibility: tickets that were
+// active before the Noctra rename (ENG-204) still carry automated comments
+// with the old prefix, and those must keep being filtered so a re-dispatched
+// ticket doesn't feed the agent its own pre-rename BLOCKED/status notices.
 var systemCommentMarkers = []string{
 	"**Noctra",
+	"**Nightshift",
 	"This comment thread is synced",
 }
 

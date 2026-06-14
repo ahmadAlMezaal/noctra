@@ -58,8 +58,8 @@ func MigrateLegacyPaths() {
 		if _, err := os.Stat(oldPath); err != nil {
 			continue // old path absent — nothing to migrate
 		}
-		if _, err := os.Stat(newPath); err == nil {
-			continue // new path already exists — don't clobber
+		if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+			continue // new path already exists, or stat failed — don't clobber
 		}
 		if err := os.Rename(oldPath, newPath); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not migrate %s -> %s: %v\n", oldPath, newPath, err)
