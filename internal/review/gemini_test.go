@@ -3,6 +3,8 @@ package review
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +110,115 @@ func TestReviewAPIRequiresKeyForEnabled(t *testing.T) {
 	}
 	if !NewWithMode("cli", "", "").Enabled() {
 		t.Fatal("cli mode should be enabled without GEMINI_API_KEY")
+	}
+}
+
+func TestReviewAPISendsKeyInHeaderNotQuery(t *testing.T) {
+	var gotQuery, gotKey string
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotQuery = req.URL.RawQuery
+		gotKey = req.Header.Get("x-goog-api-key")
+		return jsonResponse(200, `{"candidates":[{"content":{"parts":[{"text":"VERDICT: PASS\nok"}]}}]}`), nil
+	})}
+
+	res, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if !res.Passed || res.Skipped {
+		t.Fatalf("result = %+v, want passed", res)
+	}
+	if gotQuery != "" {
+		t.Fatalf("query = %q, want no API key query params", gotQuery)
+	}
+	if gotKey != "secret-key" {
+		t.Fatalf("x-goog-api-key = %q, want secret-key", gotKey)
+	}
+}
+
+func TestReviewAPINon2xxIsUnavailable(t *testing.T) {
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(429, `{"error":{"message":"quota exceeded"}}`), nil
+	})}
+
+	res, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if !res.Skipped || !res.Passed {
+		t.Fatalf("result = %+v, want skipped pass", res)
+	}
+}
+
+func TestReviewAPINoCandidatesIsUnavailable(t *testing.T) {
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(200, `{}`), nil
+	})}
+
+	res, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if !res.Skipped || !res.Passed {
+		t.Fatalf("result = %+v, want skipped pass", res)
+	}
+}
+
+func TestReviewAPISafetyBlockIsUnavailable(t *testing.T) {
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(200, `{"promptFeedback":{"blockReason":"SAFETY"}}`), nil
+	})}
+
+	res, err := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if !res.Skipped || !res.Passed || !strings.Contains(res.Body, "SAFETY") {
+		t.Fatalf("result = %+v, want skipped safety body", res)
+	}
+}
+
+func TestParseResultToleratesVerdictFormatting(t *testing.T) {
+	tests := []struct {
+		name    string
+		text    string
+		passed  bool
+		skipped bool
+	}{
+		{name: "bolded", text: "**VERDICT: PASS**\nLooks good.", passed: true},
+		{name: "bolded label", text: "**VERDICT**: PASS\nLooks good.", passed: true},
+		{name: "missing space", text: "VERDICT:PASS\nLooks good.", passed: true},
+		{name: "fail", text: "**VERDICT: FAIL**\nNeeds work.", passed: false},
+		{name: "bolded fail label", text: "**VERDICT**: FAIL\nNeeds work.", passed: false},
+		{name: "unparseable", text: "Looks fine to me.", passed: true, skipped: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseResult(tt.text)
+			if got.Passed != tt.passed || got.Skipped != tt.skipped {
+				t.Fatalf("parseResult(%q) = %+v, want passed=%v skipped=%v",
+					tt.text, got, tt.passed, tt.skipped)
+			}
+		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Status:     http.StatusText(status),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
 

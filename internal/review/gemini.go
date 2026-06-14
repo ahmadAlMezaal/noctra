@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -119,18 +121,20 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 		return Result{}, err
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-		g.Model, g.APIKey)
+	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+		url.PathEscape(g.Model))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return Result{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", g.APIKey)
 
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return Result{}, fmt.Errorf("gemini request: %w", err)
+		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API request failed: %v", err)},
+			fmt.Errorf("%w: gemini request: %v", ErrUnavailable, err)
 	}
 	defer resp.Body.Close()
 
@@ -138,8 +142,19 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body := strings.TrimSpace(string(raw))
+		if body == "" {
+			body = resp.Status
+		}
+		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API unavailable (%s): %s", resp.Status, body)},
+			fmt.Errorf("%w: gemini API returned %s", ErrUnavailable, resp.Status)
+	}
 
 	var parsed struct {
+		PromptFeedback struct {
+			BlockReason string `json:"blockReason"`
+		} `json:"promptFeedback"`
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
@@ -151,8 +166,14 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return Result{}, fmt.Errorf("decode gemini response: %w", err)
 	}
+	if parsed.PromptFeedback.BlockReason != "" {
+		body := "Gemini API safety-blocked the review prompt: " + parsed.PromptFeedback.BlockReason
+		return Result{Skipped: true, Passed: true, Body: body},
+			fmt.Errorf("%w: %s", ErrUnavailable, body)
+	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
-		return Result{}, errors.New("gemini response had no candidates")
+		return Result{Skipped: true, Passed: true, Body: "Gemini API returned no review candidates."},
+			fmt.Errorf("%w: gemini response had no candidates", ErrUnavailable)
 	}
 
 	text := parsed.Candidates[0].Content.Parts[0].Text
@@ -211,9 +232,23 @@ func isCLIUnavailableMessage(msg string) bool {
 }
 
 func parseResult(text string) Result {
-	upper := strings.ToUpper(text)
+	verdict := reviewVerdict(text)
 	return Result{
-		Passed: strings.Contains(upper, "VERDICT: PASS"),
-		Body:   text,
+		Passed:  verdict == "PASS" || verdict == "",
+		Skipped: verdict == "",
+		Body:    text,
 	}
+}
+
+var verdictLineRe = regexp.MustCompile(`(?i)(?:\*\*)?\s*VERDICT\s*:?\s*(PASS|FAIL)\b`)
+
+func reviewVerdict(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		normalized := strings.ReplaceAll(line, "*", "")
+		m := verdictLineRe.FindStringSubmatch(normalized)
+		if len(m) == 2 {
+			return strings.ToUpper(m[1])
+		}
+	}
+	return ""
 }

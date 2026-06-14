@@ -157,7 +157,7 @@ func TestDiff_CIFailureAlreadyHandledForSHA(t *testing.T) {
 	}
 }
 
-func TestDiff_CIStillRunningIsIgnored(t *testing.T) {
+func TestDiff_CIFailureSurfacesEvenWithPendingCheck(t *testing.T) {
 	w := newTestWatcher(t, nil)
 	pr := github.PR{URL: "https://github.com/me/repo/pull/1"}
 	details := &github.Details{
@@ -169,8 +169,11 @@ func TestDiff_CIStillRunningIsIgnored(t *testing.T) {
 		},
 	}
 	ch := w.diff(pr, details, state.PRState{})
-	if ch.CIFailure != nil {
-		t.Error("should wait until all checks complete before acting on CI")
+	if ch.CIFailure == nil {
+		t.Fatal("expected completed failure even while another check is pending")
+	}
+	if len(ch.CIFailure.FailedChecks) != 1 || ch.CIFailure.FailedChecks[0].CheckName() != "build" {
+		t.Fatalf("failed checks = %+v, want build only", ch.CIFailure.FailedChecks)
 	}
 }
 

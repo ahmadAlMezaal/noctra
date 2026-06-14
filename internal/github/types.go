@@ -23,6 +23,7 @@ type PR struct {
 	Number      int    `json:"number"`
 	Title       string `json:"title"`
 	HeadRefName string `json:"headRefName"`
+	Body        string `json:"body"`
 
 	// RepoURL is the git remote URL of the clone this PR was discovered from
 	// (set by ListNoctraPRs, not from gh's JSON). It preserves the clone's

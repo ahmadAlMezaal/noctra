@@ -23,9 +23,11 @@ type Client struct{}
 // New returns a ready-to-use Client.
 func New() *Client { return &Client{} }
 
+const noctraPRBodyMarker = "Implemented by [Noctra]"
+
 // ListNoctraPRs returns every open PR that Noctra created across the
-// given repositories (any branch matching the `noctra/` prefix authored
-// by the current `gh` user).
+// given repositories (authored by the current `gh` user, with a `noctra/`
+// branch and Noctra's generated PR body marker).
 //
 // repoURLs are the git URLs of the repos Noctra has cloned (plus the
 // REPO_PATH fallback). Each is reduced to `owner/name` before being passed to
@@ -45,7 +47,7 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 			"--repo", ownerRepo,
 			"--author", "@me",
 			"--state", "open",
-			"--json", "url,number,title,headRefName",
+			"--json", "url,number,title,headRefName,body",
 		)
 		cmd.Stderr = &stderr
 		stdout, err := cmd.Output()
@@ -61,11 +63,14 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 		}
 
 		for _, pr := range prs {
-			if strings.HasPrefix(pr.HeadRefName, "noctra/") {
+			if strings.HasPrefix(pr.HeadRefName, "noctra/") && strings.Contains(pr.Body, noctraPRBodyMarker) {
 				// Remember the remote this PR was found through so the iterate
 				// path can re-resolve over the same transport (e.g. SSH).
 				pr.RepoURL = raw
 				out = append(out, pr)
+			} else if strings.HasPrefix(pr.HeadRefName, "noctra/") {
+				slog.Warn("github: skipping noctra-prefixed PR without Noctra body marker",
+					"repo", ownerRepo, "pr", pr.Number, "branch", pr.HeadRefName)
 			}
 		}
 	}

@@ -39,3 +39,23 @@ func TestRateLimited_OnlyOnFailure(t *testing.T) {
 		t.Error("failed run without markers should not be classified as rate-limited")
 	}
 }
+
+func TestClassifyAgentRun_FixPassTimeoutAndRateLimit(t *testing.T) {
+	codex, err := agent.New("codex")
+	if err != nil {
+		t.Fatalf("New(codex): %v", err)
+	}
+
+	if got := classifyAgentRun(codex, agent.ErrTimedOut, ""); got != agentRunTimedOut {
+		t.Fatalf("timeout classify = %v, want %v", got, agentRunTimedOut)
+	}
+	if got := classifyAgentRun(codex, errors.New("exit status 1"), "Error: rate limit reached"); got != agentRunRateLimited {
+		t.Fatalf("rate limit classify = %v, want %v", got, agentRunRateLimited)
+	}
+	if got := classifyAgentRun(codex, errors.New("exit status 1"), "syntax error"); got != agentRunFailed {
+		t.Fatalf("generic failure classify = %v, want %v", got, agentRunFailed)
+	}
+	if got := classifyAgentRun(codex, nil, "Error: rate limit reached"); got != agentRunOK {
+		t.Fatalf("successful transcript classify = %v, want %v", got, agentRunOK)
+	}
+}

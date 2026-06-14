@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,5 +96,30 @@ func TestBranchAhead(t *testing.T) {
 	}
 	if changed, _ := workingTreeChanged(ctx, dir); changed {
 		t.Fatal("working tree should be clean after the commit (the bug scenario)")
+	}
+}
+
+func TestBoundedReviewDiffTruncatesWithNotice(t *testing.T) {
+	diff := strings.Repeat("a", maxReviewDiffBytes+1000)
+	got := boundedReviewDiff(diff)
+	if len(got) >= len(diff) {
+		t.Fatalf("bounded diff length = %d, want less than original %d", len(got), len(diff))
+	}
+	if !strings.Contains(got, "diff truncated for review") {
+		t.Fatalf("bounded diff missing truncation notice: %q", got)
+	}
+	if !strings.HasPrefix(got, "aaa") || !strings.HasSuffix(got, "aaa") {
+		t.Fatal("bounded diff should preserve both head and tail")
+	}
+}
+
+func TestBoundedReviewDiffPreservesUTF8(t *testing.T) {
+	diff := strings.Repeat("🙂", maxReviewDiffBytes/4+1000)
+	got := boundedReviewDiff(diff)
+	if !strings.Contains(got, "diff truncated for review") {
+		t.Fatal("expected truncation notice")
+	}
+	if strings.ToValidUTF8(got, "") != got {
+		t.Fatal("bounded diff should not split UTF-8 runes")
 	}
 }
