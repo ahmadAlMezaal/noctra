@@ -1,5 +1,5 @@
 // Package review is the optional Gemini-based "second model review" gate.
-// Nightshift sends the staged diff and ticket context to Gemini and parses a
+// Noctra sends the staged diff and ticket context to Gemini and parses a
 // VERDICT: PASS / VERDICT: FAIL line out of the response.
 package review
 

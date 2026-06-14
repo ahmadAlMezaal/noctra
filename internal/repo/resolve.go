@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
 )
 
 // NonTransientError signals a failure that is deterministic and cannot
@@ -95,7 +95,7 @@ func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resol
 		}
 		if err := checkRemoteAccess(ctx, url); err != nil {
 			return Resolved{}, fmt.Errorf(
-				"cannot access %q — the host running Nightshift needs git auth for it "+
+				"cannot access %q — the host running Noctra needs git auth for it "+
 					"(an SSH key, or `gh auth login` for HTTPS URLs): %w", url, err)
 		}
 		if err := ensureCloned(ctx, url, dest); err != nil {
@@ -208,7 +208,7 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// AllRepoPaths returns every local repo Nightshift knows about: every on-demand
+// AllRepoPaths returns every local repo Noctra knows about: every on-demand
 // clone found under ReposBase, plus the REPO_PATH fallback (if set and valid).
 // Used by the cleanup subcommand and startup cleanup. Directive-only routing
 // means there's no static registry, so the cloned repos are discovered by
@@ -238,7 +238,7 @@ func (r *Resolver) AllRepoPaths() []string {
 
 // AllRepoRemotes returns the `origin` remote URL of every local repo from
 // AllRepoPaths. The PR watcher uses this to discover which repos to scan for
-// Nightshift-authored PRs — with directive-only routing the set of repos is
+// Noctra-authored PRs — with directive-only routing the set of repos is
 // whatever has been cloned so far, so it's derived from the clones on disk.
 //
 // The git reads run concurrently and honour ctx: this is called on the PR-poll

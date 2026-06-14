@@ -1,10 +1,10 @@
-// Package selfupdate implements npm-style in-place upgrades for the nightshift
+// Package selfupdate implements npm-style in-place upgrades for the noctra
 // binary. It shells out to the (already-required, already-authed) `gh` CLI to
 // query the latest GitHub release and download the GoReleaser archive for the
 // current platform, verifies the SHA-256 against the published checksums file,
-// untars the `nightshift` binary, and atomically swaps it over the running
+// untars the `noctra` binary, and atomically swaps it over the running
 // executable. Only the binary is replaced — logs (config dir `logs/` +
-// journald) and state (`~/.nightshift-*`) are untouched.
+// journald) and state (`~/.noctra-*`) are untouched.
 package selfupdate
 
 import (
@@ -25,7 +25,7 @@ import (
 	"strings"
 )
 
-const repo = "ahmadAlMezaal/nightshift"
+const repo = "ahmadAlMezaal/noctra"
 
 // Latest returns the tag name of the latest GitHub release (e.g. "v0.1.0")
 // by shelling out to `gh release view`.
@@ -123,7 +123,7 @@ func assetName(version, goos, goarch string) string {
 		// GOARM is fixed to 7 in .goreleaser.yaml.
 		arch = "armv7"
 	}
-	return fmt.Sprintf("nightshift_%s_%s_%s.tar.gz", ver, goos, arch)
+	return fmt.Sprintf("noctra_%s_%s_%s.tar.gz", ver, goos, arch)
 }
 
 const checksumsName = "checksums.txt"
@@ -136,15 +136,15 @@ func Update(ctx context.Context, current string, restart bool) error {
 	}
 
 	if !IsNewer(tag, current) {
-		fmt.Printf("✓ nightshift is already up to date (%s)\n", displayVersion(current))
+		fmt.Printf("✓ noctra is already up to date (%s)\n", displayVersion(current))
 		return nil
 	}
 
-	fmt.Printf("⬇️  Updating nightshift %s → %s …\n", displayVersion(current), tag)
+	fmt.Printf("⬇️  Updating noctra %s → %s …\n", displayVersion(current), tag)
 
 	asset := assetName(tag, runtime.GOOS, runtime.GOARCH)
 
-	tmp, err := os.MkdirTemp("", "nightshift-update-*")
+	tmp, err := os.MkdirTemp("", "noctra-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
@@ -176,11 +176,11 @@ func Update(ctx context.Context, current string, restart bool) error {
 	}
 
 	fmt.Printf("✓ Updated to %s\n", tag)
-	fmt.Println("  Restart the service to run the new version:  nightshift logs  /  systemctl --user restart nightshift.service")
+	fmt.Println("  Restart the service to run the new version:  noctra logs  /  systemctl --user restart noctra.service")
 
 	if restart {
-		fmt.Println("⟳ Restarting nightshift.service …")
-		rs := exec.CommandContext(ctx, "systemctl", "--user", "restart", "nightshift.service")
+		fmt.Println("⟳ Restarting noctra.service …")
+		rs := exec.CommandContext(ctx, "systemctl", "--user", "restart", "noctra.service")
 		rs.Stdout = os.Stdout
 		rs.Stderr = os.Stderr
 		if err := rs.Run(); err != nil {
@@ -233,7 +233,7 @@ func verifyChecksum(archivePath, checksumsPath, assetName string) error {
 	return nil
 }
 
-// extractBinary reads the `nightshift` binary out of the gzip'd tar archive.
+// extractBinary reads the `noctra` binary out of the gzip'd tar archive.
 func extractBinary(archivePath string) ([]byte, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -256,7 +256,7 @@ func extractBinary(archivePath string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("tar: %w", err)
 		}
-		if filepath.Base(hdr.Name) == "nightshift" && hdr.Typeflag == tar.TypeReg {
+		if filepath.Base(hdr.Name) == "noctra" && hdr.Typeflag == tar.TypeReg {
 			data, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, fmt.Errorf("read binary from archive: %w", err)
@@ -264,7 +264,7 @@ func extractBinary(archivePath string) ([]byte, error) {
 			return data, nil
 		}
 	}
-	return nil, errors.New("nightshift binary not found in archive")
+	return nil, errors.New("noctra binary not found in archive")
 }
 
 // installBinary atomically swaps the new binary over the currently-running
@@ -281,7 +281,7 @@ func installBinary(data []byte) error {
 	}
 
 	dir := filepath.Dir(exe)
-	tmpf, err := os.CreateTemp(dir, ".nightshift-new-*")
+	tmpf, err := os.CreateTemp(dir, ".noctra-new-*")
 	if err != nil {
 		return permHint(err, dir)
 	}

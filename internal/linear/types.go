@@ -1,5 +1,5 @@
 // Package linear is a small Linear GraphQL client that covers the operations
-// Nightshift needs: fetching tickets in a trigger state, moving a ticket
+// Noctra needs: fetching tickets in a trigger state, moving a ticket
 // between states, and posting comments.
 package linear
 
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Project is the Linear project a ticket belongs to. Nightshift routes the
+// Project is the Linear project a ticket belongs to. Noctra routes the
 // ticket to a repo by a "Repo:" directive in the project's content/description.
 type Project struct {
 	Name string `json:"name"`
@@ -61,7 +61,7 @@ type WorkflowState struct {
 	Type string `json:"type"`
 }
 
-// User is the subset of a Linear user Nightshift surfaces (the assignee).
+// User is the subset of a Linear user Noctra surfaces (the assignee).
 type User struct {
 	Name string `json:"name"`
 }
@@ -79,7 +79,7 @@ type CommentConnection struct {
 	Nodes []Comment `json:"nodes"`
 }
 
-// Issue is the subset of a Linear issue Nightshift acts on. State and Assignee
+// Issue is the subset of a Linear issue Noctra acts on. State and Assignee
 // are only populated by the read queries that request them (e.g.
 // GetIssueByIdentifier); they are nil otherwise. Comments is only populated by
 // the trigger fetches (FetchTriggerIssues / FetchLabeledIssues).
@@ -95,19 +95,25 @@ type Issue struct {
 	Comments    CommentConnection `json:"comments,omitempty"`
 }
 
-// systemCommentMarkers identify comments that Nightshift (or the Linear↔GitHub
+// systemCommentMarkers identify comments that Noctra (or the Linear↔GitHub
 // sync) posted automatically. They must never be fed back to the agent as human
 // clarification — otherwise the agent's own BLOCKED notice would be echoed
-// straight back at it. Every Nightshift status comment is bold-prefixed with
-// "**Nightshift", which a human reply would not be.
+// straight back at it. Every Noctra status comment is bold-prefixed with
+// "**Noctra", which a human reply would not be.
+//
+// "**Nightshift" is retained for backward compatibility: tickets that were
+// active before the Noctra rename (ENG-204) still carry automated comments
+// with the old prefix, and those must keep being filtered so a re-dispatched
+// ticket doesn't feed the agent its own pre-rename BLOCKED/status notices.
 var systemCommentMarkers = []string{
+	"**Noctra",
 	"**Nightshift",
 	"This comment thread is synced",
 }
 
 func isSystemComment(body string) bool {
 	// Classify only by the first non-empty line. A human who quotes one of our
-	// notifications (a "> 🚧 **Nightshift…" block) and then adds their own reply
+	// notifications (a "> 🚧 **Noctra…" block) and then adds their own reply
 	// must still count as a clarification — so a leading ">" quote is never a
 	// system comment, and a marker buried later in the body doesn't trip it.
 	firstLine := ""
@@ -129,7 +135,7 @@ func isSystemComment(body string) bool {
 }
 
 // ClarificationComments returns the human-authored comments on the issue,
-// formatted as "Author: body", with Nightshift's own automated notifications
+// formatted as "Author: body", with Noctra's own automated notifications
 // and the GitHub-sync notice filtered out. The implement prompt includes these
 // so a human can unblock a ticket by replying in the comments — which is exactly
 // what the BLOCKED notification instructs them to do.

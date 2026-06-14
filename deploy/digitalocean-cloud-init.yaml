@@ -1,6 +1,6 @@
 #cloud-config
 # DigitalOcean (or any cloud-init host) — boots a ~$4/mo droplet that runs
-# Nightshift in Docker, auto-restarting and surviving reboots.
+# Noctra in Docker, auto-restarting and surviving reboots.
 #
 # Paste this into the droplet's "User data" field at creation
 # (Create Droplet → Advanced → Add Initialization scripts).
@@ -19,17 +19,17 @@ runcmd:
   # `--now` returns before dockerd is fully ready; wait so `docker run` doesn't
   # intermittently fail to reach the daemon.
   - until docker info >/dev/null 2>&1; do sleep 1; done
-  - mkdir -p /opt/nightshift/data
+  - mkdir -p /opt/noctra/data
   - |
-    docker run -d --name nightshift --restart unless-stopped \
+    docker run -d --name noctra --restart unless-stopped \
       -e LINEAR_API_KEY="REPLACE_ME" \
       -e AGENT_BACKEND="claude" \
       -e ANTHROPIC_API_KEY="REPLACE_ME" \
       -e GH_TOKEN="REPLACE_ME" \
-      -v /opt/nightshift/data:/data \
-      ghcr.io/ahmadalmezaal/nightshift:latest
+      -v /opt/noctra/data:/data \
+      ghcr.io/ahmadalmezaal/noctra:latest
   # Repos are declared per-project in Linear (a `Repo: owner/name` line in the
   # project description) — nothing to pass here.
-  # Logs:    docker logs -f nightshift
-  # Upgrade: docker pull ghcr.io/ahmadalmezaal/nightshift:latest && \
-  #          docker rm -f nightshift && <re-run the docker run above>
+  # Logs:    docker logs -f noctra
+  # Upgrade: docker pull ghcr.io/ahmadalmezaal/noctra:latest && \
+  #          docker rm -f noctra && <re-run the docker run above>

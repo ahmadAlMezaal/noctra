@@ -1,4 +1,4 @@
-// Package cleanup implements `nightshift cleanup` — pruning stale branches,
+// Package cleanup implements `noctra cleanup` — pruning stale branches,
 // worktrees, and old agent logs across every registered repo.
 package cleanup
 
@@ -13,20 +13,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/repo"
 )
 
 // Run performs an interactive cleanup unless force is true.
 func Run(ctx context.Context, cfg *config.Config, force bool) error {
 	fmt.Println()
-	fmt.Println("🧹 Nightshift Cleanup")
+	fmt.Println("🧹 Noctra Cleanup")
 	fmt.Println()
 
 	resolver := repo.FromConfig(cfg)
 	repos := resolver.AllRepoPaths()
 	if len(repos) == 0 {
-		return errors.New("no repos found — run ./nightshift setup, or set REPO_PATH in .env")
+		return errors.New("no repos found — run ./noctra setup, or set REPO_PATH in .env")
 	}
 
 	in := bufio.NewScanner(os.Stdin)
@@ -54,9 +54,9 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 			}
 		}
 
-		// ── Unmerged nightshift/* branches ──────────────────────────────────
-		if branches := unmergedNightshift(ctx, r, cfg.MainBranch); len(branches) > 0 {
-			fmt.Println("  ⚠️  Unmerged Nightshift branches (from failed runs):")
+		// ── Unmerged noctra/* branches ──────────────────────────────────
+		if branches := unmergedNoctra(ctx, r, cfg.MainBranch); len(branches) > 0 {
+			fmt.Println("  ⚠️  Unmerged Noctra branches (from failed runs):")
 			for _, b := range branches {
 				fmt.Printf("    - %s\n", b)
 			}
@@ -144,15 +144,15 @@ func merged(ctx context.Context, repoPath, mainBranch string) []string {
 	})
 }
 
-// unmergedNightshift returns branches under nightshift/* that have NOT been
+// unmergedNoctra returns branches under noctra/* that have NOT been
 // merged into mainBranch.
-func unmergedNightshift(ctx context.Context, repoPath, mainBranch string) []string {
+func unmergedNoctra(ctx context.Context, repoPath, mainBranch string) []string {
 	out, err := outputOf(ctx, repoPath, "git", "branch", "--no-merged", mainBranch)
 	if err != nil {
 		return nil
 	}
 	return filterBranches(out, func(name string) bool {
-		return strings.HasPrefix(name, "nightshift/")
+		return strings.HasPrefix(name, "noctra/")
 	})
 }
 

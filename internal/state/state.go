@@ -1,4 +1,4 @@
-// Package state persists Nightshift's view of the PRs it has created and how
+// Package state persists Noctra's view of the PRs it has created and how
 // far it has caught up on each — last-seen comment / review cursors and the
 // per-PR iteration counter. The watcher reads this on startup so a restart
 // doesn't re-react to comments that pre-date the cursor.
@@ -34,13 +34,13 @@ type PRState struct {
 	// processed.
 	LastReviewAt time.Time `json:"last_review_at,omitempty"`
 
-	// LastCISHA is the head commit SHA whose failing CI Nightshift has
+	// LastCISHA is the head commit SHA whose failing CI Noctra has
 	// already re-engaged on. CI is keyed by SHA (not timestamp) so a failure
 	// is acted on once per commit; pushing a fix changes the SHA, making a
 	// fresh failure eligible again — bounded by Iterations.
 	LastCISHA string `json:"last_ci_sha,omitempty"`
 
-	// Iterations counts how many times Nightshift has re-engaged on this
+	// Iterations counts how many times Noctra has re-engaged on this
 	// PR. Capped by config.MaxPRIterations.
 	Iterations int `json:"iterations,omitempty"`
 

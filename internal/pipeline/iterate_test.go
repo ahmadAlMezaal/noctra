@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/watch"
+	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
 func TestCountEvents_MixedTypes(t *testing.T) {
@@ -83,11 +83,11 @@ func TestIdentifierFromBranch(t *testing.T) {
 		branch string
 		want   string
 	}{
-		{"nightshift/eng-42", "ENG-42"},
-		{"nightshift/eng-181", "ENG-181"},
+		{"noctra/eng-42", "ENG-42"},
+		{"noctra/eng-181", "ENG-181"},
 		{"main", ""},
 		{"feature/something", ""},
-		{"nightshift/", ""},
+		{"noctra/", ""},
 	}
 	for _, tt := range tests {
 		got := identifierFromBranch(tt.branch)

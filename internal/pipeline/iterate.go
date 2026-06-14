@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/agent"
-	"github.com/ahmadAlMezaal/nightshift/internal/github"
-	"github.com/ahmadAlMezaal/nightshift/internal/notify"
-	"github.com/ahmadAlMezaal/nightshift/internal/repo"
-	"github.com/ahmadAlMezaal/nightshift/internal/state"
-	"github.com/ahmadAlMezaal/nightshift/internal/watch"
+	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
 // runWatcher is the PR-poll loop counterpart to the main Linear-poll loop.
@@ -90,7 +90,7 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		}
 
 		if identifier == "" {
-			slog.Warn("pr poll: branch is not a Nightshift branch; skipping",
+			slog.Warn("pr poll: branch is not a Noctra branch; skipping",
 				"branch", ch.PR.HeadRefName)
 			continue
 		}
@@ -321,7 +321,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		logger.Info("blocked", "reason", blocked)
 		if issueID != "" {
 			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
-				"🚧 **Nightshift: blocked on PR feedback**\n\n> %s\n\nLeft the PR as-is. Reply to the PR with clarification, then move the ticket to **%s** to retry.",
+				"🚧 **Noctra: blocked on PR feedback**\n\n> %s\n\nLeft the PR as-is. Reply to the PR with clarification, then move the ticket to **%s** to retry.",
 				blocked, p.cfg.TriggerState))
 		}
 		// Advance cursor + count attempt so we don't loop on the same feedback.
@@ -345,7 +345,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		return
 	}
 	if staged {
-		commitMsg := fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Nightshift (%s).",
+		commitMsg := fmt.Sprintf("fix: address PR feedback on %s\n\nFollow-up commit by Noctra (%s).",
 			identifier, engagementSummary(ch))
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
@@ -426,7 +426,7 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 			notify.EscapeMarkdown(identifier), prNumber, iterations))
 		if issueID != "" {
 			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
-				"🛑 **Nightshift: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Nightshift won't re-engage on this PR again unless you reset the iteration count in `~/.nightshift-state.json` or close the PR.",
+				"🛑 **Noctra: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Noctra won't re-engage on this PR again unless you reset the iteration count in `~/.noctra-state.json` or close the PR.",
 				iterations, ch.PR.URL))
 		}
 	}
@@ -451,7 +451,7 @@ func (p *Pipeline) advanceCursor(ch watch.PRChanges) {
 	}
 }
 
-// engagementSummary is a short human description of why Nightshift is
+// engagementSummary is a short human description of why Noctra is
 // re-engaging on a PR — used in the Telegram heads-up and the commit message.
 func engagementSummary(ch watch.PRChanges) string {
 	hasFeedback := len(ch.Events) > 0
@@ -480,11 +480,11 @@ func prRepoOwnerRepo(prURL string) (string, error) {
 	return parts[0] + "/" + parts[1], nil
 }
 
-// identifierFromBranch turns "nightshift/eng-42" into "ENG-42". Returns ""
-// if the branch isn't a Nightshift branch.
+// identifierFromBranch turns "noctra/eng-42" into "ENG-42". Returns ""
+// if the branch isn't a Noctra branch.
 func identifierFromBranch(branch string) string {
-	if !strings.HasPrefix(branch, "nightshift/") {
+	if !strings.HasPrefix(branch, "noctra/") {
 		return ""
 	}
-	return strings.ToUpper(strings.TrimPrefix(branch, "nightshift/"))
+	return strings.ToUpper(strings.TrimPrefix(branch, "noctra/"))
 }

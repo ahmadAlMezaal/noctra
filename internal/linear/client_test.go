@@ -130,10 +130,10 @@ func TestProjectIssueCounts_AggregatesAndOrders(t *testing.T) {
 	}{
 		authHeader: "test-key",
 		query:      "project: { name: { eq: $project } }",
-		variables:  map[string]any{"project": "Nightshift"},
+		variables:  map[string]any{"project": "Noctra"},
 	}, resp)
 
-	counts, err := client.ProjectIssueCounts(context.Background(), "Nightshift")
+	counts, err := client.ProjectIssueCounts(context.Background(), "Noctra")
 	if err != nil {
 		t.Fatalf("ProjectIssueCounts: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestProjectIssueCounts_Paginates(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
-	counts, err := client.ProjectIssueCounts(context.Background(), "Nightshift")
+	counts, err := client.ProjectIssueCounts(context.Background(), "Noctra")
 	if err != nil {
 		t.Fatalf("ProjectIssueCounts: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestListProjectIssues_FiltersByState(t *testing.T) {
 		}
 		_ = json.Unmarshal(body, &got)
 		gotQuery = got.Query
-		if got.Variables["project"] != "Nightshift" {
+		if got.Variables["project"] != "Noctra" {
 			t.Errorf("project var: got %v", got.Variables["project"])
 		}
 		if got.Variables["state"] != "Next" {
@@ -266,7 +266,7 @@ func TestListProjectIssues_FiltersByState(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
-	issues, err := client.ListProjectIssues(context.Background(), "Nightshift", "Next", 25)
+	issues, err := client.ListProjectIssues(context.Background(), "Noctra", "Next", 25)
 	if err != nil {
 		t.Fatalf("ListProjectIssues: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestListProjectIssues_NoStateOmitsFilter(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
-	if _, err := client.ListProjectIssues(context.Background(), "Nightshift", "", 25); err != nil {
+	if _, err := client.ListProjectIssues(context.Background(), "Noctra", "", 25); err != nil {
 		t.Fatalf("ListProjectIssues: %v", err)
 	}
 	if strings.Contains(gotQuery, "$state") {
@@ -351,7 +351,7 @@ func TestGetIssueByIdentifier_LoadsStateAndAssignee(t *testing.T) {
 			"issue": map[string]any{
 				"id": "u42", "identifier": "ENG-42", "title": "Fix login",
 				"url":      "https://linear.app/x/issue/ENG-42",
-				"project":  map[string]any{"name": "Nightshift"},
+				"project":  map[string]any{"name": "Noctra"},
 				"state":    map[string]any{"name": "In Review", "type": "started"},
 				"assignee": map[string]any{"name": "Ada Lovelace"},
 			},
@@ -439,10 +439,10 @@ func TestFetchLabeledIssues_FiltersByLabel(t *testing.T) {
 	}{
 		authHeader: "test-key",
 		query:      "labels: { name: { eq: $label } }",
-		variables:  map[string]any{"label": "nightshift"},
+		variables:  map[string]any{"label": "noctra"},
 	}, resp)
 
-	issues, err := client.FetchLabeledIssues(context.Background(), "nightshift")
+	issues, err := client.FetchLabeledIssues(context.Background(), "noctra")
 	if err != nil {
 		t.Fatalf("FetchLabeledIssues: %v", err)
 	}
@@ -470,14 +470,14 @@ func TestResolveLabelID_FindsLabel(t *testing.T) {
 			"issueLabels": map[string]any{
 				"nodes": []map[string]any{
 					{"id": "lbl_bug", "name": "bug"},
-					{"id": "lbl_ns", "name": "nightshift"},
+					{"id": "lbl_ns", "name": "noctra"},
 					{"id": "lbl_feat", "name": "feature"},
 				},
 			},
 		},
 	})
 
-	id, err := client.ResolveLabelID(context.Background(), "nightshift")
+	id, err := client.ResolveLabelID(context.Background(), "noctra")
 	if err != nil {
 		t.Fatalf("ResolveLabelID: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestResolveLabelID_NotFound(t *testing.T) {
 		},
 	})
 
-	_, err := client.ResolveLabelID(context.Background(), "nightshift")
+	_, err := client.ResolveLabelID(context.Background(), "noctra")
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not-found error, got %v", err)
 	}

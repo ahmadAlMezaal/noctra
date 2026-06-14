@@ -110,7 +110,7 @@ func BuildFixPrompt(in FixPromptInput) string {
 - If a piece of feedback is wrong or inapplicable, briefly say so and skip it — do not silently ignore it.
 - Run the test suite and the linter (`+"`golangci-lint run`"+`, if configured) after your changes; fix anything you broke.
 - If you cannot proceed because more context is needed, say BLOCKED: <reason> and stop.
-- Do NOT create a new PR, push a new branch, or close the existing PR — Nightshift handles that.
+- Do NOT create a new PR, push a new branch, or close the existing PR — Noctra handles that.
 
 ## When done
 

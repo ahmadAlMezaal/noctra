@@ -1,4 +1,4 @@
-// Package pipeline runs Nightshift's main loop: poll Linear, dispatch a
+// Package pipeline runs Noctra's main loop: poll Linear, dispatch a
 // bounded worker pool of process_ticket goroutines, and shut down cleanly on
 // signal, rate-limit, or dispatch cap.
 package pipeline
@@ -12,17 +12,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/agent"
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/github"
-	"github.com/ahmadAlMezaal/nightshift/internal/linear"
-	"github.com/ahmadAlMezaal/nightshift/internal/notify"
-	"github.com/ahmadAlMezaal/nightshift/internal/repo"
-	"github.com/ahmadAlMezaal/nightshift/internal/review"
-	"github.com/ahmadAlMezaal/nightshift/internal/selfupdate"
-	"github.com/ahmadAlMezaal/nightshift/internal/state"
-	"github.com/ahmadAlMezaal/nightshift/internal/telegram"
-	"github.com/ahmadAlMezaal/nightshift/internal/watch"
+	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/review"
+	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/telegram"
+	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
 // Version is the running build version, set by main before Run so the startup
@@ -151,10 +151,10 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	p.startupCleanup(ctx)
 	p.banner()
 	if p.cfg.TriggerMode == "label" {
-		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching label \"%s\" for %s tickets",
+		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching label \"%s\" for %s tickets",
 			notify.EscapeMarkdown(p.cfg.TriggerLabel), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	} else {
-		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Nightshift started*\nWatching \"%s\" for %s tickets",
+		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching \"%s\" for %s tickets",
 			notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	}
 
@@ -427,7 +427,7 @@ func (p *Pipeline) banner() {
 	}
 
 	fmt.Println()
-	fmt.Println("🌙 Nightshift (Go)")
+	fmt.Println("🌙 Noctra (Go)")
 	fmt.Printf("   Repos:          %s\n", repoSummary)
 	fmt.Printf("   Worktrees:      %s\n", p.cfg.WorktreeBase)
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
@@ -457,7 +457,7 @@ func (p *Pipeline) summary(ctx context.Context) {
 	dur := time.Since(p.sessionStart).Round(time.Minute)
 	slog.Info("👋 session complete", "success", succ, "fail", fail, "duration", dur)
 	p.telegram.Send(ctx, fmt.Sprintf(
-		"🌅 *Nightshift session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s",
+		"🌅 *Noctra session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s",
 		succ, fail, dur))
 }
 
@@ -478,9 +478,9 @@ func (p *Pipeline) checkForUpdate(ctx context.Context) {
 		return
 	}
 	slog.Info("🆙 a new version is available", "latest", latest, "current", Version,
-		"run", "nightshift update")
+		"run", "noctra update")
 	p.telegram.Send(ctx, fmt.Sprintf(
-		"🆙 *Nightshift update available*\nA new version `%s` is out (running `%s`).\nRun `nightshift update` to upgrade.",
+		"🆙 *Noctra update available*\nA new version `%s` is out (running `%s`).\nRun `noctra update` to upgrade.",
 		notify.EscapeMarkdown(latest), notify.EscapeMarkdown(Version)))
 }
 

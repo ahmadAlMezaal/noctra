@@ -46,8 +46,8 @@ func TestCreateAndCleanupWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorktree: %v", err)
 	}
-	if wt.Branch != "nightshift/eng-200" {
-		t.Errorf("branch: got %q, want %q", wt.Branch, "nightshift/eng-200")
+	if wt.Branch != "noctra/eng-200" {
+		t.Errorf("branch: got %q, want %q", wt.Branch, "noctra/eng-200")
 	}
 	if _, err := os.Stat(wt.Path); err != nil {
 		t.Fatalf("worktree dir missing: %v", err)
@@ -137,7 +137,7 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeWorktree: %v", err)
 	}
-	if wt2.Branch != "nightshift/eng-300" {
+	if wt2.Branch != "noctra/eng-300" {
 		t.Errorf("branch: got %q", wt2.Branch)
 	}
 	if _, err := os.Stat(filepath.Join(wt2.Path, "from-attempt-1.txt")); err != nil {

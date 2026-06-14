@@ -1,9 +1,9 @@
 ---
 name: build-and-release
-description: Use when building Nightshift locally, cross-compiling for Raspberry Pi, validating GoReleaser, or cutting a tagged release with cross-platform archives.
+description: Use when building Noctra locally, cross-compiling for Raspberry Pi, validating GoReleaser, or cutting a tagged release with cross-platform archives.
 ---
 
-# Build And Release Nightshift
+# Build And Release Noctra
 
 Use this playbook for local builds, Raspberry Pi binaries, and official releases.
 
@@ -12,15 +12,15 @@ Use this playbook for local builds, Raspberry Pi binaries, and official releases
 ```bash
 make build
 # equivalent:
-go build -o nightshift ./cmd/nightshift
+go build -o noctra ./cmd/noctra
 ```
 
 Run the binary:
 
 ```bash
-./nightshift version
-./nightshift doctor
-./nightshift
+./noctra version
+./noctra doctor
+./noctra
 ```
 
 ## Verification Before Shipping
@@ -45,15 +45,15 @@ The repository uses `.golangci.yml` v2 with standard linters plus `gofmt`.
 For Pi 4/5 with a 64-bit OS:
 
 ```bash
-GOOS=linux GOARCH=arm64 go build -o nightshift ./cmd/nightshift
-scp nightshift pi@your-pi:/srv/nightshift/
+GOOS=linux GOARCH=arm64 go build -o noctra ./cmd/noctra
+scp noctra pi@your-pi:/srv/noctra/
 ```
 
 For Pi 3 or 32-bit Raspberry Pi OS:
 
 ```bash
-GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
-scp nightshift pi@your-pi:/srv/nightshift/
+GOOS=linux GOARCH=arm GOARM=7 go build -o noctra ./cmd/noctra
+scp noctra pi@your-pi:/srv/noctra/
 ```
 
 The Makefile also has:
@@ -62,17 +62,17 @@ The Makefile also has:
 make build-pi
 ```
 
-which produces an arm64 binary named `nightshift-pi`.
+which produces an arm64 binary named `noctra-pi`.
 
 ## Systemd Host Upgrade
 
-On a host running Nightshift as a `systemd --user` service:
+On a host running Noctra as a `systemd --user` service:
 
 ```bash
 make update
 ```
 
-This pulls the latest branch, builds to `nightshift.new`, atomically swaps it into place, and restarts `nightshift.service`. A failed build leaves the previous binary intact.
+This pulls the latest branch, builds to `noctra.new`, atomically swaps it into place, and restarts `noctra.service`. A failed build leaves the previous binary intact.
 
 Useful service commands:
 
@@ -91,7 +91,7 @@ The `Dockerfile` builds a static Go binary and packages it into a `node:20-bookw
 For local validation:
 
 ```bash
-docker build -t nightshift:local .
+docker build -t noctra:local .
 ```
 
 Mutable state should live under `/data` in containers. Repos are declared per-project in Linear (a `Repo: owner/name` line in the project description) — nothing to mount or pass in.

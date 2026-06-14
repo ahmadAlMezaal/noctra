@@ -1,4 +1,4 @@
-// Package watch polls Nightshift-authored PRs for actionable review feedback
+// Package watch polls Noctra-authored PRs for actionable review feedback
 // and emits PRChanges describing what's new since the last poll. Combined
 // with the state.Store cursor, the watcher only ever surfaces events that
 // haven't been processed yet — restarts don't re-react to historical
@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/github"
-	"github.com/ahmadAlMezaal/nightshift/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
 // EventType distinguishes comments from reviews so the prompt builder can
@@ -42,7 +42,7 @@ type Event struct {
 }
 
 // CIFailure describes a head commit whose CI has completed with at least one
-// failing check and which Nightshift hasn't re-engaged on yet.
+// failing check and which Noctra hasn't re-engaged on yet.
 type CIFailure struct {
 	SHA          string         // head commit the failures belong to
 	FailedChecks []github.Check // only the failing checks
@@ -67,7 +67,7 @@ type Watcher struct {
 	gh      *github.Client
 	store   *state.Store
 	trusted map[string]bool
-	// reposFn returns the git URLs of the repos to scan for Nightshift PRs.
+	// reposFn returns the git URLs of the repos to scan for Noctra PRs.
 	// It's a function (not a static slice) because directive-only routing
 	// clones repos on demand — the set grows as tickets are dispatched, so the
 	// watcher re-discovers them on every poll. It takes the scan context so the
@@ -91,7 +91,7 @@ func New(gh *github.Client, store *state.Store, reposFn func(context.Context) []
 	return &Watcher{gh: gh, store: store, trusted: t, reposFn: reposFn}
 }
 
-// Scan lists all open Nightshift PRs and returns one PRChanges per PR with
+// Scan lists all open Noctra PRs and returns one PRChanges per PR with
 // at least one new event (actionable OR skipped). PRs with no changes since
 // the last cursor are omitted from the result so callers can short-circuit.
 func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
@@ -99,7 +99,7 @@ func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 	if w.reposFn != nil {
 		repoURLs = w.reposFn(ctx)
 	}
-	prs, err := w.gh.ListNightshiftPRs(ctx, repoURLs)
+	prs, err := w.gh.ListNoctraPRs(ctx, repoURLs)
 	if err != nil {
 		return nil, err
 	}

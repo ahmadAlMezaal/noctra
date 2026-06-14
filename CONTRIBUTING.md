@@ -1,6 +1,6 @@
-# Contributing to Nightshift
+# Contributing to Noctra
 
-Thanks for your interest! Nightshift is a single Go binary that turns Linear tickets into PRs. Contributions are welcome — bug fixes, new deploy targets, and new **backends** (coding agent, project management, git host) especially.
+Thanks for your interest! Noctra is a single Go binary that turns Linear tickets into PRs. Contributions are welcome — bug fixes, new deploy targets, and new **backends** (coding agent, project management, git host) especially.
 
 By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
@@ -9,16 +9,16 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 Requires **Go 1.23+**. The `Makefile` wraps the common commands (`make help` lists them):
 
 ```bash
-git clone https://github.com/ahmadAlMezaal/nightshift.git
-cd nightshift
-make build      # go build -o nightshift ./cmd/nightshift
+git clone https://github.com/ahmadAlMezaal/noctra.git
+cd noctra
+make build      # go build -o noctra ./cmd/noctra
 make test       # go test ./...
 make vet        # go vet ./...
 ```
 
 CI runs `go vet`, `go build`, `go test -race`, and `golangci-lint` on every PR — run them locally first to avoid round-trips.
 
-For local development, `go run ./cmd/nightshift ...` uses the repo's own `.env` (the cwd-checkout override), so you don't touch `~/.nightshift/`.
+For local development, `go run ./cmd/noctra ...` uses the repo's own `.env` (the cwd-checkout override), so you don't touch `~/.noctra/`.
 
 ## Project layout
 

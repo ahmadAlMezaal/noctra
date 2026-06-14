@@ -5,7 +5,7 @@
 .agent-logs/
 
 # Built binary
-/nightshift
+/noctra
 /dist/
 
 # macOS

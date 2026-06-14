@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-// StateIDs holds the resolved workflow-state IDs Nightshift moves tickets
+// StateIDs holds the resolved workflow-state IDs Noctra moves tickets
 // between for a given team.
 type StateIDs struct {
 	Trigger  string

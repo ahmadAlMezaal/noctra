@@ -1,4 +1,4 @@
-// Package doctor implements `nightshift doctor` — a preflight check that
+// Package doctor implements `noctra doctor` — a preflight check that
 // validates dependencies, credentials, and config before you try to run.
 package doctor
 
@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
-	"github.com/ahmadAlMezaal/nightshift/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/linear"
 )
 
 // check is a single pass/fail diagnostic result.
@@ -53,7 +53,7 @@ func gather(scriptDir string) []check {
 		checks = append(checks, check{
 			name:   "config",
 			detail: loadErr.Error(),
-			hint:   "Run `nightshift setup` to generate config files.",
+			hint:   "Run `noctra setup` to generate config files.",
 		})
 	} else {
 		checks = append(checks, checkLinearKey(cfg))
@@ -102,7 +102,7 @@ func Run(scriptDir string) error {
 }
 
 // jsonCheck is the machine-readable shape of a single check, emitted by
-// `nightshift doctor --json`.
+// `noctra doctor --json`.
 type jsonCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
@@ -196,7 +196,7 @@ func checkLinearKey(cfg *config.Config) check {
 		return check{
 			name:   "LINEAR_API_KEY",
 			detail: "not set",
-			hint:   "Run `nightshift setup` or set LINEAR_API_KEY in .env.",
+			hint:   "Run `noctra setup` or set LINEAR_API_KEY in .env.",
 		}
 	}
 

@@ -11,14 +11,14 @@ func TestBuildPrompt_IncludesComments(t *testing.T) {
 		Title:       "Add website URL",
 		Description: "Add the URL to the README.",
 		Comments: []string{
-			"Ahmad: Use https://getnightshift.dev as the canonical URL.",
+			"Ahmad: Use https://getnoctra.dev as the canonical URL.",
 		},
 	})
 
 	if !strings.Contains(out, "## Ticket discussion") {
 		t.Errorf("prompt missing discussion section:\n%s", out)
 	}
-	if !strings.Contains(out, "https://getnightshift.dev") {
+	if !strings.Contains(out, "https://getnoctra.dev") {
 		t.Errorf("prompt missing the clarification comment:\n%s", out)
 	}
 }

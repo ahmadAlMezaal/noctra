@@ -1,4 +1,4 @@
-# One-command Nightshift via Docker.
+# One-command Noctra via Docker.
 #
 #   1. Create .env  (copy .env.example, fill in keys — see "Docker" in the README)
 #   2. Declare each repo in its Linear project description (a `Repo: owner/name`
@@ -7,8 +7,8 @@
 #
 # Pull the published image, or uncomment `build: .` to build from this checkout.
 services:
-  nightshift:
-    image: ghcr.io/ahmadalmezaal/nightshift:latest
+  noctra:
+    image: ghcr.io/ahmadalmezaal/noctra:latest
     # build: .
     env_file: .env
     volumes:

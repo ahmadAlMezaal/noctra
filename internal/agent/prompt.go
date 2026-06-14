@@ -11,7 +11,7 @@ type BuildPromptInput struct {
 	Title       string
 	Description string
 	// Comments are human clarifications from the ticket thread (already filtered
-	// of Nightshift's own automated notices). They are surfaced to the agent so
+	// of Noctra's own automated notices). They are surfaced to the agent so
 	// that replying in the comments — what the BLOCKED notification tells a human
 	// to do — actually unblocks a retry.
 	Comments []string
@@ -54,14 +54,14 @@ func BuildPrompt(in BuildPromptInput) string {
 - Stay focused on this ticket only — do not modify unrelated code.
 - Follow existing project conventions and patterns exactly.
 - If you get stuck or need human input, say BLOCKED: <reason> and stop.
-- Do NOT create PRs or push branches — Nightshift handles that.
+- Do NOT create PRs or push branches — Noctra handles that.
 
 ## When done:
 Provide a brief summary of what was implemented and any important decisions made. Wrap the summary between these exact marker lines, each alone on its own line with nothing else:
 
-===NIGHTSHIFT SUMMARY===
+===NOCTRA SUMMARY===
 <your summary here>
-===END NIGHTSHIFT SUMMARY===
+===END NOCTRA SUMMARY===
 `, in.Identifier, in.Title, desc, discussion)
 	}
 
@@ -81,13 +81,13 @@ Provide a brief summary of what was implemented and any important decisions made
 - Stay focused on this ticket only — do not modify unrelated code.
 - Follow existing project conventions and patterns exactly.
 - If you get stuck or need human input, say BLOCKED: <reason> and stop.
-- Do NOT create PRs or push branches — Nightshift handles that.
+- Do NOT create PRs or push branches — Noctra handles that.
 
 ## When done:
 Provide a brief summary of what was implemented and any important decisions made. Wrap the summary between these exact marker lines, each alone on its own line with nothing else:
 
-===NIGHTSHIFT SUMMARY===
+===NOCTRA SUMMARY===
 <your summary here>
-===END NIGHTSHIFT SUMMARY===
+===END NOCTRA SUMMARY===
 `, in.Identifier, in.Title, desc, discussion)
 }

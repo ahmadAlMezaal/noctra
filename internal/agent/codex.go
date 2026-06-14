@@ -8,7 +8,7 @@ import (
 // codexBackend runs OpenAI's Codex CLI (`codex`) in its non-interactive
 // automation mode (`codex exec`). It authenticates via a one-time `codex login`
 // on the host (ChatGPT subscription or an OPENAI_API_KEY in the environment);
-// Nightshift does not manage those credentials.
+// Noctra does not manage those credentials.
 //
 // NOTE: the exact `codex exec` flags are pinned to the documented CLI surface
 // at the time of writing — Codex isn't introspectable from this environment.
@@ -29,7 +29,7 @@ func (b codexBackend) Run(ctx context.Context, opts RunOptions) error {
 // codexArgs builds the argv for a Codex run. `exec` is Codex's non-interactive
 // subcommand; the bypass flag is the autonomous-run analogue of Claude's
 // --dangerously-skip-permissions (no approval prompts, full filesystem access)
-// since Nightshift runs unattended in a throwaway worktree. The prompt is
+// since Noctra runs unattended in a throwaway worktree. The prompt is
 // passed as the positional argument. Split out from Run so the flag set is
 // unit-testable without executing the CLI.
 func codexArgs(opts RunOptions) []string {

@@ -6,7 +6,7 @@ func TestSlug(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Auth Service", "auth-service"},
 		{"My API   v2", "my-api-v2"},
-		{"Nightshift!", "nightshift"},
+		{"Noctra!", "noctra"},
 		{"  leading/trailing  ", "leading-trailing"},
 		{"!@#$", ""},
 		{"", ""},

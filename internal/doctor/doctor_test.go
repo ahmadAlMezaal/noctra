@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
 )
 
 func TestCheckCLI_Found(t *testing.T) {
@@ -22,7 +22,7 @@ func TestCheckCLI_Found(t *testing.T) {
 }
 
 func TestCheckCLI_NotFound(t *testing.T) {
-	c := checkCLI("nightshift_nonexistent_binary_xyz")
+	c := checkCLI("noctra_nonexistent_binary_xyz")
 	if c.ok {
 		t.Error("checkCLI should fail for a missing binary")
 	}

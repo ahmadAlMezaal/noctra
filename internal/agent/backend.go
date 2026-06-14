@@ -25,7 +25,7 @@ type RunOptions struct {
 	UseAgentTeams bool
 }
 
-// Backend abstracts the underlying coding-agent CLI Nightshift shells out to.
+// Backend abstracts the underlying coding-agent CLI Noctra shells out to.
 // Two implementations exist today — Claude Code (default) and OpenAI Codex —
 // selected by AGENT_BACKEND.
 //
@@ -41,7 +41,7 @@ type Backend interface {
 	// Label is the human-friendly backend name for banners / logs
 	// (e.g. "Claude Code", "OpenAI Codex").
 	Label() string
-	// CLI is the executable Nightshift requires on PATH for this backend.
+	// CLI is the executable Noctra requires on PATH for this backend.
 	CLI() string
 	// Run invokes the CLI in opts.Workdir, streaming stdout+stderr to
 	// opts.LogFile. It returns ErrTimedOut (wrapped) on per-attempt timeout

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ahmadAlMezaal/nightshift/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/notify"
 )
 
 // HandlerFunc processes a command and returns a reply message. An empty reply
@@ -88,7 +88,7 @@ func (d *Dispatcher) helpHandler(_ context.Context, _ string) string {
 	sort.Strings(names)
 
 	var b strings.Builder
-	b.WriteString("*Nightshift Commands*\n\n")
+	b.WriteString("*Noctra Commands*\n\n")
 	for _, name := range names {
 		cmd := d.commands[name]
 		fmt.Fprintf(&b, "/%s — %s\n",
