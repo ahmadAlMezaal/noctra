@@ -87,6 +87,20 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repo routing (directive + optional `REPO_PATH`). `gather` collects checks side-effect-free; `Run` renders the human report, `RunJSON` (used by `doctor --json`) emits a `{name, ok, detail, hint}` JSON array + non-zero error on failure |
 | `internal/selfupdate` | npm-style in-place upgrade: `Latest`/`IsNewer`/`assetName` (pure, tested) + `Update` (shells `gh` to download the GoReleaser archive matching `.goreleaser.yaml`, verifies SHA-256 vs `checksums.txt`, untars + atomic-swaps the running binary). `noctra run` also fires a best-effort `checkForUpdate` goroutine at startup (logs/pings if a newer release exists; no-op on dev builds) |
 
+## Skills (deeper playbooks)
+
+For deeper playbooks beyond this file, read `.claude/skills/<name>/SKILL.md`:
+
+| Skill | When to use |
+|-------|-------------|
+| [`architecture`](.claude/skills/architecture/SKILL.md) | Modifying Noctra's own source — invariants, package boundaries, testability conventions |
+| [`build-and-release`](.claude/skills/build-and-release/SKILL.md) | Local builds, cross-compiling for Pi, GoReleaser validation, cutting releases |
+| [`setup-and-config`](.claude/skills/setup-and-config/SKILL.md) | Installing, configuring, running the setup wizard, `.env` / `Repo:` directive |
+| [`troubleshooting`](.claude/skills/troubleshooting/SKILL.md) | Diagnosing failures — tickets not picked up, agent errors, PR creation, auto-iterate |
+| [`writing-good-tickets`](.claude/skills/writing-good-tickets/SKILL.md) | Drafting Linear tickets Noctra can implement autonomously |
+
+> `.claude/skills/` is a Claude Code discovery mechanism. Codex and Copilot don't auto-discover skills, but can open these files on demand via the paths above (since `AGENTS.md` is a symlink to this file).
+
 ## Config directory
 
 Config defaults to `~/.noctra/` (`.env`, `logs/`). This is consistent with the existing `~/.noctra-*` convention (worktrees, repos, state). The **cwd-checkout override** still works: if the current directory contains `.env`, `.env.example`, or `go.mod`, Noctra uses cwd instead — so `go run` during development still works without touching `~/.noctra/`.
@@ -170,6 +184,10 @@ git push origin vX.Y.Z
 ```
 
 `.github/workflows/release.yml` fires on any pushed `v*` tag and publishes a release via GoReleaser. This path is unchanged and always works — useful for hotfixes, backdates, or testing.
+
+### Changelogs
+
+GitHub Release notes are the canonical changelog. GoReleaser auto-generates them from Conventional Commit messages, grouped by category (Features, Bug Fixes, Performance, Refactoring). Commits prefixed `docs:`, `test:`, `chore:`, or `ci:` are excluded. `CHANGELOG.md` in the repo is a pointer to the Releases page — it is not maintained manually.
 
 ### Config validation
 
