@@ -18,7 +18,7 @@ make vet        # go vet ./...
 
 CI runs `go vet`, `go build`, `go test -race`, and `golangci-lint` on every PR — run them locally first to avoid round-trips.
 
-For local development, `go run ./cmd/nightshift ...` uses the repo's own `.env` / `repos.json` (the cwd-checkout override), so you don't touch `~/.nightshift/`.
+For local development, `go run ./cmd/nightshift ...` uses the repo's own `.env` (the cwd-checkout override), so you don't touch `~/.nightshift/`.
 
 ## Project layout
 

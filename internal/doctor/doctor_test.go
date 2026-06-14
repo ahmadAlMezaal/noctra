@@ -58,13 +58,13 @@ func TestCheckGHAuth_Runs(t *testing.T) {
 	// If gh is installed, we can't predict auth state — just ensure no crash.
 }
 
-func TestCheckRepos_NilRegistry(t *testing.T) {
-	// Missing repos.json is non-fatal: repos are routed via Linear project
-	// `Repo:` directives, so doctor must pass (with an informational note).
-	cfg := &config.Config{Registry: nil, RepoPath: ""}
+func TestCheckRepos_DirectiveOnly(t *testing.T) {
+	// With no REPO_PATH, repos are routed entirely via Linear project `Repo:`
+	// directives, so doctor must pass with an informational note.
+	cfg := &config.Config{RepoPath: ""}
 	c := checkRepos(cfg)
 	if !c.ok {
-		t.Errorf("expected pass with no registry (directive-first routing); detail=%q", c.detail)
+		t.Errorf("expected pass with directive-only routing; detail=%q", c.detail)
 	}
 	if !strings.Contains(c.detail, "directive") && !strings.Contains(c.detail, "Repo:") {
 		t.Errorf("expected detail to mention directive routing; got %q", c.detail)
@@ -72,28 +72,13 @@ func TestCheckRepos_NilRegistry(t *testing.T) {
 }
 
 func TestCheckRepos_FallbackPath(t *testing.T) {
-	cfg := &config.Config{Registry: nil, RepoPath: "/some/path"}
+	cfg := &config.Config{RepoPath: "/some/path"}
 	c := checkRepos(cfg)
 	if !c.ok {
 		t.Errorf("expected pass with REPO_PATH fallback; detail=%q", c.detail)
 	}
-}
-
-func TestCheckRepos_WithProjects(t *testing.T) {
-	repos := make(map[string]config.RepoEntry)
-	for i := 0; i < 12; i++ {
-		repos["project-"+strings.Repeat("x", i+1)] = config.RepoEntry{URL: "https://example.com"}
-	}
-	cfg := &config.Config{
-		Registry:  &config.RepoRegistry{Repos: repos},
-		ReposFile: "/path/to/repos.json",
-	}
-	c := checkRepos(cfg)
-	if !c.ok {
-		t.Errorf("expected pass with 12 projects; detail=%q", c.detail)
-	}
-	if !strings.Contains(c.detail, "12 project(s)") {
-		t.Errorf("expected detail to contain '12 project(s)'; got %q", c.detail)
+	if !strings.Contains(c.detail, "/some/path") {
+		t.Errorf("expected detail to mention the fallback path; got %q", c.detail)
 	}
 }
 

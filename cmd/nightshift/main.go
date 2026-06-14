@@ -3,7 +3,7 @@
 // Subcommands:
 //
 //	nightshift            start the poll loop (default)
-//	nightshift setup      interactive .env + repos.json wizard
+//	nightshift setup      interactive .env wizard
 //	nightshift cleanup    clean up stale branches and worktrees
 //	nightshift cleanup --force
 //	nightshift doctor     preflight dependency and config checks
@@ -194,12 +194,12 @@ func printUsage() {
 }
 
 // resolveScriptDir picks the directory Nightshift treats as its "home" —
-// where .env, repos.json, and logs/ live. We prefer the current working
-// directory when it looks like a Nightshift checkout (for `go run`), and
-// otherwise fall back to the per-user config dir (~/.nightshift/).
+// where .env and logs/ live. We prefer the current working directory when it
+// looks like a Nightshift checkout (for `go run`), and otherwise fall back to
+// the per-user config dir (~/.nightshift/).
 func resolveScriptDir() (string, error) {
 	if cwd, err := os.Getwd(); err == nil {
-		for _, marker := range []string{".env", "repos.json", ".env.example", "go.mod"} {
+		for _, marker := range []string{".env", ".env.example", "go.mod"} {
 			if _, err := os.Stat(filepath.Join(cwd, marker)); err == nil {
 				return cwd, nil
 			}

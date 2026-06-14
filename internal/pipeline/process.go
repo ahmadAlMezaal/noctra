@@ -38,8 +38,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	// ── Resolve target repo ──────────────────────────────────────────────────
-	// A "Repo:" directive on the ticket's Linear project wins (no repos.json
-	// needed); otherwise fall back to the project→repos.json mapping.
+	// A "Repo:" directive on the ticket's Linear project is the primary route;
+	// otherwise fall back to the REPO_PATH single-repo setting (if configured).
 	var (
 		resolved repo.Resolved
 		err      error
@@ -61,7 +61,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			// the agent down. Only one comment + notification is posted.
 			p.skipPermanently(id)
 			if cerr := p.linear.Comment(ctx, issue.ID,
-				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` line to this ticket's **Linear project description** (optionally a `Branch:` line), or map the project in `repos.json`. Then move it back to **%s**.",
+				fmt.Sprintf("❌ **Nightshift: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` line to this ticket's **Linear project description** (optionally a `Branch:` line). Then move it back to **%s**.",
 					err.Error(), p.cfg.TriggerState)); cerr != nil {
 				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
 			}
@@ -228,7 +228,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		attempts := p.bumpFailed(id)
 		logger.Warn("no changes made", "attempt", attempts, "max", p.cfg.MaxRetries)
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"💭 **Nightshift: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project maps to the wrong repo.\n\nAdd more detail (or check the project → repo mapping in `repos.json`), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Nightshift restarts.",
+			"💭 **Nightshift: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project points at the wrong repo.\n\nAdd more detail (or check the project's `Repo:` directive), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Nightshift restarts.",
 			attempts, p.cfg.MaxRetries, p.cfg.TriggerState, p.cfg.MaxRetries))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return

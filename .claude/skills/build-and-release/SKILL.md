@@ -94,7 +94,7 @@ For local validation:
 docker build -t nightshift:local .
 ```
 
-Mutable state should live under `/data` in containers. Supply repo mappings with `REPOS_JSON` or mount a `repos.json` file.
+Mutable state should live under `/data` in containers. Repos are declared per-project in Linear (a `Repo: owner/name` line in the project description) — nothing to mount or pass in.
 
 ## GoReleaser Validation
 

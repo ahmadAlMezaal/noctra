@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ahmadAlMezaal/nightshift/internal/config"
@@ -15,9 +16,9 @@ import (
 )
 
 // NonTransientError signals a failure that is deterministic and cannot
-// resolve without human intervention — e.g. a missing repos.json mapping
-// or a ticket with no Linear project and no REPO_PATH fallback. The
-// pipeline uses this to skip the ticket on future polls instead of
+// resolve without human intervention — e.g. a ticket whose Linear project has
+// no "Repo:" directive and no REPO_PATH fallback, or an unparseable directive.
+// The pipeline uses this to skip the ticket on future polls instead of
 // retrying every cycle and burning the dispatch budget.
 type NonTransientError struct {
 	Err error
@@ -33,11 +34,11 @@ type Resolved struct {
 	MainBranch string
 }
 
-// Resolver looks up a Linear project's repo and (if needed) clones it on
-// demand into ReposBase. If the project isn't in the registry, RepoPath is
-// used as a fallback.
+// Resolver clones a ticket's repo on demand into ReposBase. Repos are routed
+// per-ticket from each Linear project's "Repo:" directive (ResolveDirect);
+// RepoPath is an optional single-repo fallback (Resolve) for tickets whose
+// project declares no directive.
 type Resolver struct {
-	Registry   *config.RepoRegistry
 	ReposBase  string
 	RepoPath   string // optional single-repo fallback
 	MainBranch string // default main branch
@@ -46,43 +47,17 @@ type Resolver struct {
 // FromConfig builds a Resolver from a config.Config.
 func FromConfig(cfg *config.Config) *Resolver {
 	return &Resolver{
-		Registry:   cfg.Registry,
 		ReposBase:  cfg.ReposBase,
 		RepoPath:   cfg.RepoPath,
 		MainBranch: cfg.MainBranch,
 	}
 }
 
-// Resolve maps a Linear project name onto a local git repo. When the project
-// has a registry entry but its repo isn't cloned yet, Resolve verifies remote
-// access and clones it into ReposBase/<slug>.
-//
-// The mkdir-based lock at <dest>.clone-lock keeps two concurrent tickets from
-// racing the same initial clone.
-func (r *Resolver) Resolve(ctx context.Context, project string) (Resolved, error) {
-	if entry, ok := r.Registry.Lookup(project); ok {
-		branch := entry.MainBranch
-		if branch == "" {
-			branch = r.MainBranch
-		}
-
-		dest := filepath.Join(r.ReposBase, Slug(project))
-		if !isGitRepo(dest) {
-			if err := os.MkdirAll(r.ReposBase, 0o755); err != nil {
-				return Resolved{}, fmt.Errorf("mkdir %s: %w", r.ReposBase, err)
-			}
-			if err := checkRemoteAccess(ctx, entry.URL); err != nil {
-				return Resolved{}, fmt.Errorf(
-					"cannot access %q — the host running Nightshift needs git auth for it "+
-						"(an SSH key, or `gh auth login` for HTTPS URLs): %w", entry.URL, err)
-			}
-			if err := ensureCloned(ctx, entry.URL, dest); err != nil {
-				return Resolved{}, fmt.Errorf("clone %s: %w", entry.URL, err)
-			}
-		}
-		return Resolved{Path: dest, MainBranch: branch}, nil
-	}
-
+// Resolve is the fallback path for tickets whose Linear project has no "Repo:"
+// directive: it returns the REPO_PATH single-repo fallback when configured, and
+// otherwise a NonTransientError so the pipeline skips the ticket. The directive
+// route is handled by ResolveDirect.
+func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) {
 	if r.RepoPath != "" && isGitRepo(r.RepoPath) {
 		return Resolved{Path: r.RepoPath, MainBranch: r.MainBranch}, nil
 	}
@@ -92,16 +67,15 @@ func (r *Resolver) Resolve(ctx context.Context, project string) (Resolved, error
 			"this ticket has no Linear project, and no REPO_PATH fallback is configured")}
 	}
 	return Resolved{}, &NonTransientError{Err: fmt.Errorf(
-		"no repo is mapped for the project %q in repos.json, and no REPO_PATH fallback is configured",
+		"the Linear project %q has no `Repo:` directive, and no REPO_PATH fallback is configured",
 		project)}
 }
 
 // ResolveDirect locates (cloning on demand) a repo named explicitly — by a
 // Linear project's "Repo:" directive or, in the auto-iterate path, by a PR's own
-// repository — bypassing the repos.json registry entirely. ref may be an
-// "owner/name" shorthand (assumed GitHub) or a full https/ssh git URL. branch
-// overrides the base branch; when empty, the repo's actual default branch (read
-// after clone) is used, falling back to MainBranch.
+// repository. ref may be an "owner/name" shorthand (assumed GitHub) or a full
+// https/ssh git URL. branch overrides the base branch; when empty, the repo's
+// actual default branch (read after clone) is used, falling back to MainBranch.
 func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resolved, error) {
 	ownerRepo, err := github.ExtractOwnerRepo(ref)
 	if err != nil {
@@ -234,9 +208,11 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// AllRepoPaths returns every local repo Nightshift knows about: each registry
-// entry whose clone exists, plus the REPO_PATH fallback (if set and valid).
-// Used by the cleanup subcommand.
+// AllRepoPaths returns every local repo Nightshift knows about: every on-demand
+// clone found under ReposBase, plus the REPO_PATH fallback (if set and valid).
+// Used by the cleanup subcommand and startup cleanup. Directive-only routing
+// means there's no static registry, so the cloned repos are discovered by
+// scanning ReposBase rather than enumerating configured project names.
 func (r *Resolver) AllRepoPaths() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -249,11 +225,51 @@ func (r *Resolver) AllRepoPaths() []string {
 		out = append(out, p)
 	}
 
-	if r.Registry != nil {
-		for _, name := range r.Registry.ProjectNames() {
-			add(filepath.Join(r.ReposBase, Slug(name)))
+	if entries, err := os.ReadDir(r.ReposBase); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				add(filepath.Join(r.ReposBase, e.Name()))
+			}
 		}
 	}
 	add(r.RepoPath)
 	return out
+}
+
+// AllRepoRemotes returns the `origin` remote URL of every local repo from
+// AllRepoPaths. The PR watcher uses this to discover which repos to scan for
+// Nightshift-authored PRs — with directive-only routing the set of repos is
+// whatever has been cloned so far, so it's derived from the clones on disk.
+//
+// The git reads run concurrently and honour ctx: this is called on the PR-poll
+// path (under that poll's timeout), so a single hung `git` must neither block
+// the loop nor outlive the scan. Results are written to fixed indices to keep
+// the order stable without a lock.
+func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
+	paths := r.AllRepoPaths()
+	if len(paths) == 0 {
+		return nil
+	}
+
+	urls := make([]string, len(paths))
+	var wg sync.WaitGroup
+	for i, p := range paths {
+		wg.Add(1)
+		go func(idx int, path string) {
+			defer wg.Done()
+			out, err := exec.CommandContext(ctx, "git", "-C", path, "remote", "get-url", "origin").Output()
+			if err == nil {
+				urls[idx] = strings.TrimSpace(string(out))
+			}
+		}(i, p)
+	}
+	wg.Wait()
+
+	filtered := urls[:0] // reuse backing array — order preserved, empties dropped
+	for _, u := range urls {
+		if u != "" {
+			filtered = append(filtered, u)
+		}
+	}
+	return filtered
 }

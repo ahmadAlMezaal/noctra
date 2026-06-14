@@ -182,26 +182,24 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// same feedback, re-runs, and fails again — an infinite retry loop. The
 	// only exceptions are infra failures (timeout / rate-limit), handled
 	// further down, which intentionally retry.
-	// Resolve the repo this PR lives in. Prefer a repos.json entry (keeps the
-	// registered main-branch); otherwise clone the PR's repo directly by its
-	// owner/name — so project-declared repos (not in repos.json) iterate too.
-	var resolved repo.Resolved
-	if project, err := p.matchPRtoProject(ch.PR.URL); err == nil {
-		resolved, err = p.resolver.Resolve(ctx, project)
+	// Resolve the repo this PR lives in. Prefer the remote URL of the clone the
+	// watcher discovered it through (ch.PR.RepoURL) — that preserves the clone's
+	// transport (e.g. an SSH `git@…` URL for a private repo). Only fall back to
+	// the PR's bare owner/name when that's unavailable; ResolveDirect would then
+	// synthesize an HTTPS URL, which fails on SSH-only hosts.
+	ref := ch.PR.RepoURL
+	if ref == "" {
+		var err error
+		ref, err = prRepoOwnerRepo(ch.PR.URL)
 		if err != nil {
-			logger.Error("repo resolve failed", "err", err)
+			logger.Error("could not parse PR repo from URL", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 			return
 		}
-	} else if ownerRepo, e2 := prRepoOwnerRepo(ch.PR.URL); e2 == nil {
-		resolved, e2 = p.resolver.ResolveDirect(ctx, ownerRepo, "")
-		if e2 != nil {
-			logger.Error("repo resolve (direct) failed", "err", e2)
-			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
-			return
-		}
-	} else {
-		logger.Error("could not resolve PR repo", "match_err", err, "url_err", e2)
+	}
+	resolved, err := p.resolver.ResolveDirect(ctx, ref, "")
+	if err != nil {
+		logger.Error("repo resolve (direct) failed", "err", err, "ref", ref)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
 		return
 	}
@@ -466,24 +464,6 @@ func engagementSummary(ch watch.PRChanges) string {
 	default:
 		return "addressing review"
 	}
-}
-
-// matchPRtoProject finds the Linear project name in repos.json whose
-// configured URL points at the same owner/repo as the PR.
-func (p *Pipeline) matchPRtoProject(prURL string) (string, error) {
-	target, err := prRepoOwnerRepo(prURL)
-	if err != nil {
-		return "", err
-	}
-	if p.cfg.Registry == nil {
-		return "", fmt.Errorf("no registry configured; cannot match PR %s to a project", prURL)
-	}
-	for name, entry := range p.cfg.Registry.Repos {
-		if got, err := github.ExtractOwnerRepo(entry.URL); err == nil && got == target {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("no registry entry matches %s (looking for %s)", prURL, target)
 }
 
 // prRepoOwnerRepo extracts owner/name from a PR URL like

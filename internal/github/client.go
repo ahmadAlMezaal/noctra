@@ -27,9 +27,10 @@ func New() *Client { return &Client{} }
 // given repositories (any branch matching the `nightshift/` prefix authored
 // by the current `gh` user).
 //
-// repoURLs are the git URLs from repos.json (or REPO_PATH). Each is reduced
-// to `owner/name` before being passed to `gh`. Per-repo errors are logged
-// (not returned) so a single unreachable repo doesn't kill the whole sweep.
+// repoURLs are the git URLs of the repos Nightshift has cloned (plus the
+// REPO_PATH fallback). Each is reduced to `owner/name` before being passed to
+// `gh`. Per-repo errors are logged (not returned) so a single unreachable repo
+// doesn't kill the whole sweep.
 func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR, error) {
 	var out []PR
 	for _, raw := range repoURLs {
@@ -61,6 +62,9 @@ func (c *Client) ListNightshiftPRs(ctx context.Context, repoURLs []string) ([]PR
 
 		for _, pr := range prs {
 			if strings.HasPrefix(pr.HeadRefName, "nightshift/") {
+				// Remember the remote this PR was found through so the iterate
+				// path can re-resolve over the same transport (e.g. SSH).
+				pr.RepoURL = raw
 				out = append(out, pr)
 			}
 		}

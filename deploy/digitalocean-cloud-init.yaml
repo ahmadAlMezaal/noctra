@@ -26,9 +26,10 @@ runcmd:
       -e AGENT_BACKEND="claude" \
       -e ANTHROPIC_API_KEY="REPLACE_ME" \
       -e GH_TOKEN="REPLACE_ME" \
-      -e REPOS_JSON='{"repos":{"My Project":{"url":"https://github.com/you/repo.git"}}}' \
       -v /opt/nightshift/data:/data \
       ghcr.io/ahmadalmezaal/nightshift:latest
+  # Repos are declared per-project in Linear (a `Repo: owner/name` line in the
+  # project description) — nothing to pass here.
   # Logs:    docker logs -f nightshift
   # Upgrade: docker pull ghcr.io/ahmadalmezaal/nightshift:latest && \
   #          docker rm -f nightshift && <re-run the docker run above>

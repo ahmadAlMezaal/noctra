@@ -42,19 +42,16 @@ PR poll loop → github.ListNightshiftPRs → github.GetPR (comments+reviews+sta
 
 ## Multi-repo
 
-The target repo is chosen **per-ticket**, not from a single global path. Resolution order:
+The target repo is chosen **per-ticket**, not from a single global path. Routing is **directive-only** — there is no repo registry. Resolution order:
 
-1. **Linear project directive (no `repos.json` needed)** — if the ticket's Linear **project description** contains a `Repo: <owner/name | git URL>` line (optionally a `Branch: <name>` line), `repo.ResolveDirect` clones that repo directly. `linear.Project.RepoDirective` parses it; the trigger queries fetch `project { name description }` to make it available. An `owner/name` shorthand is expanded to a GitHub HTTPS URL (full `https://`/`git@` URLs are used verbatim, so non-GitHub hosts work). With no `Branch:`, the repo's actual default branch is read from `origin/HEAD` after clone (fallback `MAIN_BRANCH`).
-2. **`repos.json` registry (legacy / fallback)** — `repos.json` (gitignored) maps a project **name** → `{ url, main_branch }`. `repo.Resolve` looks the project up. Still fully supported; needed for repos you'd rather not declare in Linear.
-3. **`REPO_PATH`** — single-repo fallback when neither of the above matches; otherwise the ticket is skipped with a Linear comment.
+1. **Linear project directive** — if the ticket's Linear **project content/description** contains a `Repo: <owner/name | git URL>` line (optionally a `Branch: <name>` line), `repo.ResolveDirect` clones that repo directly. `linear.Project.RepoDirective` parses it (preferring the project `content` body, falling back to `description`); the trigger queries fetch `project { name description content }` to make it available. An `owner/name` shorthand is expanded to a GitHub HTTPS URL (full `https://`/`git@` URLs are used verbatim, so SSH and non-GitHub hosts work). With no `Branch:`, the repo's actual default branch is read from `origin/HEAD` after clone (fallback `MAIN_BRANCH`).
+2. **`REPO_PATH`** — single-repo `.env`-only fallback for tickets whose project has no `Repo:` directive (`repo.Resolve`); otherwise the ticket is skipped with a Linear comment.
 
-Both paths clone on demand into `~/.nightshift-repos/<slug>` (lock-guarded against concurrent clone races via `mkdir(2)`) and return the local path + base branch. The **auto-iterate** path resolves the same way: `matchPRtoProject` hits `repos.json` first, else `ResolveDirect` clones straight from the PR's own `owner/name` — so project-declared repos iterate too.
+Clones land on demand in `~/.nightshift-repos/<slug>` (lock-guarded against concurrent clone races via `mkdir(2)`) and return the local path + base branch. The **auto-iterate** path resolves the same way: `prRepoOwnerRepo` extracts `owner/name` from the PR URL and `ResolveDirect` clones it straight — directive-declared repos iterate without any registry.
 
-The project-directive route means **`repos.json` is optional**: declare each project's repo in Linear and you can drop the file entirely.
+Because there's no static registry, the set of repos Nightshift knows about is just whatever it has cloned. `repo.Resolver.AllRepoPaths` discovers them by **scanning `ReposBase`** (plus `REPO_PATH`); `AllRepoRemotes` reads each clone's `origin` URL so the PR watcher (`watch.New(..., resolver.AllRepoRemotes, ...)`) can find Nightshift-authored PRs across them, re-read on every scan as new repos are cloned.
 
-The registry can also be supplied inline via the **`REPOS_JSON`** env var (same shape as `repos.json`) — it takes precedence over `REPOS_FILE` and exists for PaaS deploys (Fly/Render/Railway) that can't mount a file. `config.ParseRepoRegistry` parses it; `config.Load` chooses env-vs-file.
-
-`./nightshift setup` is the interactive wizard that generates `.env` (and optionally a fallback `repos.json`). Repos are primarily routed via the Linear project `Repo:` directive; `repos.json` is an optional fallback (no checked-in example template).
+`./nightshift setup` is the interactive wizard that generates `.env` only — repos are routed via the Linear project `Repo:` directive, so there's no registry file to write.
 
 ## Coding-agent backend (`AGENT_BACKEND`)
 
@@ -72,9 +69,9 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | Package | Purpose |
 |---------|---------|
 | `cmd/nightshift` | Entry point + subcommand dispatch (`run` / `setup` / `cleanup` / `doctor` [`--json`] / `update` / `install-service` [`--start`/`--force`] / `logs` / `start` / `stop` / `restart` / `status` / `completion` / `version`); `start`/`stop`/`restart`/`status` are thin `systemctl --user <verb> nightshift.service` wrappers (status also prints the binary version; missing-systemctl hint mirrors `logs`/`journalctl`), `install-service` delegates to `internal/service`, `completion bash\|zsh` prints a static shell-completion script (pure `completionScript` fn, unit-tested); startup banner; `--help` |
-| `internal/config` | `.env` parser, `repos.json` loader, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
+| `internal/config` | `.env` parser, validated `Config`, `DefaultConfigDir` (`~/.nightshift/`) |
 | `internal/linear` | Linear GraphQL client: `ResolveStateIDs`, `FetchTriggerIssues`, `FetchLabeledIssues` (both fetch each issue's `comments` so human clarifications reach the agent — see `Issue.ClarificationComments`, which filters out Nightshift's own automated notices; project descriptions are fetched too, parsed by `Project.RepoDirective` for `Repo:`/`Branch:` routing), `ResolveLabelID`, `RemoveLabel`, `SetState`, `Comment`; read queries for Telegram — `ProjectIssueCounts`, `ListProjectIssues`, `SearchIssues`, `GetIssueByIdentifier` |
-| `internal/repo` | Repo resolution: `Resolve` (project name → `repos.json` entry) + `ResolveDirect` (explicit `owner/name`/URL from a Linear project's `Repo:` directive or a PR's own repo, with `origin/HEAD` default-branch detection); clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
+| `internal/repo` | Repo resolution: `ResolveDirect` (explicit `owner/name`/URL from a Linear project's `Repo:` directive or a PR's own repo, with `origin/HEAD` default-branch detection) + `Resolve` (the `REPO_PATH`-only fallback); `AllRepoPaths`/`AllRepoRemotes` (scan `ReposBase`); clone-on-demand; worktree create/cleanup; `BranchName`; `CreateWorktree` (from main) + `ResumeWorktree` (pull existing remote branch) |
 | `internal/agent` | Pluggable coding-agent backends behind the `Backend` interface (`agent.New` selects `claude`/`codex` from `AGENT_BACKEND`); shared `exec` plumbing with timeout; per-backend invocation flags + rate-limit parsing (`claude.go` / `codex.go`); backend-agnostic implement-prompt builder, `BuildFixPrompt`, `BlockedLine`, and log_offset parsing |
 | `internal/review` | Optional Gemini second-model review gate |
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |
@@ -86,12 +83,12 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | `internal/setup` | Interactive setup wizard (`./nightshift setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 | `internal/service` | `install-service` subcommand: renders the `systemd --user` unit (pure, unit-tested `unitFile(exePath, pathEnv)`) to `~/.config/systemd/user/nightshift.service`, `daemon-reload`s; `--start` enables/starts + `loginctl enable-linger`; refuses without `--force` if the unit exists; non-systemd hosts get a clear error. Pairs with `scripts/install.sh` (the `curl … \| sh` turnkey installer that downloads the release binary) |
-| `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repos.json. `gather` collects checks side-effect-free; `Run` renders the human report, `RunJSON` (used by `doctor --json`) emits a `{name, ok, detail, hint}` JSON array + non-zero error on failure |
+| `internal/doctor` | Preflight checks: CLIs on PATH, `gh auth`, Linear API key, repo routing (directive + optional `REPO_PATH`). `gather` collects checks side-effect-free; `Run` renders the human report, `RunJSON` (used by `doctor --json`) emits a `{name, ok, detail, hint}` JSON array + non-zero error on failure |
 | `internal/selfupdate` | npm-style in-place upgrade: `Latest`/`IsNewer`/`assetName` (pure, tested) + `Update` (shells `gh` to download the GoReleaser archive matching `.goreleaser.yaml`, verifies SHA-256 vs `checksums.txt`, untars + atomic-swaps the running binary). `nightshift run` also fires a best-effort `checkForUpdate` goroutine at startup (logs/pings if a newer release exists; no-op on dev builds) |
 
 ## Config directory
 
-Config defaults to `~/.nightshift/` (`.env`, `repos.json`, `logs/`). This is consistent with the existing `~/.nightshift-*` convention (worktrees, repos, state). The **cwd-checkout override** still works: if the current directory contains `.env`, `repos.json`, `.env.example`, or `go.mod`, Nightshift uses cwd instead — so `go run` during development still works without touching `~/.nightshift/`.
+Config defaults to `~/.nightshift/` (`.env`, `logs/`). This is consistent with the existing `~/.nightshift-*` convention (worktrees, repos, state). The **cwd-checkout override** still works: if the current directory contains `.env`, `.env.example`, or `go.mod`, Nightshift uses cwd instead — so `go run` during development still works without touching `~/.nightshift/`.
 
 `resolveScriptDir()` in `cmd/nightshift/main.go` implements this logic. `config.DefaultConfigDir()` returns the per-user path.
 
@@ -135,7 +132,7 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o nightshift ./cmd/nightshift
 
 ## Docker
 
-`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + both agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) — Nightshift shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_FILE`/`REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section. Cloud deploy templates consuming this image live at the repo root: `fly.toml`, `render.yaml`, `railway.json`, and `deploy/digitalocean-cloud-init.yaml` (all use `REPOS_JSON` since PaaS has no file mounts).
+`Dockerfile` is a multi-stage build: a `golang` stage compiles the static binary, and a `node:20-bookworm-slim` runtime stage adds `git` + `gh` + both agent CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) — Nightshift shells out to all of them, so the image can't be `scratch`. `docker-entrypoint.sh` sets a default git identity and wires `GH_TOKEN` into git/gh (a fresh container has neither — both were silently inherited from the dev's machine before). All mutable state is redirected under `/data` (a single volume) via the `REPOS_BASE`/`WORKTREE_BASE`/`LOG_DIR`/`STATE_FILE` env overrides. `.github/workflows/docker.yml` builds on PRs (validation) and builds+pushes multi-arch (amd64/arm64) to GHCR on `main`/tags. Container auth is API-key based (no interactive login) — see the README "Docker" section. Cloud deploy templates consuming this image live at the repo root: `fly.toml`, `render.yaml`, `railway.json`, and `deploy/digitalocean-cloud-init.yaml` (repos are declared per-project in Linear, so PaaS needs no file mount).
 
 ## Operating (systemd)
 

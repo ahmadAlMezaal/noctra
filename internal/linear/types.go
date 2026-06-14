@@ -10,8 +10,7 @@ import (
 )
 
 // Project is the Linear project a ticket belongs to. Nightshift routes the
-// ticket to a repo either by a "Repo:" directive in Description (preferred) or,
-// failing that, by looking Name up in repos.json.
+// ticket to a repo by a "Repo:" directive in the project's content/description.
 type Project struct {
 	Name string `json:"name"`
 	// Description is Linear's SHORT project description (GraphQL `description`).
@@ -28,9 +27,9 @@ var (
 )
 
 // RepoDirective parses a "Repo: <owner/name | url>" line (and an optional
-// "Branch: <name>" line) from the project description, letting a Linear project
-// declare its target repo without a repos.json entry. Returns ("","") when no
-// Repo line is present. branch is ignored unless a repo is also given.
+// "Branch: <name>" line) from the project content/description, letting a Linear
+// project declare its target repo. Returns ("","") when no Repo line is
+// present. branch is ignored unless a repo is also given.
 func (p *Project) RepoDirective() (string, string) {
 	if p == nil {
 		return "", ""
