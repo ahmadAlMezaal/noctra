@@ -313,7 +313,7 @@ noctra completion bash > /etc/bash_completion.d/noctra
 noctra completion zsh > "${fpath[1]}/_noctra"
 ```
 
-The script completes the subcommand list (`run`, `setup`, `update`, `install-service`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
+The script completes the subcommand list (`run`, `setup`, `config`, `update`, `install-service`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
 
 ### Machine-readable doctor
 
@@ -403,7 +403,21 @@ Disabled by default; set `AUTO_ITERATE_PRS=true` to opt in, or run the wizard.
 
 ## Configuration
 
-Run `./noctra setup` to generate config, or copy `.env.example` → `.env` by hand. Repos are routed per-ticket from each Linear project's `Repo:` directive (see [Repositories](#repositories)) — not from `.env`.
+Run `./noctra setup` to generate config, or copy `.env.example` → `.env` by hand. Re-running `noctra setup` is safe — the wizard **merges** into the existing `.env`, updating only the keys it manages and preserving hand-added settings (e.g. `LINEAR_OAUTH_TOKEN`). Repos are routed per-ticket from each Linear project's `Repo:` directive (see [Repositories](#repositories)) — not from `.env`.
+
+### `noctra config` — read and edit settings
+
+For quick, surgical config changes without re-running the full wizard:
+
+```bash
+noctra config path              # print the resolved .env path
+noctra config edit              # open .env in $EDITOR (falls back to vi/nano)
+noctra config get KEY           # print one value (exit 1 if unset)
+noctra config set KEY=VALUE     # upsert one key (atomic write, preserves comments)
+noctra config set KEY VALUE     # same as KEY=VALUE
+```
+
+`config set` writes atomically (temp file + rename, mode 0600) and preserves every line it doesn't touch — comments, blank lines, and other keys are untouched. It uses the same resolved `.env` path as every other Noctra command (including the cwd-checkout override).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

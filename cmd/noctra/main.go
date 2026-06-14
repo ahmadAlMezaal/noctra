@@ -4,6 +4,7 @@
 //
 //	noctra            start the poll loop (default)
 //	noctra setup      interactive .env wizard
+//	noctra config     read or edit .env settings (path, edit, get, set)
 //	noctra cleanup    clean up stale branches and worktrees
 //	noctra cleanup --force
 //	noctra doctor     preflight dependency and config checks
@@ -34,6 +35,7 @@ import (
 
 	"github.com/ahmadAlMezaal/noctra/internal/cleanup"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/configcmd"
 	"github.com/ahmadAlMezaal/noctra/internal/doctor"
 	"github.com/ahmadAlMezaal/noctra/internal/pipeline"
 	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
@@ -85,6 +87,8 @@ func realMain() error {
 		return runPoll(scriptDir)
 	case "setup":
 		return runSetup(scriptDir)
+	case "config":
+		return configcmd.Run(scriptDir, os.Args[2:])
 	case "cleanup":
 		force := len(os.Args) > 2 && os.Args[2] == "--force"
 		return runCleanup(scriptDir, force)
@@ -238,6 +242,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  run       Start the poll loop (default)")
 	fmt.Println("  setup     Interactive configuration wizard")
+	fmt.Println("  config    Read or edit .env settings (path, edit, get, set)")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
 	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
@@ -378,7 +383,7 @@ func runService(verb string) error {
 // subcommands is the list completion offers. Kept in one place so the help
 // text, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
+	"run", "setup", "config", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 
