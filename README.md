@@ -222,6 +222,34 @@ git tag v2.0.0 && git push origin v2.0.0
 
 ---
 
+## Releasing
+
+Releases are published automatically with GoReleaser, creating cross-platform binaries (linux amd64/arm64/armv7 + darwin) and a checksums file.
+
+### Automatic on PR merge (recommended)
+
+Label your PR with one of:
+- `release:major` — bump major version (e.g., v0.5.2 → v1.0.0)
+- `release:minor` — bump minor version (e.g., v0.5.2 → v0.6.0)
+- `release:patch` — bump patch version (e.g., v0.5.2 → v0.5.3)
+
+When merged to `main`, `.github/workflows/tag-on-merge.yml` automatically:
+1. Detects the label (no label = no release, safe default)
+2. Computes the next semver from the latest tag
+3. Creates and pushes an annotated tag
+4. Runs GoReleaser to publish the release
+
+### Manual (always available)
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+`.github/workflows/release.yml` triggers on any `v*` tag push and publishes a release. Useful for hotfixes or testing.
+
+---
+
 ## Operating the service
 
 Running Noctra as a long-lived `systemd --user` service? The `Makefile` wraps the day-to-day operations so you don't have to remember the raw `systemctl` / build incantations (run `make help` to list everything):
