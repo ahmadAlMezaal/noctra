@@ -9,6 +9,7 @@
 //	noctra doctor     preflight dependency and config checks
 //	noctra update     self-update to the latest release (--restart)
 //	noctra install-service  install the systemd --user unit (--start, --force)
+//	noctra uninstall  remove the service + binary (--purge also removes state)
 //	noctra logs       tail the service logs (-f to follow)
 //	noctra start      start the systemd --user service
 //	noctra stop       stop the systemd --user service
@@ -129,6 +130,34 @@ func realMain() error {
 			}
 		}
 		return service.Install(force, start)
+	case "uninstall":
+		purge, force, help, err := parseUninstallArgs(os.Args[2:])
+		if err != nil {
+			// Unknown/typo'd flag (e.g. "--pruge"): refuse rather than silently
+			// fall through to removing the service + binary.
+			fmt.Fprint(os.Stderr, uninstallUsage)
+			return err
+		}
+		if help {
+			// Help must never trigger the destructive action.
+			fmt.Print(uninstallUsage)
+			return nil
+		}
+		if purge && !force {
+			if !isInteractive() {
+				return fmt.Errorf("refusing to --purge non-interactively without --force")
+			}
+			fmt.Println("⚠️  --purge permanently deletes Noctra's config, cloned repos, worktrees, and PR cursor:")
+			if paths, err := service.PurgePaths(); err == nil {
+				for _, p := range paths {
+					fmt.Println("     " + p)
+				}
+			}
+			if !askYesNo("Delete this state?", false) {
+				return fmt.Errorf("uninstall --purge aborted")
+			}
+		}
+		return service.Uninstall(purge)
 	case "start", "stop", "restart", "status":
 		return runService(cmd)
 	case "completion":
@@ -168,6 +197,41 @@ func printBanner() {
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
 }
 
+// parseUninstallArgs interprets the flags for the destructive `uninstall`
+// subcommand. help reports that usage was requested (a no-op); an unrecognized
+// flag returns an error so a typo never falls through to the uninstall. Pure,
+// so the flag handling is unit-testable.
+func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--purge":
+			purge = true
+		case "--force", "-y":
+			force = true
+		case "--help", "-h":
+			help = true
+		default:
+			return false, false, false, fmt.Errorf("unknown flag %q for uninstall", a)
+		}
+	}
+	return purge, force, help, nil
+}
+
+// uninstallUsage is the help text for the destructive `uninstall` subcommand,
+// shown on `--help` and on an unrecognized flag (so a typo never falls through
+// to removing the service + binary).
+const uninstallUsage = `Usage: noctra uninstall [--purge] [--force|-y]
+
+Remove the systemd --user service and the installed binary. State is kept
+unless --purge is given.
+
+  --purge       also delete ~/.noctra* state (config + logs, cloned repos,
+                worktrees, and the PR cursor)
+  --force, -y   skip the --purge confirmation prompt (required for --purge
+                when running non-interactively)
+  --help, -h    show this message
+`
+
 // printUsage prints the CLI usage/help screen.
 func printUsage() {
 	fmt.Println("Usage: noctra [command]")
@@ -179,6 +243,7 @@ func printUsage() {
 	fmt.Println("  doctor    Preflight dependency and config checks")
 	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
 	fmt.Println("  install-service  Install the systemd --user unit (--start to enable+start, --force to overwrite)")
+	fmt.Println("  uninstall  Remove the service + binary (--purge also deletes ~/.noctra* state, --force to skip the prompt)")
 	fmt.Println("  logs      Tail the service logs (-f / --follow to stream)")
 	fmt.Println("  start     Start the systemd --user service")
 	fmt.Println("  stop      Stop the systemd --user service")
@@ -311,7 +376,7 @@ func runService(verb string) error {
 // subcommands is the list completion offers. Kept in one place so the help
 // text, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "update", "install-service", "logs", "start", "stop", "restart",
+	"run", "setup", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 

@@ -78,3 +78,37 @@ func TestLogsArgs_Follow(t *testing.T) {
 		t.Error("-n should not be present when following")
 	}
 }
+
+func TestParseUninstallArgs(t *testing.T) {
+	tests := []struct {
+		name               string
+		args               []string
+		purge, force, help bool
+		wantErr            bool
+	}{
+		{"no args", nil, false, false, false, false},
+		{"purge", []string{"--purge"}, true, false, false, false},
+		{"force long", []string{"--force"}, false, true, false, false},
+		{"force short", []string{"-y"}, false, true, false, false},
+		{"purge + force", []string{"--purge", "--force"}, true, true, false, false},
+		{"help long", []string{"--help"}, false, false, true, false},
+		{"help short", []string{"-h"}, false, false, true, false},
+		{"unknown/typo flag", []string{"--pruge"}, false, false, false, true},
+		{"unknown after valid", []string{"--purge", "--nope"}, false, false, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			purge, force, help, err := parseUninstallArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return // on error the bool returns are unused
+			}
+			if purge != tt.purge || force != tt.force || help != tt.help {
+				t.Errorf("got purge=%v force=%v help=%v; want purge=%v force=%v help=%v",
+					purge, force, help, tt.purge, tt.force, tt.help)
+			}
+		})
+	}
+}
