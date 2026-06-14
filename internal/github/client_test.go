@@ -3,6 +3,8 @@ package github
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -28,6 +30,34 @@ func TestCheckLogs_NonActionsReturnsSentinel(t *testing.T) {
 	_, err := New().CheckLogs(context.Background(), Check{DetailsURL: "https://circleci.com/gh/me/repo/123"})
 	if !errors.Is(err, ErrNotActionsRun) {
 		t.Errorf("expected ErrNotActionsRun, got %v", err)
+	}
+}
+
+func TestListNoctraPRsRequiresBodyMarker(t *testing.T) {
+	dir := t.TempDir()
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte(`#!/bin/sh
+cat <<'JSON'
+[
+  {"url":"https://github.com/me/repo/pull/1","number":1,"title":"owned","headRefName":"noctra/eng-1","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) using Claude Code*"},
+  {"url":"https://github.com/me/repo/pull/2","number":2,"title":"manual","headRefName":"noctra/eng-2","body":"manual PR"},
+  {"url":"https://github.com/me/repo/pull/3","number":3,"title":"other","headRefName":"feat/eng-3","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra)*"}
+]
+JSON
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := New().ListNoctraPRs(context.Background(), []string{"me/repo"})
+	if err != nil {
+		t.Fatalf("ListNoctraPRs: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d PRs, want 1: %+v", len(got), got)
+	}
+	if got[0].Number != 1 || got[0].RepoURL != "me/repo" {
+		t.Fatalf("PR = %+v, want number 1 with repo URL", got[0])
 	}
 }
 

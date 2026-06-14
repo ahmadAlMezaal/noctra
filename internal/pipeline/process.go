@@ -18,6 +18,11 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/review"
 )
 
+// maxReviewDiffBytes caps the diff sent to the optional Gemini review gate.
+// Review prompts only need enough context to catch obvious issues; an
+// unbounded diff can make the gate slow, expensive, or exceed model limits.
+const maxReviewDiffBytes = 60000
+
 // process is one ticket's full lifecycle: resolve repo → worktree → run
 // Claude → check output → (optional) Gemini review → commit/push → create PR
 // → update Linear. Each failure mode posts a Linear comment and moves the
@@ -250,7 +255,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		logger.Info("running gemini review gate")
 		for i := 0; i <= p.cfg.MaxReviewRetries; i++ {
 			reviewAttempts = i + 1
-			diff := gitDiff(ctx, wt.Path)
+			diff := boundedReviewDiff(gitDiff(ctx, wt.Path))
 			r, err := p.review.Review(ctx, issue.Title, issue.Description, diff)
 			if err != nil {
 				if errors.Is(err, review.ErrUnavailable) {
@@ -292,14 +297,47 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 - Run tests after fixing to make sure nothing broke.`, r.Body)
 
 				logger.Info("asking the agent to fix review issues")
-				if err := p.agent.Run(ctx, agent.RunOptions{
+				fixOffset := agent.OffsetBefore(logFile)
+				fixErr := p.agent.Run(ctx, agent.RunOptions{
 					Workdir:       wt.Path,
 					Prompt:        fixPrompt,
 					LogFile:       logFile,
 					Timeout:       p.cfg.AgentTimeout,
 					UseAgentTeams: p.cfg.UseAgentTeams,
-				}); err != nil {
-					logger.Warn("fix-pass exited with error", "err", err)
+				})
+
+				if p.isKilled(id) {
+					logger.Info("fix-pass killed by user")
+					repo.CleanupWorktree(context.Background(), resolved.Path, p.cfg.WorktreeBase, id)
+					return
+				}
+				if ctx.Err() != nil {
+					logger.Info("fix-pass cancelled (shutdown)", "reason", ctx.Err())
+					repo.CleanupWorktree(context.Background(), resolved.Path, p.cfg.WorktreeBase, id)
+					return
+				}
+
+				fixOutput := agent.ReadAfter(logFile, fixOffset)
+				switch classifyAgentRun(p.agent, fixErr, fixOutput) {
+				case agentRunTimedOut:
+					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
+					p.bumpFailed(id)
+					p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+						"⏰ **Noctra: Agent timed out**\n\n%s timed out after %s while fixing Gemini review feedback.\n\nTicket moved back to **%s**.",
+						p.agent.Label(), p.cfg.AgentTimeout, p.cfg.TriggerState))
+					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+					return
+				case agentRunRateLimited:
+					logger.Warn("usage/rate limit detected during fix-pass — triggering shutdown")
+					p.bumpFailed(id)
+					p.flagRateLimit()
+					p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+						"🛑 **Noctra: Rate limit detected**\n\nThe agent hit a usage or rate limit while fixing Gemini review feedback.\n\nTicket moved back to **%s**. Noctra is shutting down to avoid further limit hits.",
+						p.cfg.TriggerState))
+					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+					return
+				case agentRunFailed:
+					logger.Warn("fix-pass exited with error", "err", fixErr)
 				}
 				_ = runIn(ctx, wt.Path, "git", "add", "-A")
 			}
@@ -471,6 +509,60 @@ func gitDiff(ctx context.Context, workdir string) string {
 	cmd2.Dir = workdir
 	out2, _ := cmd2.Output()
 	return string(out2)
+}
+
+func boundedReviewDiff(diff string) string {
+	if len(diff) <= maxReviewDiffBytes {
+		return diff
+	}
+	headLen := maxReviewDiffBytes / 2
+	tailLen := maxReviewDiffBytes - headLen
+	headEnd := safeForwardBoundary(diff, headLen)
+	tailStart := safeBackwardBoundary(diff, len(diff)-tailLen)
+	return fmt.Sprintf("%s\n\n... (diff truncated for review: showing first %d and last %d bytes of %d total bytes) ...\n\n%s",
+		diff[:headEnd], headEnd, len(diff)-tailStart, len(diff), diff[tailStart:])
+}
+
+func safeForwardBoundary(s string, end int) int {
+	if end >= len(s) {
+		return len(s)
+	}
+	for end > 0 && s[end]&0xC0 == 0x80 {
+		end--
+	}
+	return end
+}
+
+func safeBackwardBoundary(s string, start int) int {
+	if start <= 0 {
+		return 0
+	}
+	for start < len(s) && s[start]&0xC0 == 0x80 {
+		start++
+	}
+	return start
+}
+
+type agentRunStatus int
+
+const (
+	agentRunOK agentRunStatus = iota
+	agentRunTimedOut
+	agentRunRateLimited
+	agentRunFailed
+)
+
+func classifyAgentRun(b agent.Backend, runErr error, output string) agentRunStatus {
+	if errors.Is(runErr, agent.ErrTimedOut) {
+		return agentRunTimedOut
+	}
+	if rateLimited(b, runErr, output) {
+		return agentRunRateLimited
+	}
+	if runErr != nil {
+		return agentRunFailed
+	}
+	return agentRunOK
 }
 
 // ghCreatePR runs `gh pr create` and returns the URL printed by gh.

@@ -233,19 +233,16 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 	return out
 }
 
-// failedChecks returns the failing checks, but only once every check has
-// completed — while any check is still running we return nil so the watcher
-// waits for the full picture rather than reacting to a transient red.
+// failedChecks returns any checks that have reached a final failing state.
+// It does not wait for unrelated pending checks: a manual approval or stuck
+// queue should not indefinitely hide a real failure that is already final.
 func failedChecks(checks []github.Check) []github.Check {
 	if len(checks) == 0 {
 		return nil
 	}
 	var failed []github.Check
 	for _, c := range checks {
-		if !c.IsComplete() {
-			return nil
-		}
-		if c.IsFailure() {
+		if c.IsComplete() && c.IsFailure() {
 			failed = append(failed, c)
 		}
 	}
