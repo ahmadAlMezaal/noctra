@@ -160,6 +160,26 @@ func TestCopilotEnv_SkipsClassicPAT(t *testing.T) {
 	}
 }
 
+func TestBackend_CoAuthor(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"claude", "Claude <noreply@anthropic.com>"},
+		{"codex", "Codex <noreply@openai.com>"},
+		{"copilot", "Copilot <223556219+Copilot@users.noreply.github.com>"},
+	}
+	for _, tc := range cases {
+		b, err := New(tc.name)
+		if err != nil {
+			t.Fatalf("New(%q) error: %v", tc.name, err)
+		}
+		if got := b.CoAuthor(); got != tc.want {
+			t.Errorf("%s.CoAuthor() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestHasRateLimit_PerBackend(t *testing.T) {
 	claude, _ := New("claude")
 	codex, _ := New("codex")

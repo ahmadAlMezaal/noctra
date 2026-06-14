@@ -19,9 +19,10 @@ import (
 // change.
 type copilotBackend struct{}
 
-func (copilotBackend) Name() string  { return "copilot" }
-func (copilotBackend) Label() string { return "GitHub Copilot" }
-func (copilotBackend) CLI() string   { return "copilot" }
+func (copilotBackend) Name() string     { return "copilot" }
+func (copilotBackend) Label() string    { return "GitHub Copilot" }
+func (copilotBackend) CLI() string      { return "copilot" }
+func (copilotBackend) CoAuthor() string { return "Copilot <223556219+Copilot@users.noreply.github.com>" }
 
 // Run invokes `copilot --allow-all-tools --no-ask-user -p <prompt>` in opts.Workdir.
 // UseAgentTeams is Claude-only and is ignored here.
