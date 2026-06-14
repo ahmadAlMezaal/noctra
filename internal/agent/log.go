@@ -74,12 +74,17 @@ func BlockedLine(output string) string {
 var releaseRe = regexp.MustCompile(`(?im)^RELEASE:\s*(.+)$`)
 
 // ReleaseBump extracts the semver bump suggestion from the agent output.
+// When multiple matches exist (e.g. the agent echoes the prompt instruction
+// before emitting its own RELEASE: line), the last match wins — mirroring the
+// betweenMarkers strategy for summary extraction.
 // Returns one of "patch", "minor", "major", "none", or "" (not found / unparseable).
 func ReleaseBump(output string) string {
-	m := releaseRe.FindStringSubmatch(output)
-	if m == nil {
+	matches := releaseRe.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
 		return ""
 	}
+	// Use the last match — the agent's actual answer, not an echoed instruction.
+	m := matches[len(matches)-1]
 	val := strings.ToLower(strings.TrimSpace(m[1]))
 	switch val {
 	case "patch", "minor", "major", "none":

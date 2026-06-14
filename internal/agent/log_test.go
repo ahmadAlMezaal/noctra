@@ -137,6 +137,7 @@ func TestReleaseBump(t *testing.T) {
 		{"unparseable value", "RELEASE: yolo\n", ""},
 		{"empty value", "RELEASE: \n", ""},
 		{"after summary markers", SummaryStartMarker + "\nstuff\n" + SummaryEndMarker + "\nRELEASE: minor\n", "minor"},
+		{"echoed prompt then real answer", "End with RELEASE: patch | minor | major | none\n...\nRELEASE: minor\n", "minor"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
