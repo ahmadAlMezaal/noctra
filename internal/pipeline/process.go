@@ -518,5 +518,5 @@ func appendCoAuthorTrailer(msg, coAuthor string) string {
 	if coAuthor == "" {
 		return msg
 	}
-	return msg + "\n\nCo-authored-by: " + coAuthor
+	return strings.TrimRight(msg, " \t\n\r") + "\n\nCo-authored-by: " + coAuthor
 }

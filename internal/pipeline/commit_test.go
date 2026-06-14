@@ -32,6 +32,14 @@ func TestAppendCoAuthorTrailer(t *testing.T) {
 		}
 	})
 
+	t.Run("trims trailing whitespace before trailer", func(t *testing.T) {
+		got := appendCoAuthorTrailer(base+"\n\n", "Claude <noreply@anthropic.com>")
+		want := base + "\n\nCo-authored-by: Claude <noreply@anthropic.com>"
+		if got != want {
+			t.Errorf("trailing whitespace not trimmed:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
 	t.Run("iterate commit message", func(t *testing.T) {
 		iterBase := "fix: address PR feedback on ENG-1\n\nFollow-up commit by Noctra (addressing review)."
 		got := appendCoAuthorTrailer(iterBase, "Codex <noreply@openai.com>")
