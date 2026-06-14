@@ -117,3 +117,60 @@ func TestExtractSummary_FallbackStripsUsageFooter(t *testing.T) {
 		t.Errorf("fallback should strip usage footer, got: %q", got)
 	}
 }
+
+func TestReleaseBump(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{"patch lowercase", "some output\nRELEASE: patch\n", "patch"},
+		{"minor lowercase", "RELEASE: minor\n", "minor"},
+		{"major lowercase", "RELEASE: major\n", "major"},
+		{"none", "RELEASE: none\n", "none"},
+		{"case insensitive key", "release: minor\n", "minor"},
+		{"case insensitive value", "RELEASE: MINOR\n", "minor"},
+		{"mixed case", "Release: Patch\n", "patch"},
+		{"with leading spaces in value", "RELEASE:   patch  \n", "patch"},
+		{"mid-output", "line one\nRELEASE: major\nline three\n", "major"},
+		{"missing", "no release line here\n", ""},
+		{"unparseable value", "RELEASE: yolo\n", ""},
+		{"empty value", "RELEASE: \n", ""},
+		{"after summary markers", SummaryStartMarker + "\nstuff\n" + SummaryEndMarker + "\nRELEASE: minor\n", "minor"},
+		{"echoed prompt then real answer", "End with RELEASE: patch | minor | major | none\n...\nRELEASE: minor\n", "minor"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ReleaseBump(tt.output)
+			if got != tt.want {
+				t.Errorf("ReleaseBump(%q) = %q, want %q", tt.output, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReleaseLabel(t *testing.T) {
+	tests := []struct {
+		name        string
+		bump        string
+		defaultBump string
+		want        string
+	}{
+		{"patch", "patch", "patch", "release:patch"},
+		{"minor", "minor", "patch", "release:minor"},
+		{"major", "major", "patch", "release:major"},
+		{"none skips", "none", "patch", ""},
+		{"empty falls back to default patch", "", "patch", "release:patch"},
+		{"empty falls back to default minor", "", "minor", "release:minor"},
+		{"unknown falls back to default", "invalid", "major", "release:major"},
+		{"empty default falls back to patch", "", "", "release:patch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ReleaseLabel(tt.bump, tt.defaultBump)
+			if got != tt.want {
+				t.Errorf("ReleaseLabel(%q, %q) = %q, want %q", tt.bump, tt.defaultBump, got, tt.want)
+			}
+		})
+	}
+}

@@ -424,6 +424,10 @@ func (p *Pipeline) banner() {
 		autoIterMode = fmt.Sprintf("On (cap %d, poll %s)",
 			p.cfg.MaxPRIterations, p.cfg.PRPollInterval)
 	}
+	autoReleaseMode := "Disabled"
+	if p.cfg.AutoReleaseLabel {
+		autoReleaseMode = fmt.Sprintf("On (default: %s)", p.cfg.DefaultReleaseBump)
+	}
 
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive
 	// and cloned on demand, so there's no static list at startup — report the
@@ -454,6 +458,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Agent:          %s\n", agentMode)
 	fmt.Printf("   Review:         %s\n", reviewMode)
 	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
+	fmt.Printf("   Release label:  %s\n", autoReleaseMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)

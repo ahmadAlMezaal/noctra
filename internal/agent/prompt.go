@@ -16,6 +16,9 @@ type BuildPromptInput struct {
 	// to do — actually unblocks a retry.
 	Comments []string
 	UseTeams bool
+	// AutoReleaseLabel enables the RELEASE: instruction in the prompt,
+	// asking the agent to suggest a semver bump level.
+	AutoReleaseLabel bool
 }
 
 // BuildPrompt returns the prompt sent to Claude for a ticket. Two flavors:
@@ -31,6 +34,16 @@ func BuildPrompt(in BuildPromptInput) string {
 	if len(in.Comments) > 0 {
 		discussion = "\n\n## Ticket discussion (human clarifications — treat as authoritative, newest wins):\n" +
 			strings.Join(in.Comments, "\n\n")
+	}
+
+	releaseInstruction := ""
+	if in.AutoReleaseLabel {
+		releaseInstruction = `
+
+After your summary (outside the markers), emit exactly one line:
+RELEASE: patch | minor | major | none
+
+Guidelines: none = docs/chore/internal-only, patch = bug fix, minor = new feature, major = breaking change.`
 	}
 
 	if in.UseTeams {
@@ -62,7 +75,7 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NOCTRA SUMMARY===
 <your summary here>
 ===END NOCTRA SUMMARY===
-`, in.Identifier, in.Title, desc, discussion)
+%s`, in.Identifier, in.Title, desc, discussion, releaseInstruction)
 	}
 
 	return fmt.Sprintf(`You are implementing a Linear ticket.
@@ -89,5 +102,5 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NOCTRA SUMMARY===
 <your summary here>
 ===END NOCTRA SUMMARY===
-`, in.Identifier, in.Title, desc, discussion)
+%s`, in.Identifier, in.Title, desc, discussion, releaseInstruction)
 }
