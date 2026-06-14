@@ -62,6 +62,21 @@ release:
   draft: false
   prerelease: auto
 
-# A Homebrew formula/cask can be published here later via `homebrew_casks`,
-# once an `ahmadAlMezaal/homebrew-tap` repo and a HOMEBREW_TAP_TOKEN secret
-# exist. `go install` + the release binaries already cover install for now.
+brews:
+  - name: nightshift
+    repository:
+      owner: ahmadAlMezaal
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: nightshift-bot
+      email: nightshift-bot@users.noreply.github.com
+    homepage: https://getnightshift.dev
+    description: >-
+      Autonomous Linear-to-PR agent — polls Linear for tickets, implements
+      them with Claude Code or OpenAI Codex, and creates pull requests.
+    license: MIT
+    install: |
+      bin.install "nightshift"
+    test: |
+      system "#{bin}/nightshift", "version"

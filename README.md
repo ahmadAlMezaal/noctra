@@ -119,16 +119,19 @@ Nightshift never stores or manages agent credentials — it inherits whatever th
 Nightshift is a single static binary — pick whichever you prefer:
 
 ```bash
-# A. Go toolchain (installs the latest tagged release to $GOPATH/bin)
+# A. Homebrew (macOS / Linux)
+brew install ahmadAlMezaal/tap/nightshift
+
+# B. Go toolchain (installs the latest tagged release to $GOPATH/bin)
 go install github.com/ahmadAlMezaal/nightshift/cmd/nightshift@latest
 
-# B. Prebuilt binary — no Go required
+# C. Prebuilt binary — no Go required
 #    Grab the archive for your OS/arch from the Releases page:
 #    https://github.com/ahmadAlMezaal/nightshift/releases
 #    (linux amd64/arm64/armv7, macOS amd64/arm64), then:
 tar -xzf nightshift_*_linux_arm64.tar.gz && sudo mv nightshift /usr/local/bin/
 
-# C. Build from source
+# D. Build from source
 git clone https://github.com/ahmadAlMezaal/nightshift.git
 cd nightshift && go build -o nightshift ./cmd/nightshift
 ```
