@@ -330,8 +330,8 @@ func (c *Client) fetchUnresolvedThreads(ctx context.Context, owner, repo string,
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
 		"-f", "query="+query,
-		"-F", "owner="+owner,
-		"-F", "repo="+repo,
+		"-f", "owner="+owner,
+		"-f", "repo="+repo,
 		"-F", fmt.Sprintf("number=%d", number),
 	)
 	cmd.Stderr = &stderr
