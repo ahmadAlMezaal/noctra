@@ -42,7 +42,7 @@ import (
 
 // version is the build version. Defaults to a dev marker for `go build`/`go
 // run`; release builds stamp the real tag via -ldflags "-X main.version=...".
-var version = "2.0.0-dev"
+var version = "0.4.0-dev"
 
 // ANSI escape codes for the startup banner.
 const (
