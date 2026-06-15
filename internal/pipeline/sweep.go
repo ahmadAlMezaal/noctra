@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -142,7 +141,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			notify.EscapeMarkdown(job.Task.Description)))
 	}
 
-	branch := sweep.SweepBranchName(job.Task.BranchSuffix)
+	branch := sweep.SweepBranchName(job.RepoSlug, job.Task.BranchSuffix)
 	wt, err := repo.CreateWorktreeWithBranch(ctx, p.cfg.WorktreeBase, identifier, job.RepoPath, job.MainBranch, branch)
 	if err != nil {
 		logger.Error("worktree creation failed", "err", err)
@@ -313,7 +312,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	// Track in state store for auto-iterate (if enabled).
 	if p.store != nil {
 		if err := p.store.Update(prURL, func(r *state.PRState) {
-			r.TicketID = strings.ToUpper(identifier)
+			r.TicketID = identifier
 			r.AgentBackend = backend.Name()
 		}); err != nil {
 			logger.Warn("could not persist sweep PR in state", "err", err)
