@@ -34,6 +34,33 @@ func TestListener_AuthRejectsWrongChat(t *testing.T) {
 	}
 }
 
+func TestListener_AuthRejectsStateChangingCommands(t *testing.T) {
+	for _, cmd := range []string{"/start ENG-42", "/move ENG-42 Done", "/pause", "/resume"} {
+		t.Run(cmd, func(t *testing.T) {
+			l := New("tok", "12345")
+			var dispatched bool
+			for _, name := range []string{"start", "move", "pause", "resume"} {
+				l.dispatcher.Register(name, name, func(_ context.Context, _ string) string {
+					dispatched = true
+					return ""
+				})
+			}
+
+			l.handleUpdate(context.Background(), Update{
+				UpdateID: 1,
+				Message: &Message{
+					Text: cmd,
+					Chat: Chat{ID: 99999},
+					From: &User{Username: "attacker"},
+				},
+			})
+			if dispatched {
+				t.Fatalf("%s handler should not be called for unauthorised chat", cmd)
+			}
+		})
+	}
+}
+
 func TestListener_AuthAcceptsCorrectChat(t *testing.T) {
 	l := New("tok", "12345")
 	var dispatched bool

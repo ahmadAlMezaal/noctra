@@ -64,6 +64,7 @@ type Pipeline struct {
 	successCount      int
 	failCount         int
 	rateLimitDetected bool // only used when RateLimitStrategy=shutdown
+	paused            bool // operator pause via Telegram; active runs continue
 }
 
 // New constructs a Pipeline. It does not perform any I/O — call Run to start.
@@ -255,6 +256,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	p.mu.Lock()
+	if p.paused {
+		p.mu.Unlock()
+		slog.Debug("⏸ dispatching paused by operator")
+		return
+	}
 	inFlight := len(p.active)
 	available := p.cfg.MaxConcurrent - inFlight
 	dispatched := p.totalDispatches
@@ -376,6 +382,32 @@ func (p *Pipeline) KillRun(identifier string) error {
 	p.killed[identifier] = struct{}{}
 	cancel()
 	return nil
+}
+
+// PauseDispatch stops future poll dispatches while letting active runs drain.
+// It returns true if dispatching was already paused.
+func (p *Pipeline) PauseDispatch() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	alreadyPaused := p.paused
+	p.paused = true
+	return alreadyPaused
+}
+
+// ResumeDispatch re-enables future poll dispatches. It returns true if
+// dispatching had been paused.
+func (p *Pipeline) ResumeDispatch() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	wasPaused := p.paused
+	p.paused = false
+	return wasPaused
+}
+
+func (p *Pipeline) dispatchPaused() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.paused
 }
 
 func (p *Pipeline) bumpFailed(id string) int {
@@ -512,6 +544,11 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
 	fmt.Printf("   Max dispatches: %d per session\n", p.cfg.MaxDispatches)
+	if p.dispatchPaused() {
+		fmt.Printf("   Dispatch:       Paused by operator\n")
+	} else {
+		fmt.Printf("   Dispatch:       Running\n")
+	}
 
 	// Budget caps (ENG-217).
 	budgetMode := "Unlimited"

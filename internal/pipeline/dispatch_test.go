@@ -1,9 +1,17 @@
 package pipeline
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 )
 
@@ -71,5 +79,46 @@ func TestBumpFailed_BoundsRetries(t *testing.T) {
 	}
 	if p.failCount != 5 {
 		t.Fatalf("failCount: got %d, want 5", p.failCount)
+	}
+}
+
+func TestPollOnce_OperatorPauseSkipsFetch(t *testing.T) {
+	var fetched bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"teams": map[string]any{"nodes": []map[string]any{}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+
+	p := &Pipeline{
+		cfg: &config.Config{
+			MaxConcurrent: 1,
+			MaxDispatches: 10,
+			TriggerMode:   "state",
+			TriggerState:  "Next",
+		},
+		linear:         client,
+		active:         map[string]struct{}{},
+		cancels:        map[string]context.CancelFunc{},
+		failedAttempts: map[string]int{},
+		skipped:        map[string]struct{}{},
+		sessionStart:   time.Now(),
+		paused:         true,
+	}
+
+	var wg sync.WaitGroup
+	p.pollOnce(context.Background(), &wg)
+	wg.Wait()
+
+	if fetched {
+		t.Fatal("pollOnce fetched tickets while operator pause was active")
 	}
 }
