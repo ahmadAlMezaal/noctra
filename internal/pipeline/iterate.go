@@ -400,6 +400,10 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		sha := gitHeadShort(ctx, wt.Path)
 		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
+
+		// Reply to and resolve addressed review threads (best-effort).
+		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, sha)
+
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
 		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",

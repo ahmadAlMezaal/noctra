@@ -206,3 +206,212 @@ func TestDetailsIsOpen(t *testing.T) {
 		t.Error("State=MERGED should not be open")
 	}
 }
+
+func TestParsePRURL(t *testing.T) {
+	cases := []struct {
+		in          string
+		owner, repo string
+		number      int
+		wantErr     bool
+	}{
+		{"https://github.com/me/auth/pull/42", "me", "auth", 42, false},
+		{"https://github.com/org/repo/pull/1", "org", "repo", 1, false},
+		{"https://github.com/me/auth/pull/12/files", "me", "auth", 12, false},
+
+		{"https://github.com/me/auth/issues/12", "", "", 0, true},
+		{"https://github.com/me/auth", "", "", 0, true},
+		{"https://github.com/me", "", "", 0, true},
+		{"https://github.com/me/auth/pull/abc", "", "", 0, true},
+		{"", "", "", 0, true},
+	}
+	for _, c := range cases {
+		owner, repo, number, err := parsePRURL(c.in)
+		if (err != nil) != c.wantErr {
+			t.Errorf("parsePRURL(%q): err=%v wantErr=%v", c.in, err, c.wantErr)
+			continue
+		}
+		if owner != c.owner || repo != c.repo || number != c.number {
+			t.Errorf("parsePRURL(%q) = (%q, %q, %d), want (%q, %q, %d)",
+				c.in, owner, repo, number, c.owner, c.repo, c.number)
+		}
+	}
+}
+
+func TestDecodeReviewThreads(t *testing.T) {
+	data := []byte(`{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "PRRT_thread1",
+              "isResolved": false,
+              "comments": {"nodes": [{"databaseId": 100}]}
+            },
+            {
+              "id": "PRRT_thread2",
+              "isResolved": true,
+              "comments": {"nodes": [{"databaseId": 200}]}
+            },
+            {
+              "id": "PRRT_thread3",
+              "isResolved": false,
+              "comments": {"nodes": [{"databaseId": 300}]}
+            }
+          ]
+        }
+      }
+    }
+  }
+}`)
+	threads, err := decodeReviewThreads(data)
+	if err != nil {
+		t.Fatalf("decodeReviewThreads: %v", err)
+	}
+	if len(threads) != 2 {
+		t.Fatalf("got %d threads, want 2 (only unresolved)", len(threads))
+	}
+	if threads[0].ID != "PRRT_thread1" || threads[0].FirstCommentDatabaseID != 100 {
+		t.Errorf("thread[0] = %+v", threads[0])
+	}
+	if threads[1].ID != "PRRT_thread3" || threads[1].FirstCommentDatabaseID != 300 {
+		t.Errorf("thread[1] = %+v", threads[1])
+	}
+}
+
+func TestDecodeReviewThreads_Empty(t *testing.T) {
+	data := []byte(`{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {"nodes": []}
+      }
+    }
+  }
+}`)
+	threads, err := decodeReviewThreads(data)
+	if err != nil {
+		t.Fatalf("decodeReviewThreads: %v", err)
+	}
+	if len(threads) != 0 {
+		t.Errorf("got %d threads, want 0", len(threads))
+	}
+}
+
+func TestDecodeReviewThreads_NoComments(t *testing.T) {
+	data := []byte(`{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "PRRT_orphan",
+              "isResolved": false,
+              "comments": {"nodes": []}
+            }
+          ]
+        }
+      }
+    }
+  }
+}`)
+	threads, err := decodeReviewThreads(data)
+	if err != nil {
+		t.Fatalf("decodeReviewThreads: %v", err)
+	}
+	if len(threads) != 1 {
+		t.Fatalf("got %d threads, want 1", len(threads))
+	}
+	if threads[0].FirstCommentDatabaseID != 0 {
+		t.Errorf("expected 0 comment ID for orphan thread, got %d", threads[0].FirstCommentDatabaseID)
+	}
+}
+
+func TestReplyAndResolveThreads(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "gh-calls.log")
+
+	gh := filepath.Join(dir, "gh")
+	// Use a @@@ delimiter between calls because GraphQL queries contain
+	// newlines, which would make line-counting unreliable.
+	script := `#!/bin/sh
+printf '%s\n@@@\n' "$*" >> ` + logFile + `
+case "$*" in
+  *reviewThreads*)
+    cat <<'JSON'
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "PRRT_abc",
+              "isResolved": false,
+              "comments": {"nodes": [{"databaseId": 42}]}
+            },
+            {
+              "id": "PRRT_def",
+              "isResolved": true,
+              "comments": {"nodes": [{"databaseId": 99}]}
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+JSON
+    exit 0
+    ;;
+esac
+echo "{}"
+`
+	if err := os.WriteFile(gh, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	New().ReplyAndResolveThreads(context.Background(), "https://github.com/me/repo/pull/7", "abc1234")
+
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+
+	// Split on the @@@ delimiter to get one entry per gh invocation.
+	entries := strings.Split(strings.TrimSpace(string(log)), "@@@")
+	// Filter empty entries from trailing delimiters.
+	var calls []string
+	for _, e := range entries {
+		if s := strings.TrimSpace(e); s != "" {
+			calls = append(calls, s)
+		}
+	}
+
+	// Expect 3 calls: 1 GraphQL fetch + 1 REST reply + 1 GraphQL resolve.
+	// (The resolved thread PRRT_def is skipped.)
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 gh calls, got %d:\n%s", len(calls), string(log))
+	}
+
+	// First call: GraphQL query for threads.
+	if !strings.Contains(calls[0], "api graphql") || !strings.Contains(calls[0], "reviewThreads") {
+		t.Errorf("call 1: expected GraphQL thread fetch, got: %s", calls[0])
+	}
+
+	// Second call: REST reply to comment 42.
+	if !strings.Contains(calls[1], "repos/me/repo/pulls/7/comments/42/replies") {
+		t.Errorf("call 2: expected REST reply, got: %s", calls[1])
+	}
+	if !strings.Contains(calls[1], "Addressed in abc1234") {
+		t.Errorf("call 2: expected SHA in reply body, got: %s", calls[1])
+	}
+
+	// Third call: GraphQL resolve.
+	if !strings.Contains(calls[2], "resolveReviewThread") || !strings.Contains(calls[2], "PRRT_abc") {
+		t.Errorf("call 3: expected GraphQL resolve, got: %s", calls[2])
+	}
+}
