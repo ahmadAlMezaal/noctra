@@ -81,5 +81,9 @@ func SweepBranchName(repoSlug, taskSuffix string) string {
 // repo slug (e.g. "SWEEP-MYREPO-LINT-CLEANUP"). Used as the worktree
 // directory name and the key for the active-set dedup.
 func SweepIdentifier(repoSlug, taskSuffix string) string {
-	return strings.ToUpper("SWEEP-" + repoSlug + "-" + taskSuffix)
+	return strings.ToUpper("SWEEP-" + sanitizeRepoSlug(repoSlug) + "-" + taskSuffix)
+}
+
+func sanitizeRepoSlug(repoSlug string) string {
+	return strings.ReplaceAll(repoSlug, "/", "-")
 }

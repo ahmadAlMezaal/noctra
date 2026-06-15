@@ -104,6 +104,7 @@ func TestSweepBranchName(t *testing.T) {
 	}{
 		{"repo-a", "lint-cleanup", "noctra/sweep-repo-a-lint-cleanup"},
 		{"Repo-B", "dead-code", "noctra/sweep-repo-b-dead-code"},
+		{"owner/repo-c", "lint-cleanup", "noctra/sweep-owner-repo-c-lint-cleanup"},
 	}
 	for _, tt := range tests {
 		got := SweepBranchName(tt.repoSlug, tt.suffix)
@@ -114,9 +115,18 @@ func TestSweepBranchName(t *testing.T) {
 }
 
 func TestSweepIdentifier(t *testing.T) {
-	got := SweepIdentifier("my-repo", "lint-cleanup")
-	want := "SWEEP-MY-REPO-LINT-CLEANUP"
-	if got != want {
-		t.Errorf("SweepIdentifier = %q, want %q", got, want)
+	tests := []struct {
+		repoSlug string
+		suffix   string
+		want     string
+	}{
+		{"my-repo", "lint-cleanup", "SWEEP-MY-REPO-LINT-CLEANUP"},
+		{"owner/my-repo", "lint-cleanup", "SWEEP-OWNER-MY-REPO-LINT-CLEANUP"},
+	}
+	for _, tt := range tests {
+		got := SweepIdentifier(tt.repoSlug, tt.suffix)
+		if got != tt.want {
+			t.Errorf("SweepIdentifier(%q, %q) = %q, want %q", tt.repoSlug, tt.suffix, got, tt.want)
+		}
 	}
 }

@@ -100,7 +100,7 @@ func TestIdentifierFromBranch(t *testing.T) {
 }
 
 func TestIdentifierFromBranch_SweepRoundTrip(t *testing.T) {
-	repoSlug := "Repo-A"
+	repoSlug := "Owner/Repo-A"
 	taskSuffix := "lint-cleanup"
 
 	got := identifierFromBranch(sweep.SweepBranchName(repoSlug, taskSuffix))
