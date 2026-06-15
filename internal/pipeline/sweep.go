@@ -368,12 +368,37 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 				case agentRunFailed:
 					logger.Warn("fix-pass exited with error", "err", fixErr)
 				}
-				_ = runIn(ctx, wt.Path, "git", "add", "-A")
+				if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
+					logger.Error("git add failed after fix-pass", "err", err)
+					return
+				}
 			}
 		}
 		if !reviewPassed {
 			logger.Warn("gemini did not pass — creating PR with review comments attached",
 				"attempts", reviewAttempts)
+		}
+
+		// Commit and push any fixes from the review gate loop.
+		staged, err := hasStagedChanges(ctx, wt.Path)
+		if err != nil {
+			logger.Error("git diff --cached failed", "err", err)
+			return
+		}
+		if staged {
+			fixCommitMsg := appendCoAuthorTrailer(
+				fmt.Sprintf("%s: Address review feedback\n\nAutonomous maintenance by Noctra using %s",
+					job.Task.CommitPrefix, backend.Label()),
+				backend.CoAuthor())
+			if err := runIn(ctx, wt.Path, "git", "commit", "-m", fixCommitMsg); err != nil {
+				logger.Error("git commit for review fixes failed", "err", err)
+				return
+			}
+			if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
+				logger.Error("git push for review fixes failed", "err", err)
+				return
+			}
+			logger.Info("pushed review fixes", "branch", wt.Branch)
 		}
 	}
 
