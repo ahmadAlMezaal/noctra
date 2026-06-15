@@ -237,6 +237,17 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
+			// Check budget caps on every tick so concurrent in-flight runs
+			// that pushed usage over the cap are caught promptly (rather
+			// than waiting for the next completed run to call flagBudgetExceeded).
+			if reason := p.budget.ExceededReason(); reason != "" {
+				p.flagBudgetExceeded(reason)
+				p.telegram.Send(ctx, fmt.Sprintf(
+					"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+					notify.EscapeMarkdown(reason)))
+				continue
+			}
+
 			p.pollOnce(ctx, &wg)
 		}
 	}

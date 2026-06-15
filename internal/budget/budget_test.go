@@ -108,6 +108,20 @@ func TestIsPaused_AutoResume(t *testing.T) {
 	}
 }
 
+func TestStats_AutoResume(t *testing.T) {
+	tr := New(Config{})
+	// Pause until a time that's already past.
+	tr.Pause("expired pause", time.Now().Add(-1*time.Second))
+
+	s := tr.Stats()
+	if s.Paused {
+		t.Error("Stats should apply auto-resume when pausedUntil is in the past")
+	}
+	if s.PauseReason != "" {
+		t.Errorf("Stats PauseReason should be empty after auto-resume, got %q", s.PauseReason)
+	}
+}
+
 func TestDailyReset(t *testing.T) {
 	tr := New(Config{MaxDailyTokens: 1000})
 

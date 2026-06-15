@@ -131,17 +131,24 @@ func (t *Tracker) IsPaused() (paused bool, until time.Time, reason string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.maybeResetDaily()
+	t.maybeAutoResume()
 	if !t.paused {
 		return false, time.Time{}, ""
 	}
-	// Auto-resume when the pause timer expires.
+	return true, t.pausedUntil, t.pauseReason
+}
+
+// maybeAutoResume clears the pause state when the pausedUntil timer has
+// expired. Must be called with t.mu held.
+func (t *Tracker) maybeAutoResume() {
+	if !t.paused {
+		return
+	}
 	if !t.pausedUntil.IsZero() && t.now().After(t.pausedUntil) {
 		t.paused = false
 		t.pauseReason = ""
 		t.pausedUntil = time.Time{}
-		return false, time.Time{}, ""
 	}
-	return true, t.pausedUntil, t.pauseReason
 }
 
 // Resume manually clears a pause. Intended for future /resume commands.
@@ -154,10 +161,13 @@ func (t *Tracker) Resume() {
 }
 
 // Stats returns a point-in-time snapshot of usage and pause state.
+// It applies the same auto-resume logic as IsPaused so callers (e.g.
+// /status) never see stale pause information after the timer has expired.
 func (t *Tracker) Stats() Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.maybeResetDaily()
+	t.maybeAutoResume()
 	return Stats{
 		SessionTokens:  t.sessionTokens,
 		SessionCostUSD: t.sessionCostUSD,

@@ -369,6 +369,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 				// Record usage from the fix pass.
 				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
+				if reason := p.budget.ExceededReason(); reason != "" {
+					p.flagBudgetExceeded(reason)
+					p.telegram.Send(ctx, fmt.Sprintf(
+						"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+						notify.EscapeMarkdown(reason)))
+				}
 
 				switch classifyAgentRun(backend, fixErr, fixOutput) {
 				case agentRunTimedOut:

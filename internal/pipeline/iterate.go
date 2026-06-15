@@ -338,6 +338,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// Record usage from the iteration (ENG-217).
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	// Check budget caps immediately after recording — if exceeded, the pause
+	// takes effect on the next poll tick (in-flight work drains naturally).
+	if reason := p.budget.ExceededReason(); reason != "" {
+		p.flagBudgetExceeded(reason)
+		p.telegram.Send(ctx, fmt.Sprintf(
+			"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+			notify.EscapeMarkdown(reason)))
+	}
 
 	// Rate limit is only classified on a failed run (see rateLimited), so a
 	// successful iteration whose transcript merely mentions "rate limit" (file
