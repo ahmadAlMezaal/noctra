@@ -13,6 +13,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/review"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
@@ -274,13 +275,154 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 	logger.Info("pushed", "branch", wt.Branch)
 
+	// ── Gemini review gate (optional) ────────────────────────────────────────
+	reviewPassed := true
+	reviewSkipped := false
+	var reviewBody string
+	reviewAttempts := 0
+
+	if p.review.Enabled() {
+		logger.Info("running gemini review gate")
+		for i := 0; i <= p.cfg.MaxReviewRetries; i++ {
+			reviewAttempts = i + 1
+			diff := boundedReviewDiff(gitDiff(ctx, wt.Path))
+			r, err := p.review.Review(ctx, job.Task.Name, job.Task.Description, diff)
+			if err != nil {
+				if errors.Is(err, review.ErrUnavailable) {
+					logger.Warn("gemini review gate skipped", "err", err)
+					reviewPassed = true
+					reviewSkipped = true
+					reviewBody = r.Body
+					break
+				}
+				logger.Warn("gemini review request failed", "err", err)
+				reviewPassed = false
+				reviewBody = err.Error()
+				break
+			}
+			reviewBody = r.Body
+			if r.Skipped {
+				reviewPassed = true
+				reviewSkipped = true
+				logger.Warn("gemini review gate skipped", "reason", r.Body)
+				break
+			}
+			if r.Passed {
+				reviewPassed = true
+				logger.Info("✅ gemini review passed")
+				break
+			}
+			reviewPassed = false
+			logger.Info("🔄 gemini flagged issues", "attempt", i+1, "of", p.cfg.MaxReviewRetries+1)
+
+			if i < p.cfg.MaxReviewRetries {
+				fixPrompt := fmt.Sprintf(`A code reviewer found issues with your implementation. Please fix them.
+
+## Reviewer feedback:
+%s
+
+## Rules:
+- Only address the specific issues mentioned in the feedback above.
+- Do not change anything else.
+- Run tests after fixing to make sure nothing broke.`, r.Body)
+
+				logger.Info("asking the agent to fix review issues")
+				fixOffset := agent.OffsetBefore(logFile)
+				fixErr := backend.Run(ctx, agent.RunOptions{
+					Workdir: wt.Path,
+					Prompt:  fixPrompt,
+					LogFile: logFile,
+					Timeout: p.cfg.AgentTimeout,
+				})
+
+				if p.isKilled(identifier) {
+					logger.Info("fix-pass killed by user")
+					return
+				}
+				if ctx.Err() != nil {
+					logger.Info("fix-pass cancelled (shutdown)")
+					return
+				}
+
+				fixOutput := agent.ReadAfter(logFile, fixOffset)
+
+				// Record usage from the fix pass.
+				fixUsage := agent.ParseUsage(fixOutput)
+				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
+				if reason := p.budget.ExceededReason(); reason != "" {
+					p.flagBudgetExceeded(reason)
+					p.telegram.Send(ctx, fmt.Sprintf(
+						"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+						notify.EscapeMarkdown(reason)))
+				}
+
+				switch classifyAgentRun(backend, fixErr, fixOutput) {
+				case agentRunTimedOut:
+					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
+					return
+				case agentRunRateLimited:
+					logger.Warn("usage/rate limit detected during fix-pass")
+					p.flagRateLimit()
+					return
+				case agentRunFailed:
+					logger.Warn("fix-pass exited with error", "err", fixErr)
+				}
+				if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
+					logger.Error("git add failed after fix-pass", "err", err)
+					return
+				}
+			}
+		}
+		if !reviewPassed {
+			logger.Warn("gemini did not pass — creating PR with review comments attached",
+				"attempts", reviewAttempts)
+		}
+
+		// Commit and push any fixes from the review gate loop.
+		staged, err := hasStagedChanges(ctx, wt.Path)
+		if err != nil {
+			logger.Error("git diff --cached failed", "err", err)
+			return
+		}
+		if staged {
+			fixCommitMsg := appendCoAuthorTrailer(
+				fmt.Sprintf("%s: Address review feedback\n\nAutonomous maintenance by Noctra using %s",
+					job.Task.CommitPrefix, backend.Label()),
+				backend.CoAuthor())
+			if err := runIn(ctx, wt.Path, "git", "commit", "-m", fixCommitMsg); err != nil {
+				logger.Error("git commit for review fixes failed", "err", err)
+				return
+			}
+			if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
+				logger.Error("git push for review fixes failed", "err", err)
+				return
+			}
+			logger.Info("pushed review fixes", "branch", wt.Branch)
+		}
+	}
+
 	// PR body.
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
+	reviewSection := ""
+	if p.review.Enabled() {
+		if reviewSkipped {
+			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
+				p.review.Model, p.review.Mode, reviewBody)
+		} else if reviewPassed {
+			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
+				p.review.Model, p.review.Mode)
+		} else {
+			reviewSection = fmt.Sprintf(
+				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
+				reviewAttempts, reviewBody)
+		}
+	}
+
 	prBody := fmt.Sprintf(
-		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*",
-		job.Task.Name, job.Task.Description, job.RepoSlug, summary, backend.Label())
+		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*",
+		job.Task.Name, job.Task.Description, job.RepoSlug, summary, reviewSection, backend.Label())
 
 	prTitle := fmt.Sprintf("%s: %s", job.Task.CommitPrefix, job.Task.Description)
 
