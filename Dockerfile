@@ -8,7 +8,7 @@
 # cross-compile to TARGETARCH. For a multi-arch build this keeps the Go
 # toolchain running natively instead of emulating the compiler under QEMU for
 # the non-native arch — much faster, with an identical static result.
-FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
 WORKDIR /src
 
 # Dependency layer first for caching. Noctra is stdlib-only today (no
@@ -68,7 +68,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV REPOS_BASE=/data/repos \
     WORKTREE_BASE=/data/worktrees \
     LOG_DIR=/data/logs \
-    STATE_FILE=/data/state.json
+    STATE_FILE=/data/state.json \
+    STATE_DB=/data/noctra.db
 WORKDIR /data
 VOLUME /data
 
