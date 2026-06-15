@@ -315,8 +315,15 @@ func (s *Server) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	// Start from current end of file.
 	offset, _ := f.Seek(0, io.SeekEnd)
 
+	// Cap per-tick reads so a fast-growing file can't cause unbounded
+	// memory allocation.
+	const maxReadPerTick = 256 * 1024 // 256 KB
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+
+	// Buffer for an incomplete trailing line from the previous read.
+	var partial string
 
 	for {
 		select {
@@ -327,14 +334,39 @@ func (s *Server) StreamLogs(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			if info.Size() <= offset {
+
+			// Handle log truncation (e.g. rotation): reset to the
+			// new end so we don't read stale offsets.
+			if info.Size() < offset {
+				offset = info.Size()
+				partial = ""
 				continue
 			}
-			buf := make([]byte, info.Size()-offset)
-			n, err := f.ReadAt(buf, offset)
+
+			if info.Size() == offset {
+				continue
+			}
+
+			toRead := info.Size() - offset
+			if toRead > maxReadPerTick {
+				toRead = maxReadPerTick
+			}
+
+			buf := make([]byte, toRead)
+			n, readErr := f.ReadAt(buf, offset)
 			if n > 0 {
-				// SSE format: replace newlines so the data field is valid.
-				lines := strings.Split(string(buf[:n]), "\n")
+				chunk := partial + string(buf[:n])
+				partial = ""
+
+				lines := strings.Split(chunk, "\n")
+				// If the chunk doesn't end with a newline, the last
+				// element is an incomplete line — buffer it for the
+				// next tick.
+				if !strings.HasSuffix(chunk, "\n") {
+					partial = lines[len(lines)-1]
+					lines = lines[:len(lines)-1]
+				}
+
 				for _, line := range lines {
 					fmt.Fprintf(w, "data: %s\n", line)
 				}
@@ -342,7 +374,7 @@ func (s *Server) StreamLogs(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 				offset += int64(n)
 			}
-			if err != nil && err != io.EOF {
+			if readErr != nil && readErr != io.EOF {
 				return
 			}
 		}

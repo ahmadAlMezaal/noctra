@@ -464,7 +464,8 @@ func (p *Pipeline) DashboardStatus() dashboard.Status {
 
 // Requeue moves a ticket back to the trigger state/label. Implements
 // dashboard.Controller. If extraContext is non-empty, it is posted as a
-// Linear comment before the state transition.
+// Linear comment before the state transition. Clears any cached failure
+// count and skipped status so the ticket is not skipped on subsequent polls.
 func (p *Pipeline) Requeue(ctx context.Context, identifier, extraContext string) error {
 	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
 	if err != nil {
@@ -487,6 +488,14 @@ func (p *Pipeline) Requeue(ctx context.Context, identifier, extraContext string)
 			return fmt.Errorf("set trigger state on %s failed: %w", identifier, err)
 		}
 	}
+
+	// Clear cached failure/skipped state so the poll loop will re-dispatch
+	// this ticket instead of silently skipping it.
+	p.mu.Lock()
+	delete(p.failedAttempts, identifier)
+	delete(p.skipped, identifier)
+	p.mu.Unlock()
+
 	return nil
 }
 
