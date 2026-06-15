@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/budget"
+	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 )
@@ -21,6 +22,10 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("ticket", "Show a ticket's details (e.g. /ticket ENG-42)", p.handleTicket)
 	d.Register("search-tickets", "Search Linear tickets by text (e.g. /search-tickets auth login)", p.handleSearch)
 	d.Register("find", "Alias for /search-tickets", p.handleSearch)
+	d.Register("start", "Start a ticket on the next poll (e.g. /start ENG-42)", p.handleStart)
+	d.Register("move", "Move a ticket to a Linear state (e.g. /move ENG-42 \"In Review\")", p.handleMove)
+	d.Register("pause", "Pause new dispatches without killing active runs", p.handlePause)
+	d.Register("resume", "Resume new dispatches after /pause", p.handleResume)
 	d.Register("kill", "Kill a running ticket (e.g. /kill ENG-42)", p.handleKill)
 	d.Register("requeue", "Re-queue a ticket with context (e.g. /requeue ENG-42 use Auth0)", p.handleRequeue)
 }
@@ -38,6 +43,7 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	dispatches := p.totalDispatches
 	maxD := p.cfg.MaxDispatches
 	maxC := p.cfg.MaxConcurrent
+	operatorPaused := p.paused
 	p.mu.Unlock()
 
 	sort.Strings(active)
@@ -45,6 +51,11 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 
 	var b strings.Builder
 	b.WriteString("*Noctra Status*\n\n")
+	if operatorPaused {
+		b.WriteString("⏸ *Dispatch:* paused by operator\n\n")
+	} else {
+		b.WriteString("▶️ *Dispatch:* running\n\n")
+	}
 
 	if len(active) == 0 {
 		fmt.Fprintf(&b, "*Active runs:* 0/%d (idle)\n", maxC)
@@ -89,6 +100,94 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	}
 
 	return b.String()
+}
+
+// handleStart moves a ticket into the configured trigger state/label so the
+// next poll dispatches it.
+func (p *Pipeline) handleStart(ctx context.Context, args string) string {
+	identifier := normalizeIdentifier(strings.TrimSpace(args), p.cfg.LinearTeamKey)
+	if identifier == "" {
+		return "Usage: /start <ticket>\n\nExample: /start ENG-42"
+	}
+	if p.isActiveRun(identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(identifier))
+	}
+
+	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
+	if err != nil {
+		return fmt.Sprintf("Could not find ticket %s: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	if p.isActiveRun(issue.Identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(issue.Identifier))
+	}
+	if err := p.triggerIssue(ctx, issue); err != nil {
+		return fmt.Sprintf("Found %s but failed to start it: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	return fmt.Sprintf("✅ %s will start on the next poll", notify.EscapeMarkdown(identifier))
+}
+
+// handleMove moves a ticket to any workflow state in its owning Linear team.
+func (p *Pipeline) handleMove(ctx context.Context, args string) string {
+	identifier, stateName := parseMoveArgs(args, p.cfg.LinearTeamKey)
+	if identifier == "" || stateName == "" {
+		return "Usage: /move <ticket> <state>\n\nExample: /move ENG-42 \"In Review\""
+	}
+	if p.isActiveRun(identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(identifier))
+	}
+
+	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
+	if err != nil {
+		return fmt.Sprintf("Could not find ticket %s: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	if p.isActiveRun(issue.Identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(issue.Identifier))
+	}
+	teamKey := p.cfg.LinearTeamKey
+	if issue.Team != nil && issue.Team.Key != "" {
+		teamKey = issue.Team.Key
+	}
+
+	stateID, available, err := p.linear.ResolveStateID(ctx, teamKey, stateName)
+	if err != nil {
+		if len(available) > 0 {
+			return fmt.Sprintf("State %q not found for team %s.\n\nAvailable states: %s",
+				notify.EscapeMarkdown(stateName),
+				notify.EscapeMarkdown(teamKey),
+				notify.EscapeMarkdown(strings.Join(available, ", ")))
+		}
+		return fmt.Sprintf("Could not resolve state for %s: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	if err := p.linear.SetState(ctx, issue.ID, stateID); err != nil {
+		return fmt.Sprintf("Found %s but failed to move it: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	return fmt.Sprintf("✅ %s moved to %s",
+		notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(stateName))
+}
+
+func (p *Pipeline) handlePause(_ context.Context, _ string) string {
+	alreadyPaused := p.PauseDispatch()
+	if alreadyPaused {
+		return "⏸ Dispatch is already paused. Active runs will continue."
+	}
+	return "⏸ Dispatch paused. Active runs will continue."
+}
+
+func (p *Pipeline) handleResume(_ context.Context, _ string) string {
+	wasPaused := p.ResumeDispatch()
+	if !wasPaused {
+		return "▶️ Dispatch is already running."
+	}
+	return "▶️ Dispatch resumed."
 }
 
 // handleTickets reports a project's Linear ticket counts grouped by workflow
@@ -259,17 +358,9 @@ func (p *Pipeline) handleRequeue(ctx context.Context, args string) string {
 		}
 	}
 
-	// Move to trigger state/label so the next poll picks it up.
-	if p.cfg.TriggerMode == "label" && p.labelID != "" {
-		if err := p.linear.AddLabel(ctx, issue.ID, p.labelID); err != nil {
-			return fmt.Sprintf("Commented on %s but failed to add trigger label: %s",
-				notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
-		}
-	} else if p.states.Trigger != "" {
-		if err := p.linear.SetState(ctx, issue.ID, p.states.Trigger); err != nil {
-			return fmt.Sprintf("Commented on %s but failed to move to trigger state: %s",
-				notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
-		}
+	if err := p.triggerIssue(ctx, issue); err != nil {
+		return fmt.Sprintf("Commented on %s but failed to requeue it: %s",
+			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
 	}
 
 	reply := fmt.Sprintf("✅ %s requeued", notify.EscapeMarkdown(identifier))
@@ -281,6 +372,37 @@ func (p *Pipeline) handleRequeue(ctx context.Context, args string) string {
 		reply += fmt.Sprintf("\nContext added: %s", notify.EscapeMarkdown(display))
 	}
 	return reply
+}
+
+func (p *Pipeline) triggerIssue(ctx context.Context, issue linear.Issue) error {
+	if p.cfg.TriggerMode == "label" && p.labelID != "" {
+		return p.linear.AddLabel(ctx, issue.ID, p.labelID)
+	}
+	if p.states.Trigger != "" {
+		return p.linear.SetState(ctx, issue.ID, p.states.Trigger)
+	}
+	return fmt.Errorf("trigger is not resolved")
+}
+
+func parseMoveArgs(args, teamKey string) (string, string) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "", ""
+	}
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		return "", ""
+	}
+	identifier := normalizeIdentifier(fields[0], teamKey)
+	stateName := strings.TrimSpace(strings.TrimPrefix(args, fields[0]))
+	if len(stateName) >= 2 {
+		first := stateName[0]
+		last := stateName[len(stateName)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			stateName = strings.TrimSpace(stateName[1 : len(stateName)-1])
+		}
+	}
+	return identifier, stateName
 }
 
 // normalizeIdentifier converts user input to the standard "ENG-42" format.

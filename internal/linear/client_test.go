@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -609,6 +610,44 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 	}
 	if ids.InReview != "s_review" {
 		t.Errorf("InReview: got %q, want %q", ids.InReview, "s_review")
+	}
+}
+
+func TestResolveStateID_ReturnsCompleteAvailableListOnSuccess(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "test-key",
+		query:      "teams",
+	}, map[string]any{
+		"data": map[string]any{
+			"teams": map[string]any{
+				"nodes": []map[string]any{{
+					"key": "ENG",
+					"states": map[string]any{
+						"nodes": []map[string]any{
+							{"id": "s_backlog", "name": "Backlog"},
+							{"id": "s_next", "name": "Next"},
+							{"id": "s_review", "name": "In Review"},
+						},
+					},
+				}},
+			},
+		},
+	})
+
+	id, available, err := client.ResolveStateID(context.Background(), "ENG", "Backlog")
+	if err != nil {
+		t.Fatalf("ResolveStateID: %v", err)
+	}
+	if id != "s_backlog" {
+		t.Errorf("id: got %q, want %q", id, "s_backlog")
+	}
+	want := []string{"Backlog", "Next", "In Review"}
+	if !reflect.DeepEqual(available, want) {
+		t.Errorf("available: got %v, want %v", available, want)
 	}
 }
 

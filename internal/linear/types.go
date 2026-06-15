@@ -61,6 +61,11 @@ type WorkflowState struct {
 	Type string `json:"type"`
 }
 
+// Team is the Linear team that owns an issue.
+type Team struct {
+	Key string `json:"key"`
+}
+
 // User is the subset of a Linear user Noctra surfaces (the assignee).
 type User struct {
 	Name string `json:"name"`
@@ -101,6 +106,7 @@ type Issue struct {
 	Description string            `json:"description"`
 	URL         string            `json:"url"`
 	Project     *Project          `json:"project,omitempty"`
+	Team        *Team             `json:"team,omitempty"`
 	State       *WorkflowState    `json:"state,omitempty"`
 	Assignee    *User             `json:"assignee,omitempty"`
 	Comments    CommentConnection `json:"comments,omitempty"`

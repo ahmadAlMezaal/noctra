@@ -13,11 +13,47 @@ type StateIDs struct {
 	InReview string
 }
 
+// WorkflowStateID is a Linear workflow state with the fields Noctra needs for
+// resolving user-supplied state names.
+type WorkflowStateID struct {
+	ID   string
+	Name string
+}
+
 // ResolveStateIDs looks up the IDs for the trigger and in-review state names
 // within the team identified by teamKey (e.g. "ENG"). When triggerName is
 // empty (label-based trigger mode), the trigger-state lookup is skipped —
 // only the in-review state is required.
 func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName string) (StateIDs, error) {
+	states, err := c.TeamWorkflowStates(ctx, teamKey)
+	if err != nil {
+		return StateIDs{}, err
+	}
+
+	var ids StateIDs
+	available := make([]string, 0, len(states))
+	for _, s := range states {
+		available = append(available, s.Name)
+		switch s.Name {
+		case triggerName:
+			ids.Trigger = s.ID
+		case inReviewName:
+			ids.InReview = s.ID
+		}
+	}
+	if triggerName != "" && ids.Trigger == "" {
+		return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
+			triggerName, teamKey, available)
+	}
+	if ids.InReview == "" {
+		return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
+			inReviewName, teamKey, available)
+	}
+	return ids, nil
+}
+
+// TeamWorkflowStates returns every workflow state for the given Linear team.
+func (c *Client) TeamWorkflowStates(ctx context.Context, teamKey string) ([]WorkflowStateID, error) {
 	query := `{ teams { nodes { key states { nodes { id name } } } } }`
 
 	var resp struct {
@@ -25,50 +61,46 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 			Nodes []struct {
 				Key    string `json:"key"`
 				States struct {
-					Nodes []struct {
-						ID   string `json:"id"`
-						Name string `json:"name"`
-					} `json:"nodes"`
+					Nodes []WorkflowStateID `json:"nodes"`
 				} `json:"states"`
 			} `json:"nodes"`
 		} `json:"teams"`
 	}
 
 	if err := c.Do(ctx, query, nil, &resp); err != nil {
-		return StateIDs{}, err
+		return nil, err
 	}
 
 	for _, team := range resp.Teams.Nodes {
-		if team.Key != teamKey {
-			continue
+		if team.Key == teamKey {
+			return team.States.Nodes, nil
 		}
-		var ids StateIDs
-		var available []string
-		for _, s := range team.States.Nodes {
-			available = append(available, s.Name)
-			switch s.Name {
-			case triggerName:
-				ids.Trigger = s.ID
-			case inReviewName:
-				ids.InReview = s.ID
-			}
-		}
-		if triggerName != "" && ids.Trigger == "" {
-			return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
-				triggerName, teamKey, available)
-		}
-		if ids.InReview == "" {
-			return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
-				inReviewName, teamKey, available)
-		}
-		return ids, nil
 	}
 
 	var teams []string
 	for _, t := range resp.Teams.Nodes {
 		teams = append(teams, t.Key)
 	}
-	return StateIDs{}, fmt.Errorf("team %q not found (available: %v)", teamKey, teams)
+	return nil, fmt.Errorf("team %q not found (available: %v)", teamKey, teams)
+}
+
+// ResolveStateID looks up a single workflow state ID by exact name and returns
+// the available state names for a helpful caller-facing error.
+func (c *Client) ResolveStateID(ctx context.Context, teamKey, stateName string) (string, []string, error) {
+	states, err := c.TeamWorkflowStates(ctx, teamKey)
+	if err != nil {
+		return "", nil, err
+	}
+	available := make([]string, 0, len(states))
+	for _, s := range states {
+		available = append(available, s.Name)
+	}
+	for _, s := range states {
+		if s.Name == stateName {
+			return s.ID, available, nil
+		}
+	}
+	return "", available, fmt.Errorf("state %q not found in team %q", stateName, teamKey)
 }
 
 // FetchTriggerIssues returns every issue currently in the named state, across
@@ -239,7 +271,7 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 // to UUIDs for the `issue(id:)` argument.
 func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (Issue, error) {
 	query := `query($id: String!) {
-	  issue(id: $id) { id identifier title description url project { name } state { name type } assignee { name } labels { nodes { name } } }
+	  issue(id: $id) { id identifier title description url project { name } team { key } state { name type } assignee { name } labels { nodes { name } } }
 	}`
 
 	var resp struct {
