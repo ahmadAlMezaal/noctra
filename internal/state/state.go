@@ -198,6 +198,9 @@ func (s *Store) All() map[string]PRState {
 		r.LastIteratedAt = parseTime(lastIteratedAt)
 		out[prURL] = r
 	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("error iterating pr_state rows", "err", err)
+	}
 	return out
 }
 
@@ -224,6 +227,9 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	).Scan(&r.TicketID, &r.AgentBackend, &lastCommentAt, &lastReviewAt,
 		&r.LastCISHA, &r.Iterations, &lastIteratedAt)
 
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read pr_state %s: %w", prURL, err)
+	}
 	if err == nil {
 		r.LastCommentAt = parseTime(lastCommentAt)
 		r.LastReviewAt = parseTime(lastReviewAt)
