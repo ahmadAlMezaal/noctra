@@ -23,6 +23,7 @@ var noctraEnvKeys = []string{
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_FILE",
 	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
+	"SWEEP_ENABLED", "SWEEP_SCHEDULE", "SWEEP_INTERVAL", "SWEEP_MAX_TASKS", "SWEEP_TASKS",
 }
 
 func isolateEnv(t *testing.T) {
@@ -762,5 +763,72 @@ RATE_LIMIT_STRATEGY="Shutdown"`)
 	}
 	if cfg.RateLimitStrategy != "shutdown" {
 		t.Errorf("RateLimitStrategy should be lowercased, got %q", cfg.RateLimitStrategy)
+	}
+}
+
+func TestLoad_SweepDefaults(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.SweepEnabled {
+		t.Errorf("SweepEnabled should default to false")
+	}
+	if cfg.SweepSchedule != "" {
+		t.Errorf("SweepSchedule should default to empty, got %q", cfg.SweepSchedule)
+	}
+	if cfg.SweepInterval != DefaultSweepInterval {
+		t.Errorf("SweepInterval: got %v, want %v", cfg.SweepInterval, DefaultSweepInterval)
+	}
+	if cfg.SweepMaxTasks != DefaultSweepMaxTasks {
+		t.Errorf("SweepMaxTasks: got %d, want %d", cfg.SweepMaxTasks, DefaultSweepMaxTasks)
+	}
+	if cfg.SweepTasks != nil {
+		t.Errorf("SweepTasks should default to nil (= all), got %v", cfg.SweepTasks)
+	}
+}
+
+func TestLoad_SweepFromEnv(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+SWEEP_ENABLED="true"
+SWEEP_SCHEDULE="0 2 * * *"
+SWEEP_INTERVAL="43200"
+SWEEP_MAX_TASKS="3"
+SWEEP_TASKS="lint-cleanup,dead-code"
+`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.SweepEnabled {
+		t.Error("SweepEnabled should be true")
+	}
+	if cfg.SweepSchedule != "0 2 * * *" {
+		t.Errorf("SweepSchedule: got %q", cfg.SweepSchedule)
+	}
+	if cfg.SweepInterval != 43200*time.Second {
+		t.Errorf("SweepInterval: got %v", cfg.SweepInterval)
+	}
+	if cfg.SweepMaxTasks != 3 {
+		t.Errorf("SweepMaxTasks: got %d", cfg.SweepMaxTasks)
+	}
+	want := []string{"lint-cleanup", "dead-code"}
+	if len(cfg.SweepTasks) != len(want) {
+		t.Fatalf("SweepTasks length: got %d, want %d (%v)", len(cfg.SweepTasks), len(want), cfg.SweepTasks)
+	}
+	for i, w := range want {
+		if cfg.SweepTasks[i] != w {
+			t.Errorf("SweepTasks[%d]: got %q, want %q", i, cfg.SweepTasks[i], w)
+		}
 	}
 }

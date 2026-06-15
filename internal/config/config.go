@@ -100,6 +100,10 @@ const (
 	// Budget / cost-aware management (ENG-217).
 	DefaultRateLimitStrategy = "pause"
 	DefaultRateLimitCooldown = 30 * time.Minute
+
+	// Sweep — autonomous maintenance (ENG-222) — disabled by default.
+	DefaultSweepInterval = 24 * time.Hour
+	DefaultSweepMaxTasks = 5
 )
 
 // Config is Noctra's resolved runtime configuration.
@@ -162,6 +166,13 @@ type Config struct {
 	MaxDailyUSD       float64       // daily dollar cap, 0 = unlimited
 	RateLimitStrategy string        // "pause" (default) or "shutdown"
 	RateLimitCooldown time.Duration // pause duration after rate limit (default 30m)
+
+	// Sweep — autonomous maintenance (ENG-222) — off by default.
+	SweepEnabled  bool            // opt-in maintenance sweep scheduler
+	SweepSchedule string          // cron expression (e.g. "0 2 * * *"); empty = use SweepInterval
+	SweepInterval time.Duration   // fallback fixed interval when no cron (default 24h)
+	SweepMaxTasks int             // max tasks per sweep run (default 5)
+	SweepTasks    []string        // enabled task names (nil = all registered tasks)
 
 	// Derived paths
 	ScriptDir    string
@@ -249,6 +260,14 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.RateLimitStrategy = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "RATE_LIMIT_STRATEGY", DefaultRateLimitStrategy)))
 	cooldownSecs := getint(fileEnv, "RATE_LIMIT_COOLDOWN", int(DefaultRateLimitCooldown/time.Second))
 	cfg.RateLimitCooldown = time.Duration(cooldownSecs) * time.Second
+
+	// Sweep — autonomous maintenance (ENG-222)
+	cfg.SweepEnabled = getbool(fileEnv, "SWEEP_ENABLED", false)
+	cfg.SweepSchedule = getenv(fileEnv, "SWEEP_SCHEDULE", "")
+	sweepIntervalSecs := getint(fileEnv, "SWEEP_INTERVAL", int(DefaultSweepInterval/time.Second))
+	cfg.SweepInterval = time.Duration(sweepIntervalSecs) * time.Second
+	cfg.SweepMaxTasks = getint(fileEnv, "SWEEP_MAX_TASKS", DefaultSweepMaxTasks)
+	cfg.SweepTasks = getlist(fileEnv, "SWEEP_TASKS")
 
 	return cfg, nil
 }

@@ -208,6 +208,19 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// SlugFromPath extracts the directory-name slug from a local repo path.
+// It's the inverse of Slug applied to the base directory — e.g.
+// "/home/user/.noctra-repos/my-repo" → "my-repo".
+func SlugFromPath(repoPath string) string {
+	return filepath.Base(repoPath)
+}
+
+// DefaultBranchOf reads the default branch of a local clone by inspecting
+// origin/HEAD. Falls back to "main" when it can't be determined.
+func DefaultBranchOf(ctx context.Context, repoPath string) string {
+	return defaultBranch(ctx, repoPath, "main")
+}
+
 // AllRepoPaths returns every local repo Noctra knows about: every on-demand
 // clone found under ReposBase, plus the REPO_PATH fallback (if set and valid).
 // Used by the cleanup subcommand and startup cleanup. Directive-only routing
