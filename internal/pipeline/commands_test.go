@@ -525,6 +525,75 @@ func TestHandleStart_LabelMode(t *testing.T) {
 	}
 }
 
+func TestHandleStart_ActiveTicketBlocked(t *testing.T) {
+	p := &Pipeline{
+		cfg:    &config.Config{LinearTeamKey: "ENG"},
+		active: map[string]struct{}{"ENG-42": {}},
+	}
+
+	reply := p.handleStart(context.Background(), "42")
+	if !strings.Contains(reply, "already running") {
+		t.Errorf("expected active-ticket reply, got %q", reply)
+	}
+}
+
+func TestHandleStart_BlocksIfTicketBecomesActiveAfterLookup(t *testing.T) {
+	var stateChanged bool
+	p := &Pipeline{
+		cfg: &config.Config{
+			LinearTeamKey: "ENG",
+			TriggerMode:   "state",
+		},
+		active: map[string]struct{}{},
+		states: linear.StateIDs{Trigger: "state-trigger-id"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query string `json:"query"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case strings.Contains(req.Query, "issue(id:"):
+			p.mu.Lock()
+			p.active["ENG-42"] = struct{}{}
+			p.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issue": map[string]any{
+						"id":         "uuid-42",
+						"identifier": "ENG-42",
+						"title":      "Fix login",
+						"team":       map[string]any{"key": "ENG"},
+					},
+				},
+			})
+		case strings.Contains(req.Query, "issueUpdate"):
+			stateChanged = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issueUpdate": map[string]any{"success": true},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	client := linear.New("test-key")
+	client.Endpoint = srv.URL
+	p.linear = client
+
+	reply := p.handleStart(context.Background(), "ENG-42")
+	if !strings.Contains(reply, "already running") {
+		t.Errorf("expected active-ticket reply, got %q", reply)
+	}
+	if stateChanged {
+		t.Error("expected active ticket not to be moved to trigger state")
+	}
+}
+
 func TestHandleMove(t *testing.T) {
 	var moved bool
 
@@ -592,6 +661,18 @@ func TestHandleMove(t *testing.T) {
 	}
 	if !moved {
 		t.Error("expected issue state to be updated")
+	}
+}
+
+func TestHandleMove_ActiveTicketBlocked(t *testing.T) {
+	p := &Pipeline{
+		cfg:    &config.Config{LinearTeamKey: "ENG"},
+		active: map[string]struct{}{"ENG-42": {}},
+	}
+
+	reply := p.handleMove(context.Background(), "ENG-42 \"In Review\"")
+	if !strings.Contains(reply, "already running") {
+		t.Errorf("expected active-ticket reply, got %q", reply)
 	}
 }
 

@@ -109,11 +109,19 @@ func (p *Pipeline) handleStart(ctx context.Context, args string) string {
 	if identifier == "" {
 		return "Usage: /start <ticket>\n\nExample: /start ENG-42"
 	}
+	if p.isActiveRun(identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(identifier))
+	}
 
 	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
 	if err != nil {
 		return fmt.Sprintf("Could not find ticket %s: %s",
 			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	if p.isActiveRun(issue.Identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(issue.Identifier))
 	}
 	if err := p.triggerIssue(ctx, issue); err != nil {
 		return fmt.Sprintf("Found %s but failed to start it: %s",
@@ -128,11 +136,19 @@ func (p *Pipeline) handleMove(ctx context.Context, args string) string {
 	if identifier == "" || stateName == "" {
 		return "Usage: /move <ticket> <state>\n\nExample: /move ENG-42 \"In Review\""
 	}
+	if p.isActiveRun(identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(identifier))
+	}
 
 	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
 	if err != nil {
 		return fmt.Sprintf("Could not find ticket %s: %s",
 			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	}
+	if p.isActiveRun(issue.Identifier) {
+		return fmt.Sprintf("%s is already running; use /kill if you need to stop it first.",
+			notify.EscapeMarkdown(issue.Identifier))
 	}
 	teamKey := p.cfg.LinearTeamKey
 	if issue.Team != nil && issue.Team.Key != "" {

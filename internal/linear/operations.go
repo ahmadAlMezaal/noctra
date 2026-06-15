@@ -94,6 +94,8 @@ func (c *Client) ResolveStateID(ctx context.Context, teamKey, stateName string) 
 	available := make([]string, 0, len(states))
 	for _, s := range states {
 		available = append(available, s.Name)
+	}
+	for _, s := range states {
 		if s.Name == stateName {
 			return s.ID, available, nil
 		}

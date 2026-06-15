@@ -367,6 +367,13 @@ func (p *Pipeline) isKilled(id string) bool {
 	return ok
 }
 
+func (p *Pipeline) isActiveRun(identifier string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.active[identifier]
+	return ok
+}
+
 // KillRun cancels the context for an in-flight ticket, terminating any
 // running Claude process. The goroutine handles worktree cleanup on return.
 func (p *Pipeline) KillRun(identifier string) error {
