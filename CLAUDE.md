@@ -41,6 +41,34 @@ PR poll loop → github.ListNoctraPRs → github.GetPR (comments+reviews+statusC
 - Cursors: comment/review are **timestamps** (naturally ordered; conversation + inline comments share the comment cursor). CI is keyed by **head commit SHA** (`LastCISHA`) — acted on once per commit, since a fix changes the SHA and makes a fresh failure eligible again.
 - Noctra does **not** post back to the GitHub PR thread (no replies, no thread resolution); it pushes a follow-up commit and notifies via Telegram/Linear.
 
+## Autonomous maintenance sweeps (optional)
+
+When `SWEEP_ENABLED=true`, a **third** loop runs alongside the Linear and PR-watcher loops:
+
+```
+sweep loop → scheduler.DueIn (interval-based) → scheduler.Plan (all repos × task catalog)
+  → filter by cooldown (per-repo, per-task, from state store)
+  → pipeline.processSweepTask (bounded, shares the worker pool + active-set)
+  → repo.CreateWorktreeWithBranch → agent.Run (task-specific prompt) → commit/push → gh pr create
+```
+
+- **Opt-in**, off by default. Shares the `WaitGroup` so shutdown drains in-flight sweep tasks.
+- Runs under the same budget caps as ticket-driven work — if budget is paused or exceeded, sweeps are skipped.
+- Each task type has a per-repo **cooldown** persisted in the state file (`state.SweepState`), so the same task doesn't re-run before its cooldown expires (e.g. lint-cleanup has a 7-day cooldown).
+- Sweep branches use the `noctra/sweep-<suffix>` prefix (e.g. `noctra/sweep-lint-cleanup`), distinct from ticket-driven `noctra/<identifier>` — the auto-iterate watcher won't pick them up unless they match the `noctra/*` prefix filter (which they do, so auto-iterate works on sweep PRs too).
+- Sweep PRs get a `maintenance` label so humans can identify and bulk-close them.
+- Sweep identifiers follow the `SWEEP-<repo-slug>-<task-suffix>` pattern for worktree directories and active-set dedup.
+- Task catalog lives in `internal/sweep/task_*.go` — each file registers a task at init time. Current tasks: `lint-cleanup` (weekly cooldown) and `dead-code` (biweekly cooldown).
+
+### Config
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `SWEEP_ENABLED` | `false` | Enable the sweep scheduler |
+| `SWEEP_INTERVAL` | `86400` (24h) | Seconds between sweep cycles |
+| `SWEEP_MAX_TASKS` | `5` | Max tasks per sweep run |
+| `SWEEP_TASKS` | (all) | Comma-separated task names to enable (e.g. `lint-cleanup,dead-code`) |
+
 ## Multi-repo
 
 The target repo is chosen **per-ticket**, not from a single global path. Routing is **directive-only** — there is no repo registry. Resolution order:
@@ -78,9 +106,10 @@ The required-CLI set is backend-aware: `git` + `gh` + the selected agent CLI (`c
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |
 | `internal/telegram` | Inbound Telegram listener: long-polling `getUpdates`, sender auth, command dispatcher; started inline by `Pipeline.Run` (the `noctra run` process) when Telegram is configured |
 | `internal/github` | Thin `gh` CLI wrapper: `ListNoctraPRs`, `GetPR` (comments + reviews + inline review comments via REST + `statusCheckRollup`), `CheckLogs` (failed-step logs via `gh run view`) |
-| `internal/state` | File-backed PR cursor store (`~/.noctra-state.json`): per-PR comment/review timestamps + CI head-SHA + iteration count; atomic, mutex-guarded |
+| `internal/state` | File-backed PR cursor store (`~/.noctra-state.json`): per-PR comment/review timestamps + CI head-SHA + iteration count; sweep task cooldowns (`SweepState`); atomic, mutex-guarded |
 | `internal/watch` | Side-effect-free classifier: diffs a PR's feedback + CI status against the cursor, applies trusted-reviewer rules, emits actionable events + `CIFailure` |
-| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`); Telegram command handlers — `/status`, `/tickets`, `/ticket`, `/search-tickets` (alias `/find`), `/kill`, `/requeue` (`commands.go`) |
+| `internal/pipeline` | Poll loop, bounded worker pool, full per-ticket lifecycle (`process.go`); PR-watch loop + per-PR re-engagement (`iterate.go`); sweep scheduler loop + per-task lifecycle (`sweep.go`); Telegram command handlers — `/status`, `/tickets`, `/ticket`, `/search-tickets` (alias `/find`), `/kill`, `/requeue` (`commands.go`) |
+| `internal/sweep` | Task catalog framework + scheduler for autonomous maintenance sweeps (ENG-222); task types registered at init (`task_lint.go`, `task_deadcode.go`); reuses `internal/repo`, `internal/agent`, `internal/state` |
 | `internal/setup` | Interactive setup wizard (`./noctra setup`) |
 | `internal/cleanup` | Cleanup subcommand: branches, worktrees, old logs |
 | `internal/service` | `install-service` subcommand: renders the `systemd --user` unit (pure, unit-tested `unitFile(exePath, pathEnv)`) to `~/.config/systemd/user/noctra.service`, `daemon-reload`s; `--start` enables/starts + `loginctl enable-linger`; refuses without `--force` if the unit exists; non-systemd hosts get a clear error. Pairs with `scripts/install.sh` (the `curl … \| sh` turnkey installer that downloads the release binary) |

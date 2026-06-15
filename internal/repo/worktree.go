@@ -69,6 +69,23 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
+// CreateWorktreeWithBranch is like CreateWorktree but takes an explicit branch
+// name instead of deriving it from the identifier. Used by sweep tasks whose
+// branches follow the "noctra/sweep-<suffix>" convention instead of the
+// ticket-driven "noctra/<identifier>".
+func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, mainBranch, branch string) (Worktree, error) {
+	wt := filepath.Join(base, identifier)
+
+	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
+	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
+	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
+
+	if err := runIn(ctx, repoPath, "git", "worktree", "add", "-b", branch, wt, "origin/"+mainBranch); err != nil {
+		return Worktree{}, fmt.Errorf("git worktree add %s: %w", wt, err)
+	}
+	return Worktree{Path: wt, Branch: branch}, nil
+}
+
 // CleanupWorktree removes the worktree for an identifier. We try the git
 // worktree machinery first (which also clears the admin entry), and fall back
 // to plain rm -rf if that fails — matching the bash predecessor.

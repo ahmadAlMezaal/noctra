@@ -99,3 +99,78 @@ func TestWriteAtomic_LeavesNoTmpFileOnSuccess(t *testing.T) {
 		t.Errorf("temp files left behind: %v", entries)
 	}
 }
+
+func TestSweepKey(t *testing.T) {
+	got := SweepKey("my-repo", "lint-cleanup")
+	want := "my-repo/lint-cleanup"
+	if got != want {
+		t.Errorf("SweepKey = %q, want %q", got, want)
+	}
+}
+
+func TestGetSweep_UnknownReturnsZero(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.GetSweep("nonexistent/task")
+	if got != (SweepState{}) {
+		t.Errorf("expected zero SweepState, got %+v", got)
+	}
+}
+
+func TestUpdateSweep_PersistsAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	key := SweepKey("my-repo", "lint-cleanup")
+	if err := s.UpdateSweep(key, func(ss *SweepState) {
+		ss.LastRunAt = now
+	}); err != nil {
+		t.Fatalf("UpdateSweep: %v", err)
+	}
+
+	// Reopen and verify.
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s2.GetSweep(key)
+	if !got.LastRunAt.Equal(now) {
+		t.Errorf("LastRunAt: got %v, want %v", got.LastRunAt, now)
+	}
+}
+
+func TestUpdateSweep_CoexistsWithPRState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	s, _ := Open(path)
+
+	// Write a PR state entry.
+	if err := s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.TicketID = "ENG-1"
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a sweep state entry.
+	if err := s.UpdateSweep("my-repo/lint", func(ss *SweepState) {
+		ss.LastRunAt = time.Now()
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen and verify both exist.
+	s2, _ := Open(path)
+	pr := s2.Get("https://github.com/me/repo/pull/1")
+	if pr.TicketID != "ENG-1" {
+		t.Errorf("PR state lost: TicketID = %q", pr.TicketID)
+	}
+	sw := s2.GetSweep("my-repo/lint")
+	if sw.LastRunAt.IsZero() {
+		t.Error("Sweep state lost: LastRunAt is zero")
+	}
+}

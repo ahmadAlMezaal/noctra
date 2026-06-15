@@ -3,6 +3,10 @@
 // per-PR iteration counter. The watcher reads this on startup so a restart
 // doesn't re-react to comments that pre-date the cursor.
 //
+// It also tracks sweep task cooldowns (ENG-222): per-repo, per-task last-run
+// timestamps so the same maintenance task isn't re-run before its cooldown
+// expires.
+//
 // Backed by a single JSON file at the path passed to Open. Concurrent-safe:
 // the store guards its in-memory map with a mutex and writes the file
 // atomically (write-temp, rename) on every update.
@@ -54,11 +58,19 @@ type PRState struct {
 	LastIteratedAt time.Time `json:"last_iterated_at,omitempty"`
 }
 
-type fileFormat struct {
-	PRs map[string]*PRState `json:"prs"`
+// SweepState is the per-task-per-repo record for autonomous maintenance
+// sweeps (ENG-222). The key is "repo-slug/task-name".
+type SweepState struct {
+	// LastRunAt is when this task last ran on this repo.
+	LastRunAt time.Time `json:"last_run_at,omitempty"`
 }
 
-// Store is a thread-safe, file-backed PR state.
+type fileFormat struct {
+	PRs    map[string]*PRState    `json:"prs"`
+	Sweeps map[string]*SweepState `json:"sweeps,omitempty"`
+}
+
+// Store is a thread-safe, file-backed PR and sweep state.
 type Store struct {
 	mu   sync.Mutex
 	path string
@@ -68,7 +80,10 @@ type Store struct {
 // Open loads the state file at path. A missing file is not an error — the
 // returned store starts empty and Save will create the file on first write.
 func Open(path string) (*Store, error) {
-	s := &Store{path: path, data: fileFormat{PRs: map[string]*PRState{}}}
+	s := &Store{path: path, data: fileFormat{
+		PRs:    map[string]*PRState{},
+		Sweeps: map[string]*SweepState{},
+	}}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -82,6 +97,9 @@ func Open(path string) (*Store, error) {
 	}
 	if s.data.PRs == nil {
 		s.data.PRs = map[string]*PRState{}
+	}
+	if s.data.Sweeps == nil {
+		s.data.Sweeps = map[string]*SweepState{}
 	}
 	return s, nil
 }
@@ -123,6 +141,43 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if !ok || r == nil {
 		r = &PRState{}
 		s.data.PRs[prURL] = r
+	}
+	fn(r)
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+	return writeAtomic(s.path, data)
+}
+
+// SweepKey builds the state key for a sweep task on a specific repo.
+// Format: "<repo-slug>/<task-name>".
+func SweepKey(repoSlug, taskName string) string {
+	return repoSlug + "/" + taskName
+}
+
+// GetSweep returns a copy of the sweep state for the given key, or a
+// zero-value SweepState if the task hasn't run yet.
+func (s *Store) GetSweep(key string) SweepState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.data.Sweeps[key]; ok && r != nil {
+		return *r
+	}
+	return SweepState{}
+}
+
+// UpdateSweep mutates the sweep state for the given key and writes the file.
+func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
+	if fn == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.data.Sweeps[key]
+	if !ok || r == nil {
+		r = &SweepState{}
+		s.data.Sweeps[key] = r
 	}
 	fn(r)
 	data, err := json.MarshalIndent(s.data, "", "  ")

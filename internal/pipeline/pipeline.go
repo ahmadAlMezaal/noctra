@@ -22,6 +22,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/review"
 	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
@@ -51,6 +52,9 @@ type Pipeline struct {
 
 	// Budget tracker — always non-nil (no-op when no caps configured).
 	budget *budget.Tracker
+
+	// Sweep scheduler — nil when cfg.SweepEnabled is false.
+	sweeper *sweep.Scheduler
 
 	sessionStart time.Time
 
@@ -97,22 +101,40 @@ func New(cfg *config.Config) *Pipeline {
 		sessionStart:   time.Now(),
 	}
 
-	// Auto-iterate is opt-in. When disabled, store/gh/watcher stay nil and
-	// the run loop never starts the PR-poller goroutine.
-	if cfg.AutoIteratePRs {
-		store, err := state.Open(cfg.StateFile)
+	// Both auto-iterate and sweep need the state store. Open it once if
+	// either feature is enabled.
+	var store *state.Store
+	if cfg.AutoIteratePRs || cfg.SweepEnabled {
+		var err error
+		store, err = state.Open(cfg.StateFile)
 		if err != nil {
-			slog.Warn("auto-iterate: state store open failed; feature disabled",
+			slog.Warn("state store open failed; auto-iterate and sweep disabled",
 				"path", cfg.StateFile, "err", err)
 			return p
 		}
 		p.store = store
+	}
+
+	// Auto-iterate is opt-in. When disabled, gh/watcher stay nil and
+	// the run loop never starts the PR-poller goroutine.
+	if cfg.AutoIteratePRs && store != nil {
 		p.gh = github.New()
 
 		// Directive-only routing has no static repo registry: the watcher
 		// discovers which repos to poll from the on-demand clones on disk,
 		// re-read on every scan (the set grows as tickets are dispatched).
 		p.watcher = watch.New(p.gh, store, p.resolver.AllRepoRemotes, cfg.TrustedReviewers)
+	}
+
+	// Sweep is opt-in. When disabled, sweeper stays nil and the run loop
+	// never starts the sweep-scheduler goroutine.
+	if cfg.SweepEnabled && store != nil {
+		tasks := sweep.FilterTasks(cfg.SweepTasks)
+		if len(tasks) == 0 {
+			slog.Warn("sweep: no tasks enabled; feature disabled")
+		} else {
+			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks)
+		}
 	}
 
 	return p
@@ -201,6 +223,13 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	if p.watcher != nil {
 		wg.Add(1)
 		go p.runWatcher(ctx, &wg)
+	}
+
+	// Sweep scheduler runs its own loop if enabled. Shares the WaitGroup
+	// so shutdown drains in-flight sweep tasks.
+	if p.sweeper != nil {
+		wg.Add(1)
+		go p.runSweepLoop(ctx, &wg)
 	}
 
 	for {
@@ -515,6 +544,11 @@ func (p *Pipeline) banner() {
 	if p.cfg.AutoReleaseLabel {
 		autoReleaseMode = fmt.Sprintf("On (default: %s)", p.cfg.DefaultReleaseBump)
 	}
+	sweepMode := "Disabled"
+	if p.sweeper != nil {
+		sweepMode = fmt.Sprintf("On (interval %s, max %d tasks)",
+			p.cfg.SweepInterval, p.cfg.SweepMaxTasks)
+	}
 
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive
 	// and cloned on demand, so there's no static list at startup — report the
@@ -546,6 +580,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Review:         %s\n", reviewMode)
 	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Release label:  %s\n", autoReleaseMode)
+	fmt.Printf("   Sweep:          %s\n", sweepMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
