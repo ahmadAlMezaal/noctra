@@ -98,24 +98,35 @@ func TestFilterTasks_UnknownNameIgnored(t *testing.T) {
 
 func TestSweepBranchName(t *testing.T) {
 	tests := []struct {
-		suffix string
-		want   string
+		repoSlug string
+		suffix   string
+		want     string
 	}{
-		{"lint-cleanup", "noctra/sweep-lint-cleanup"},
-		{"dead-code", "noctra/sweep-dead-code"},
+		{"repo-a", "lint-cleanup", "noctra/sweep-repo-a-lint-cleanup"},
+		{"Repo-B", "dead-code", "noctra/sweep-repo-b-dead-code"},
+		{"owner/repo-c", "lint-cleanup", "noctra/sweep-owner-repo-c-lint-cleanup"},
 	}
 	for _, tt := range tests {
-		got := SweepBranchName(tt.suffix)
+		got := SweepBranchName(tt.repoSlug, tt.suffix)
 		if got != tt.want {
-			t.Errorf("SweepBranchName(%q) = %q, want %q", tt.suffix, got, tt.want)
+			t.Errorf("SweepBranchName(%q, %q) = %q, want %q", tt.repoSlug, tt.suffix, got, tt.want)
 		}
 	}
 }
 
 func TestSweepIdentifier(t *testing.T) {
-	got := SweepIdentifier("my-repo", "lint-cleanup")
-	want := "SWEEP-my-repo-lint-cleanup"
-	if got != want {
-		t.Errorf("SweepIdentifier = %q, want %q", got, want)
+	tests := []struct {
+		repoSlug string
+		suffix   string
+		want     string
+	}{
+		{"my-repo", "lint-cleanup", "SWEEP-MY-REPO-LINT-CLEANUP"},
+		{"owner/my-repo", "lint-cleanup", "SWEEP-OWNER-MY-REPO-LINT-CLEANUP"},
+	}
+	for _, tt := range tests {
+		got := SweepIdentifier(tt.repoSlug, tt.suffix)
+		if got != tt.want {
+			t.Errorf("SweepIdentifier(%q, %q) = %q, want %q", tt.repoSlug, tt.suffix, got, tt.want)
+		}
 	}
 }

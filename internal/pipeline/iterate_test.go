@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
@@ -85,6 +86,7 @@ func TestIdentifierFromBranch(t *testing.T) {
 	}{
 		{"noctra/eng-42", "ENG-42"},
 		{"noctra/eng-181", "ENG-181"},
+		{"noctra/sweep-repo-a-lint-cleanup", "SWEEP-REPO-A-LINT-CLEANUP"},
 		{"main", ""},
 		{"feature/something", ""},
 		{"noctra/", ""},
@@ -94,5 +96,16 @@ func TestIdentifierFromBranch(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("identifierFromBranch(%q) = %q, want %q", tt.branch, got, tt.want)
 		}
+	}
+}
+
+func TestIdentifierFromBranch_SweepRoundTrip(t *testing.T) {
+	repoSlug := "Owner/Repo-A"
+	taskSuffix := "lint-cleanup"
+
+	got := identifierFromBranch(sweep.SweepBranchName(repoSlug, taskSuffix))
+	want := sweep.SweepIdentifier(repoSlug, taskSuffix)
+	if got != want {
+		t.Errorf("sweep branch identifier = %q, want %q", got, want)
 	}
 }

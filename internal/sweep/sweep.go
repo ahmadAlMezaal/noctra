@@ -8,6 +8,7 @@
 package sweep
 
 import (
+	"strings"
 	"time"
 )
 
@@ -23,8 +24,9 @@ type Task struct {
 	// Prompt returns the full agent prompt for this task. repoPath is the
 	// local checkout path so prompts can reference it.
 	Prompt func(repoPath string) string
-	// BranchSuffix is appended to the branch name (e.g. "lint-cleanup" →
-	// "noctra/sweep-lint-cleanup"). Must be unique across tasks.
+	// BranchSuffix is appended to the sweep branch identity (e.g.
+	// "lint-cleanup" → "noctra/sweep-<repo>-lint-cleanup"). Must be unique
+	// across tasks.
 	BranchSuffix string
 	// CommitPrefix is the conventional-commit prefix (e.g. "chore", "fix").
 	CommitPrefix string
@@ -68,16 +70,20 @@ func FilterTasks(enabled []string) []Task {
 }
 
 // SweepBranchName returns the branch Noctra creates for a sweep task on a
-// repo (e.g. "noctra/sweep-lint-cleanup"). This is distinct from the
-// ticket-driven "noctra/<identifier>" to avoid collisions with the
-// auto-iterate watcher.
-func SweepBranchName(taskSuffix string) string {
-	return "noctra/sweep-" + taskSuffix
+// repo (e.g. "noctra/sweep-myrepo-lint-cleanup"). This is distinct from the
+// ticket-driven "noctra/<identifier>" and includes the repo slug so the
+// auto-iterate watcher can reconstruct the same identifier.
+func SweepBranchName(repoSlug, taskSuffix string) string {
+	return "noctra/" + strings.ToLower(SweepIdentifier(repoSlug, taskSuffix))
 }
 
 // SweepIdentifier returns the worktree identifier for a sweep task on a
-// repo slug (e.g. "SWEEP-myrepo-lint-cleanup"). Used as the worktree
+// repo slug (e.g. "SWEEP-MYREPO-LINT-CLEANUP"). Used as the worktree
 // directory name and the key for the active-set dedup.
 func SweepIdentifier(repoSlug, taskSuffix string) string {
-	return "SWEEP-" + repoSlug + "-" + taskSuffix
+	return strings.ToUpper("SWEEP-" + sanitizeRepoSlug(repoSlug) + "-" + taskSuffix)
+}
+
+func sanitizeRepoSlug(repoSlug string) string {
+	return strings.ReplaceAll(repoSlug, "/", "-")
 }
