@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
@@ -48,6 +49,9 @@ type Pipeline struct {
 	gh      *github.Client
 	watcher *watch.Watcher
 
+	// Budget tracker — always non-nil (no-op when no caps configured).
+	budget *budget.Tracker
+
 	sessionStart time.Time
 
 	mu                sync.Mutex
@@ -59,7 +63,7 @@ type Pipeline struct {
 	totalDispatches   int
 	successCount      int
 	failCount         int
-	rateLimitDetected bool
+	rateLimitDetected bool // only used when RateLimitStrategy=shutdown
 }
 
 // New constructs a Pipeline. It does not perform any I/O — call Run to start.
@@ -74,12 +78,16 @@ func New(cfg *config.Config) *Pipeline {
 	}
 
 	p := &Pipeline{
-		cfg:            cfg,
-		linear:         newLinearClient(cfg),
-		resolver:       repo.FromConfig(cfg),
-		telegram:       notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
-		review:         review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
-		agent:          backend,
+		cfg:      cfg,
+		linear:   newLinearClient(cfg),
+		resolver: repo.FromConfig(cfg),
+		telegram: notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
+		review:   review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
+		agent:    backend,
+		budget: budget.New(budget.Config{
+			MaxDailyTokens: cfg.MaxDailyTokens,
+			MaxDailyUSD:    cfg.MaxDailyUSD,
+		}),
 		active:         map[string]struct{}{},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
@@ -221,6 +229,25 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				p.summary(ctx)
 				return nil
 			}
+
+			// Budget pause: skip dispatching but keep the loop alive.
+			if paused, until, reason := p.budget.IsPaused(); paused {
+				slog.Debug("⏸ dispatching paused",
+					"reason", reason, "until", until.Format(time.RFC3339))
+				continue
+			}
+
+			// Check budget caps on every tick so concurrent in-flight runs
+			// that pushed usage over the cap are caught promptly (rather
+			// than waiting for the next completed run to call flagBudgetExceeded).
+			if reason := p.budget.ExceededReason(); reason != "" {
+				p.flagBudgetExceeded(reason)
+				p.telegram.Send(ctx, fmt.Sprintf(
+					"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+					notify.EscapeMarkdown(reason)))
+				continue
+			}
+
 			p.pollOnce(ctx, &wg)
 		}
 	}
@@ -380,10 +407,31 @@ func (p *Pipeline) skipPermanently(id string) {
 	}
 }
 
+// flagRateLimit handles a detected rate limit according to the configured
+// strategy. "shutdown" (legacy) sets a flag that causes the main loop to
+// exit on the next tick. "pause" (default, ENG-217) pauses dispatching for
+// the configured cooldown period without exiting.
 func (p *Pipeline) flagRateLimit() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rateLimitDetected = true
+	if p.cfg.RateLimitStrategy == "shutdown" {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.rateLimitDetected = true
+		return
+	}
+	// Pause strategy: pause dispatching for the cooldown period.
+	resumeAt := time.Now().Add(p.cfg.RateLimitCooldown)
+	p.budget.Pause("rate limit", resumeAt)
+	slog.Info("⏸ rate limit detected — pausing dispatches",
+		"cooldown", p.cfg.RateLimitCooldown, "resume_at", resumeAt.Format(time.RFC3339))
+}
+
+// flagBudgetExceeded pauses dispatching until the next UTC midnight when a
+// daily budget cap is hit.
+func (p *Pipeline) flagBudgetExceeded(reason string) {
+	resumeAt := budget.NextUTCMidnight()
+	p.budget.Pause(reason, resumeAt)
+	slog.Info("⏸ daily budget exceeded — pausing dispatches",
+		"reason", reason, "resume_at", resumeAt.Format(time.RFC3339))
 }
 
 // rateLimited reports whether a run should be treated as having hit a usage /
@@ -464,6 +512,28 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
 	fmt.Printf("   Max dispatches: %d per session\n", p.cfg.MaxDispatches)
+
+	// Budget caps (ENG-217).
+	budgetMode := "Unlimited"
+	bs := p.budget.Stats()
+	if bs.HasCaps() {
+		parts := make([]string, 0, 2)
+		if bs.MaxDailyTokens > 0 {
+			parts = append(parts, budget.FormatTokens(bs.MaxDailyTokens)+" tokens/day")
+		}
+		if bs.MaxDailyUSD > 0 {
+			parts = append(parts, fmt.Sprintf("$%.2f/day", bs.MaxDailyUSD))
+		}
+		budgetMode = strings.Join(parts, ", ")
+	}
+	fmt.Printf("   Budget:         %s\n", budgetMode)
+
+	rlMode := "pause (auto-resume after " + p.cfg.RateLimitCooldown.String() + ")"
+	if p.cfg.RateLimitStrategy == "shutdown" {
+		rlMode = "shutdown (legacy)"
+	}
+	fmt.Printf("   Rate limit:     %s\n", rlMode)
+
 	fmt.Printf("   Notifications:  %s\n", notifyMode)
 	fmt.Println()
 	fmt.Println("Waiting for tickets... (Ctrl+C to stop)")
@@ -475,10 +545,23 @@ func (p *Pipeline) summary(ctx context.Context) {
 	succ, fail := p.successCount, p.failCount
 	p.mu.Unlock()
 	dur := time.Since(p.sessionStart).Round(time.Minute)
-	slog.Info("👋 session complete", "success", succ, "fail", fail, "duration", dur)
+	bs := p.budget.Stats()
+
+	slog.Info("👋 session complete",
+		"success", succ, "fail", fail, "duration", dur,
+		"tokens", bs.SessionTokens, "cost_usd", bs.SessionCostUSD)
+
+	usageLine := ""
+	if bs.SessionTokens > 0 || bs.SessionCostUSD > 0 {
+		usageLine = fmt.Sprintf("\n💰 Usage: %s tokens", budget.FormatTokens(bs.SessionTokens))
+		if bs.SessionCostUSD > 0 {
+			usageLine += fmt.Sprintf(" ($%.2f)", bs.SessionCostUSD)
+		}
+	}
+
 	p.telegram.Send(ctx, fmt.Sprintf(
-		"🌅 *Noctra session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s",
-		succ, fail, dur))
+		"🌅 *Noctra session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s%s",
+		succ, fail, dur, usageLine))
 }
 
 // checkForUpdate runs once at startup in its own goroutine. It's strictly best-

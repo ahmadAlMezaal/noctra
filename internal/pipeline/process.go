@@ -182,6 +182,22 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	output := agent.ReadAfter(logFile, offset)
 
+	// ── Record usage (ENG-217) ───────────────────────────────────────────────
+	usage := agent.ParseUsage(output)
+	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
+		logger.Info("usage recorded",
+			"tokens", usage.TotalTokens, "cost_usd", usage.CostUSD)
+	}
+	// Check budget caps after recording. If exceeded, the pause takes effect
+	// on the next poll tick (in-flight work drains naturally).
+	if reason := p.budget.ExceededReason(); reason != "" {
+		p.flagBudgetExceeded(reason)
+		p.telegram.Send(ctx, fmt.Sprintf(
+			"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+			notify.EscapeMarkdown(reason)))
+	}
+
 	// ── Rate limit ───────────────────────────────────────────────────────────
 	// Only ever classified on a FAILED run (see rateLimited): scanning the
 	// transcript of a *successful* run caused false positives where an agent
@@ -189,18 +205,23 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// work discarded (ENG-178 — Codex built the Noctra landing page, whose
 	// copy advertises "rate-limit detection"; three good runs were thrown away).
 	if rateLimited(backend, runErr, output) {
-		logger.Warn("usage/rate limit detected — triggering shutdown")
+		logger.Warn("usage/rate limit detected")
 		p.bumpFailed(id)
 		p.flagRateLimit()
+
+		action := "pausing"
+		if p.cfg.RateLimitStrategy == "shutdown" {
+			action = "shutting down"
+		}
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
-			"🛑 **Noctra: Rate limit detected**\n\nThe agent hit a usage or rate limit while working on this ticket.\n\nTicket moved back to **%s**. Noctra is shutting down to avoid further limit hits.",
-			p.cfg.TriggerState))
+			"🛑 **Noctra: Rate limit detected**\n\nThe agent hit a usage or rate limit while working on this ticket.\n\nTicket moved back to **%s**. Noctra is %s to avoid further limit hits.",
+			p.cfg.TriggerState, action))
 		p.mu.Lock()
 		s, f, t := p.successCount, p.failCount, p.totalDispatches
 		p.mu.Unlock()
 		p.telegram.Send(ctx, fmt.Sprintf(
-			"🛑 *Usage limit detected*\nNoctra stopped after %d dispatches.\n✅ %d PRs created | ❌ %d failed",
-			t, s, f))
+			"🛑 *Usage limit detected*\nNoctra %s after %d dispatches.\n✅ %d PRs created | ❌ %d failed",
+			action, t, s, f))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -344,6 +365,17 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 				}
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
+
+				// Record usage from the fix pass.
+				fixUsage := agent.ParseUsage(fixOutput)
+				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
+				if reason := p.budget.ExceededReason(); reason != "" {
+					p.flagBudgetExceeded(reason)
+					p.telegram.Send(ctx, fmt.Sprintf(
+						"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
+						notify.EscapeMarkdown(reason)))
+				}
+
 				switch classifyAgentRun(backend, fixErr, fixOutput) {
 				case agentRunTimedOut:
 					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
