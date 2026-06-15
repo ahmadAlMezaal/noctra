@@ -46,10 +46,21 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Check budget pause before sweeping.
-		if paused, _, reason := p.budget.IsPaused(); paused {
-			slog.Debug("sweep: skipping (paused)", "reason", reason)
-			p.sweeper.MarkSwept()
+		// Check budget pause before sweeping — wait for the pause to
+		// expire rather than skipping the entire sweep interval.
+		if paused, until, reason := p.budget.IsPaused(); paused {
+			slog.Debug("sweep: paused, waiting for resume", "reason", reason, "until", until)
+			retryIn := time.Until(until)
+			if retryIn < 10*time.Second {
+				retryIn = 10 * time.Second
+			}
+			timer := time.NewTimer(retryIn)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 			continue
 		}
 		if reason := p.budget.ExceededReason(); reason != "" {
@@ -137,6 +148,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		logger.Error("worktree creation failed", "err", err)
 		return
 	}
+	defer repo.CleanupWorktree(context.Background(), job.RepoPath, p.cfg.WorktreeBase, identifier)
 	logger.Info("worktree created", "path", wt.Path, "branch", wt.Branch)
 
 	logFile := filepath.Join(p.cfg.LogDir, identifier+".log")
@@ -162,19 +174,16 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	// Killed or shutdown — clean up without recording.
 	if p.isKilled(identifier) {
 		logger.Info("sweep task killed by user")
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 	if ctx.Err() != nil {
 		logger.Info("sweep task cancelled (shutdown)")
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 
 	// Timeout.
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("sweep task timed out", "timeout", p.cfg.AgentTimeout)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 
@@ -197,24 +206,25 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	if rateLimited(backend, runErr, output) {
 		logger.Warn("rate limit detected during sweep")
 		p.flagRateLimit()
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 
 	// Agent error.
 	if runErr != nil {
 		logger.Warn("sweep agent exited with error", "err", runErr)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		// Record the run even on failure so cooldown is respected.
-		_ = p.sweeper.RecordRun(job.RepoSlug, job.Task.Name)
+		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+			logger.Warn("could not record sweep run in state", "err", err)
+		}
 		return
 	}
 
 	// BLOCKED — nothing to do for this task on this repo.
 	if blocked := agent.BlockedLine(output); blocked != "" {
 		logger.Info("sweep task blocked (nothing to do)", "reason", blocked)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
-		_ = p.sweeper.RecordRun(job.RepoSlug, job.Task.Name)
+		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+			logger.Warn("could not record sweep run in state", "err", err)
+		}
 		return
 	}
 
@@ -222,26 +232,24 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	dirty, err := workingTreeChanged(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git status failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 	committed, err := branchAhead(ctx, wt.Path, "origin/"+job.MainBranch)
 	if err != nil {
 		logger.Error("git rev-list failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 	if !dirty && !committed {
 		logger.Info("sweep task made no changes")
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
-		_ = p.sweeper.RecordRun(job.RepoSlug, job.Task.Name)
+		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+			logger.Warn("could not record sweep run in state", "err", err)
+		}
 		return
 	}
 
 	// Stage, commit, push.
 	if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
 		logger.Error("git add failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 
@@ -253,19 +261,16 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git diff --cached failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 	if staged {
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
-			repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 			return
 		}
 	}
 	if err := runIn(ctx, wt.Path, "git", "push", "-u", "origin", wt.Branch); err != nil {
 		logger.Error("git push failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 	logger.Info("pushed", "branch", wt.Branch)
@@ -283,7 +288,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	prURL, err := ghCreatePR(ctx, job.RepoPath, prTitle, prBody, job.MainBranch, wt.Branch)
 	if err != nil {
 		logger.Error("gh pr create failed", "err", err)
-		repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 		return
 	}
 
@@ -302,7 +306,9 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		prURL))
 
 	// Record cooldown.
-	_ = p.sweeper.RecordRun(job.RepoSlug, job.Task.Name)
+	if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+		logger.Warn("could not record sweep run in state", "err", err)
+	}
 
 	// Track in state store for auto-iterate (if enabled).
 	if p.store != nil {
@@ -313,6 +319,4 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			logger.Warn("could not persist sweep PR in state", "err", err)
 		}
 	}
-
-	repo.CleanupWorktree(ctx, job.RepoPath, p.cfg.WorktreeBase, identifier)
 }

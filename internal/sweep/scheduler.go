@@ -20,8 +20,9 @@ type Scheduler struct {
 	interval time.Duration
 	maxTasks int
 
-	// lastSweep tracks when the last sweep cycle completed. Reset on startup
-	// to fire an initial sweep after the interval rather than immediately.
+	// lastSweep tracks when the last sweep cycle completed. Zero-valued on
+	// startup so an immediate sweep fires if tasks are due (per-task cooldowns
+	// in the state store prevent repeated runs).
 	lastSweep time.Time
 	// now is a hook for testing — defaults to time.Now.
 	now func() time.Time
@@ -35,16 +36,16 @@ func NewScheduler(store *state.Store, resolver *repo.Resolver, tasks []Task, int
 		tasks:     tasks,
 		interval:  interval,
 		maxTasks:  maxTasks,
-		lastSweep: time.Now(), // suppress immediate sweep on startup
+		lastSweep: time.Time{}, // allow immediate sweep on startup if tasks are due (cooldowns prevent spam)
 		now:       time.Now,
 	}
 }
 
 // Job is one eligible (repo, task) pair ready to be dispatched.
 type Job struct {
-	Task     Task
-	RepoPath string   // local clone path
-	RepoSlug string   // slug for branch/identifier naming
+	Task       Task
+	RepoPath   string // local clone path
+	RepoSlug   string // slug for branch/identifier naming
 	MainBranch string // base branch
 }
 

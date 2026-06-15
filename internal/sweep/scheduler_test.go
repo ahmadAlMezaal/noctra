@@ -52,14 +52,20 @@ func TestScheduler_DueIn(t *testing.T) {
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5)
 
-	// Just created — should not be due yet (suppress initial sweep).
-	if due := s.DueIn(); due == 0 {
-		t.Error("DueIn should not be 0 immediately after creation")
+	// Just created — should be immediately due (no startup suppression;
+	// per-task cooldowns prevent spam).
+	if due := s.DueIn(); due != 0 {
+		t.Errorf("DueIn should be 0 immediately after creation, got %v", due)
 	}
 
-	// Simulate time passing.
-	past := time.Now().Add(-2 * time.Hour)
-	s.lastSweep = past
+	// After marking swept, should not be due until interval elapses.
+	s.MarkSwept()
+	if due := s.DueIn(); due == 0 {
+		t.Error("DueIn should not be 0 immediately after MarkSwept")
+	}
+
+	// Simulate time passing beyond the interval.
+	s.lastSweep = time.Now().Add(-2 * time.Hour)
 	if due := s.DueIn(); due != 0 {
 		t.Errorf("DueIn should be 0 after interval elapsed, got %v", due)
 	}

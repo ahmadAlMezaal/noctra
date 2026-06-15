@@ -168,11 +168,11 @@ type Config struct {
 	RateLimitCooldown time.Duration // pause duration after rate limit (default 30m)
 
 	// Sweep — autonomous maintenance (ENG-222) — off by default.
-	SweepEnabled  bool            // opt-in maintenance sweep scheduler
-	SweepSchedule string          // cron expression (e.g. "0 2 * * *"); empty = use SweepInterval
-	SweepInterval time.Duration   // fallback fixed interval when no cron (default 24h)
-	SweepMaxTasks int             // max tasks per sweep run (default 5)
-	SweepTasks    []string        // enabled task names (nil = all registered tasks)
+	SweepEnabled  bool          // opt-in maintenance sweep scheduler
+	SweepSchedule string        // cron expression (e.g. "0 2 * * *"); empty = use SweepInterval
+	SweepInterval time.Duration // fallback fixed interval when no cron (default 24h)
+	SweepMaxTasks int           // max tasks per sweep run (default 5)
+	SweepTasks    []string      // enabled task names (nil = all registered tasks)
 
 	// Derived paths
 	ScriptDir    string
