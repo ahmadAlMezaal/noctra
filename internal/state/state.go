@@ -121,7 +121,7 @@ func Open(path string) (*Store, error) {
 
 	// Apply schema — idempotent, safe to run on every startup.
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply schema to %s: %w", path, err)
 	}
 
@@ -145,9 +145,9 @@ func (s *Store) Get(prURL string) PRState {
 	defer s.mu.Unlock()
 
 	var (
-		r                          PRState
+		r                           PRState
 		lastCommentAt, lastReviewAt string
-		lastIteratedAt             string
+		lastIteratedAt              string
 	)
 	err := s.db.QueryRow(
 		`SELECT ticket_id, agent_backend, last_comment_at, last_review_at,
@@ -178,7 +178,7 @@ func (s *Store) All() map[string]PRState {
 	if err != nil {
 		return map[string]PRState{}
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	out := map[string]PRState{}
 	for rows.Next() {
@@ -216,9 +216,9 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 
 	// Read existing row (if any).
 	var (
-		r                          PRState
+		r                           PRState
 		lastCommentAt, lastReviewAt string
-		lastIteratedAt             string
+		lastIteratedAt              string
 	)
 	err := s.db.QueryRow(
 		`SELECT ticket_id, agent_backend, last_comment_at, last_review_at,
@@ -280,7 +280,7 @@ func (s *Store) MigrateJSON(jsonPath string) error {
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return fmt.Errorf("parse legacy state %s: %w", jsonPath, err)
 	}
-	if legacy.PRs == nil || len(legacy.PRs) == 0 {
+	if len(legacy.PRs) == 0 {
 		// Empty file — rename and move on.
 		return renameMigrated(jsonPath)
 	}
@@ -301,7 +301,7 @@ func (s *Store) MigrateJSON(jsonPath string) error {
 	if err != nil {
 		return fmt.Errorf("prepare migration stmt: %w", err)
 	}
-	defer stmt.Close()
+	defer stmt.Close() //nolint:errcheck
 
 	migrated := 0
 	for prURL, r := range legacy.PRs {

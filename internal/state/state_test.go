@@ -14,7 +14,7 @@ func TestOpen_MissingFileStartsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 	if len(s.All()) != 0 {
 		t.Errorf("expected empty store, got %v", s.All())
 	}
@@ -37,14 +37,14 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	s.Close()
+	_ = s.Close()
 
 	// Reopen and verify the values came back.
 	s2, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s2.Close()
+	defer s2.Close() //nolint:errcheck
 	got := s2.Get(prURL)
 	if got.TicketID != "ENG-42" {
 		t.Errorf("TicketID: got %q", got.TicketID)
@@ -65,7 +65,7 @@ func TestUpdate_MultipleCallsAccumulate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	const prURL = "https://github.com/me/repo/pull/1"
 	for i := 0; i < 3; i++ {
@@ -86,7 +86,7 @@ func TestGet_UnknownPRReturnsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 	got := s.Get("https://nope")
 	if got != (PRState{}) {
 		t.Errorf("expected zero PRState, got %+v", got)
@@ -130,7 +130,7 @@ func TestMigrateJSON_ImportsLegacyState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	if err := s.MigrateJSON(jsonPath); err != nil {
 		t.Fatalf("MigrateJSON: %v", err)
@@ -206,7 +206,7 @@ func TestMigrateJSON_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	// First migration.
 	if err := s.MigrateJSON(jsonPath); err != nil {
@@ -239,7 +239,7 @@ func TestMigrateJSON_MissingFileIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	if err := s.MigrateJSON(filepath.Join(t.TempDir(), "nonexistent.json")); err != nil {
 		t.Fatalf("MigrateJSON on missing file should be no-op: %v", err)
@@ -251,7 +251,7 @@ func TestAll_ReturnsAllRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	for i := 1; i <= 3; i++ {
 		url := fmt.Sprintf("https://github.com/me/repo/pull/%d", i)
