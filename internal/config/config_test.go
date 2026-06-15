@@ -227,6 +227,9 @@ func TestLoad_AutoIterateDefaults(t *testing.T) {
 	if cfg.StateFile == "" {
 		t.Error("StateFile should have a default path")
 	}
+	if cfg.StateDB == "" {
+		t.Error("StateDB should have a default path")
+	}
 }
 
 func TestLoad_TrustedReviewersParsesCSV(t *testing.T) {

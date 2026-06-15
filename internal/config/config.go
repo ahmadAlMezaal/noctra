@@ -149,7 +149,8 @@ type Config struct {
 	MaxPRIterations  int
 	PRPollInterval   time.Duration
 	TrustedReviewers []string // GitHub logins/bots Noctra will act on (default: humans only)
-	StateFile        string   // where the per-PR cursor + iteration count is persisted
+	StateFile        string   // legacy JSON state path — used as migration source only
+	StateDB          string   // SQLite database for PR cursors, cost/usage, and run history
 
 	// Auto-release-label (ENG-231) — off by default. When enabled, Noctra
 	// applies a release:* label at PR creation derived from the agent's
@@ -238,6 +239,7 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.PRPollInterval = time.Duration(prPollSecs) * time.Second
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".noctra-state.json"))
+	cfg.StateDB = getenv(fileEnv, "STATE_DB", filepath.Join(DefaultConfigDir(), "noctra.db"))
 
 	// Auto-release-label
 	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)

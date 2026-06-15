@@ -63,6 +63,7 @@ func TestPurgePaths(t *testing.T) {
 		filepath.Join(home, ".noctra-repos"),
 		filepath.Join(home, ".noctra-worktrees"),
 		filepath.Join(home, ".noctra-state.json"),
+		filepath.Join(home, ".noctra-state.json.migrated"),
 	}
 	if len(got) != len(want) {
 		t.Fatalf("PurgePaths returned %d paths, want %d: %v", len(got), len(want), got)

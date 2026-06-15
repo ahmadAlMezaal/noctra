@@ -99,11 +99,16 @@ func New(cfg *config.Config) *Pipeline {
 	// Auto-iterate is opt-in. When disabled, store/gh/watcher stay nil and
 	// the run loop never starts the PR-poller goroutine.
 	if cfg.AutoIteratePRs {
-		store, err := state.Open(cfg.StateFile)
+		store, err := state.Open(cfg.StateDB)
 		if err != nil {
 			slog.Warn("auto-iterate: state store open failed; feature disabled",
-				"path", cfg.StateFile, "err", err)
+				"path", cfg.StateDB, "err", err)
 			return p
+		}
+		// One-time migration: pull any legacy JSON state into SQLite.
+		if err := store.MigrateJSON(cfg.StateFile); err != nil {
+			slog.Warn("auto-iterate: JSON state migration failed (non-fatal)",
+				"json", cfg.StateFile, "err", err)
 		}
 		p.store = store
 		p.gh = github.New()
