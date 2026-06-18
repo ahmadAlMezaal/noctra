@@ -91,6 +91,25 @@ func Run(scriptDir string) error {
 		fallback: config.DefaultLinearTeamKey,
 	})
 
+	// Optional: post as the Noctra app (actor=app) with auto-refresh, instead
+	// of as your personal user.
+	var oauthClientID, oauthClientSecret, oauthRefreshToken string
+	clearOAuth := false
+	actorPrompt := "Post to Linear as the Noctra app (actor=app)? Needs a Linear OAuth app."
+	if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
+		actorPrompt = "actor=app identity is configured. Keep / update it?"
+	}
+	if w.confirm(actorPrompt) {
+		fmt.Println("  Create one at Linear → Settings → API → OAuth applications,")
+		fmt.Println("  then authorize with actor=app to get a refresh token.")
+		oauthClientID = w.askEx("OAuth client ID", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_ID"], required: true})
+		oauthClientSecret = w.askEx("OAuth client secret", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_SECRET"], secret: true, required: true})
+		oauthRefreshToken = w.askEx("OAuth refresh token", askOpts{existing: existingEnv["LINEAR_OAUTH_REFRESH_TOKEN"], secret: true, required: true})
+	} else if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
+		// Declined with keys already set — clear them so "No" actually disables.
+		clearOAuth = true
+	}
+
 	// Trigger mode: state (column) or label.
 	triggerMode := w.chooseTriggerMode(existingEnv["TRIGGER_MODE"])
 	trigger := ""
@@ -217,6 +236,9 @@ func Run(scriptDir string) error {
 	fmt.Println()
 	fmt.Printf("  LINEAR_API_KEY        = %s\n", mask(linearKey))
 	fmt.Printf("  LINEAR_TEAM_KEY       = %s\n", team)
+	if oauthClientID != "" {
+		fmt.Printf("  Linear identity       = Noctra app (actor=app, auto-refresh)\n")
+	}
 	fmt.Printf("  AGENT_BACKEND         = %s\n", agentBackend)
 	fmt.Printf("  TRIGGER_MODE          = %s\n", triggerMode)
 	if triggerMode == "label" {
@@ -267,29 +289,33 @@ func Run(scriptDir string) error {
 	}
 
 	vals := envValues{
-		linearKey:    linearKey,
-		team:         team,
-		agentBackend: agentBackend,
-		triggerMode:  triggerMode,
-		trigger:      trigger,
-		triggerLabel: triggerLabel,
-		review:       review,
-		mainBranch:   mainBranch,
-		repoPath:     repoPath,
-		concurrency:  strconv.Itoa(concurrency),
-		dispatches:   strconv.Itoa(dispatches),
-		retries:      strconv.Itoa(retries),
-		timeoutMin:   strconv.Itoa(timeoutMin),
-		geminiKey:    geminiKey,
-		geminiMode:   geminiMode,
-		tgEnabled:    tgEnabled,
-		tgToken:      tgToken,
-		tgChat:       tgChat,
-		tgVerbose:    tgVerbose,
-		autoIterate:  autoIterate,
-		maxIter:      strconv.Itoa(maxIter),
-		prPoll:       strconv.Itoa(prPoll),
-		trusted:      trusted,
+		linearKey:         linearKey,
+		team:              team,
+		oauthClientID:     oauthClientID,
+		oauthClientSecret: oauthClientSecret,
+		oauthRefreshToken: oauthRefreshToken,
+		clearOAuth:        clearOAuth,
+		agentBackend:      agentBackend,
+		triggerMode:       triggerMode,
+		trigger:           trigger,
+		triggerLabel:      triggerLabel,
+		review:            review,
+		mainBranch:        mainBranch,
+		repoPath:          repoPath,
+		concurrency:       strconv.Itoa(concurrency),
+		dispatches:        strconv.Itoa(dispatches),
+		retries:           strconv.Itoa(retries),
+		timeoutMin:        strconv.Itoa(timeoutMin),
+		geminiKey:         geminiKey,
+		geminiMode:        geminiMode,
+		tgEnabled:         tgEnabled,
+		tgToken:           tgToken,
+		tgChat:            tgChat,
+		tgVerbose:         tgVerbose,
+		autoIterate:       autoIterate,
+		maxIter:           strconv.Itoa(maxIter),
+		prPoll:            strconv.Itoa(prPoll),
+		trusted:           trusted,
 	}
 
 	// Merge into existing .env when the file already exists — this preserves
@@ -699,6 +725,9 @@ func copyFile(src, dst string) error {
 
 type envValues struct {
 	linearKey, team                              string
+	oauthClientID, oauthClientSecret             string
+	oauthRefreshToken                            string
+	clearOAuth                                   bool
 	agentBackend                                 string
 	triggerMode, trigger, triggerLabel, review   string
 	mainBranch, repoPath                         string
@@ -750,6 +779,19 @@ func (v envValues) toMap() map[string]string {
 		m["REPO_PATH"] = v.repoPath
 	}
 
+	// actor=app refresh triplet: write when all three set; clear when the user
+	// declined a previously-configured identity.
+	switch {
+	case v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "":
+		m["LINEAR_OAUTH_CLIENT_ID"] = v.oauthClientID
+		m["LINEAR_OAUTH_CLIENT_SECRET"] = v.oauthClientSecret
+		m["LINEAR_OAUTH_REFRESH_TOKEN"] = v.oauthRefreshToken
+	case v.clearOAuth:
+		m["LINEAR_OAUTH_CLIENT_ID"] = ""
+		m["LINEAR_OAUTH_CLIENT_SECRET"] = ""
+		m["LINEAR_OAUTH_REFRESH_TOKEN"] = ""
+	}
+
 	return m
 }
 
@@ -768,6 +810,17 @@ func writeEnvFile(path string, v envValues) error {
 		repoPathLine = fmt.Sprintf(`REPO_PATH="%s"`, v.repoPath)
 	}
 
+	// actor=app refresh triplet: real lines when set, commented placeholders otherwise.
+	oauthLines := `# Optional: post as the Noctra app (actor=app). All three required together;
+# Noctra auto-refreshes the 24h access token and persists rotations (ENG-236).
+# LINEAR_OAUTH_CLIENT_ID=""
+# LINEAR_OAUTH_CLIENT_SECRET=""
+# LINEAR_OAUTH_REFRESH_TOKEN=""`
+	if v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "" {
+		oauthLines = fmt.Sprintf("LINEAR_OAUTH_CLIENT_ID=\"%s\"\nLINEAR_OAUTH_CLIENT_SECRET=\"%s\"\nLINEAR_OAUTH_REFRESH_TOKEN=\"%s\"",
+			v.oauthClientID, v.oauthClientSecret, v.oauthRefreshToken)
+	}
+
 	// Render trigger lines based on mode.
 	triggerLines := fmt.Sprintf("TRIGGER_MODE=\"%s\"\n", v.triggerMode)
 	if v.triggerMode == "label" {
@@ -784,6 +837,7 @@ func writeEnvFile(path string, v envValues) error {
 
 LINEAR_API_KEY="%s"
 LINEAR_TEAM_KEY="%s"
+%s
 %sIN_REVIEW_STATE="%s"
 
 # Optional single-repo fallback for tickets whose project has no Repo: directive
@@ -827,7 +881,7 @@ PR_POLL_INTERVAL="%s"
 TRUSTED_REVIEWERS="%s"
 `,
 		time.Now().Format(time.RFC3339),
-		v.linearKey, v.team, triggerLines, v.review,
+		v.linearKey, v.team, oauthLines, triggerLines, v.review,
 		repoPathLine, v.mainBranch,
 		v.agentBackend,
 		v.concurrency,

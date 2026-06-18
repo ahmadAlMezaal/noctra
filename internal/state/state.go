@@ -65,9 +65,18 @@ type SweepState struct {
 	LastRunAt time.Time `json:"last_run_at,omitempty"`
 }
 
+// OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236)
+// so a restart doesn't lose a refresh-token rotation.
+type OAuthState struct {
+	AccessToken  string    `json:"access_token,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+}
+
 type fileFormat struct {
 	PRs    map[string]*PRState    `json:"prs"`
 	Sweeps map[string]*SweepState `json:"sweeps,omitempty"`
+	OAuth  *OAuthState            `json:"oauth,omitempty"`
 }
 
 // Store is a thread-safe, file-backed PR and sweep state.
@@ -143,6 +152,33 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 		s.data.PRs[prURL] = r
 	}
 	fn(r)
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+	return writeAtomic(s.path, data)
+}
+
+// LoadOAuth returns the persisted access token, expiry, and refresh token (zero
+// values if none). Satisfies linear.TokenStore.
+func (s *Store) LoadOAuth() (access string, expiresAt time.Time, refresh string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.OAuth == nil {
+		return "", time.Time{}, ""
+	}
+	return s.data.OAuth.AccessToken, s.data.OAuth.ExpiresAt, s.data.OAuth.RefreshToken
+}
+
+// SaveOAuth persists the credentials atomically. Satisfies linear.TokenStore.
+func (s *Store) SaveOAuth(access string, expiresAt time.Time, refresh string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.OAuth = &OAuthState{
+		AccessToken:  access,
+		ExpiresAt:    expiresAt,
+		RefreshToken: refresh,
+	}
 	data, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)

@@ -82,9 +82,21 @@ func New(cfg *config.Config) *Pipeline {
 		backend, _ = agent.New(config.DefaultAgentBackend)
 	}
 
+	// Open the state store up front if any feature needs it: auto-iterate,
+	// sweep, or actor=app OAuth refresh persistence.
+	var store *state.Store
+	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.OAuthRefreshConfigured() {
+		s, err := state.Open(cfg.StateFile)
+		if err != nil {
+			slog.Warn("state store open failed", "path", cfg.StateFile, "err", err)
+		} else {
+			store = s
+		}
+	}
+
 	p := &Pipeline{
 		cfg:      cfg,
-		linear:   newLinearClient(cfg),
+		linear:   newLinearClient(cfg, store),
 		resolver: repo.FromConfig(cfg),
 		telegram: notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
 		review:   review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
@@ -99,20 +111,13 @@ func New(cfg *config.Config) *Pipeline {
 		failedAttempts: map[string]int{},
 		skipped:        map[string]struct{}{},
 		sessionStart:   time.Now(),
+		store:          store,
 	}
 
-	// Both auto-iterate and sweep need the state store. Open it once if
-	// either feature is enabled.
-	var store *state.Store
-	if cfg.AutoIteratePRs || cfg.SweepEnabled {
-		var err error
-		store, err = state.Open(cfg.StateFile)
-		if err != nil {
-			slog.Warn("state store open failed; auto-iterate and sweep disabled",
-				"path", cfg.StateFile, "err", err)
-			return p
-		}
-		p.store = store
+	// Alert when the Linear app identity degrades to the personal API key.
+	p.linear.OnDegrade = func(cause error) {
+		p.telegram.Send(context.Background(),
+			"⚠️ Linear app identity (actor=app) failed to authenticate — now posting as your personal user. Re-mint the OAuth credentials.")
 	}
 
 	// Auto-iterate is opt-in. When disabled, gh/watcher stay nil and
@@ -512,12 +517,31 @@ func rateLimited(b agent.Backend, runErr error, output string) bool {
 	return runErr != nil && b.HasRateLimit(output)
 }
 
-// newLinearClient picks the Linear auth: an `actor=app` OAuth token (so Noctra
-// posts under its own app identity) when configured, otherwise the personal API
-// key. The OAuth token, when set, is used for every Linear call.
-func newLinearClient(cfg *config.Config) *linear.Client {
+// newLinearClient picks the Linear auth, preferring durable actor=app identity
+// (auto-refresh) over a static OAuth token over the personal API key. Both
+// OAuth paths degrade to the personal key on auth failure instead of failing.
+func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
+	if cfg.OAuthRefreshConfigured() {
+		var ts linear.TokenStore
+		if store != nil {
+			ts = store
+		}
+		tm := linear.NewTokenManager(linear.TokenManagerConfig{
+			ClientID:     cfg.LinearOAuthClientID,
+			ClientSecret: cfg.LinearOAuthClientSecret,
+			RefreshToken: cfg.LinearOAuthRefreshToken,
+			Store:        ts,
+		})
+		c := linear.New(cfg.LinearAPIKey)
+		c.TokenFn = tm.Token
+		c.OnAuthError = tm.ForceRefresh
+		c.FallbackAPIKey = cfg.LinearAPIKey
+		return c
+	}
 	if cfg.LinearOAuthToken != "" {
-		return linear.NewOAuth(cfg.LinearOAuthToken)
+		c := linear.NewOAuth(cfg.LinearOAuthToken)
+		c.FallbackAPIKey = cfg.LinearAPIKey
+		return c
 	}
 	return linear.New(cfg.LinearAPIKey)
 }
@@ -567,8 +591,11 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Worktrees:      %s\n", p.cfg.WorktreeBase)
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
 	linearIdentity := "personal API key"
-	if p.cfg.LinearOAuthToken != "" {
-		linearIdentity = "Noctra app (OAuth actor=app)"
+	switch {
+	case p.cfg.OAuthRefreshConfigured():
+		linearIdentity = "Noctra app (OAuth actor=app, auto-refresh)"
+	case p.cfg.LinearOAuthToken != "":
+		linearIdentity = "Noctra app (OAuth actor=app, static token)"
 	}
 	fmt.Printf("   Linear as:      %s\n", linearIdentity)
 	if p.cfg.TriggerMode == "label" {

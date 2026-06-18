@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +23,21 @@ type Client struct {
 	// Bearer controls how APIKey is sent: personal API keys go in the
 	// Authorization header verbatim, OAuth access tokens are prefixed "Bearer ".
 	Bearer bool
+
+	// TokenFn supplies a fresh bearer token per request (auto-refreshing
+	// actor=app OAuth), taking precedence over APIKey/Bearer.
+	TokenFn func(ctx context.Context) (string, error)
+	// OnAuthError forces a credential refresh once after an auth failure; the
+	// request is then retried once.
+	OnAuthError func(ctx context.Context) error
+	// FallbackAPIKey is the personal key the client degrades to when the OAuth
+	// credential keeps failing auth — so an expired app token can't crash-loop
+	// the service.
+	FallbackAPIKey string
+	// OnDegrade fires once when the client first falls back (e.g. to alert).
+	OnDegrade func(cause error)
+
+	degraded atomic.Bool
 }
 
 // New constructs a Client authenticated with a personal API key.
@@ -44,9 +61,86 @@ func NewOAuth(token string) *Client {
 	return c
 }
 
-// Do runs a GraphQL operation. On success the contents of "data" are decoded
-// into out (if non-nil). Linear's `errors` array is surfaced as a Go error.
+// Do runs a GraphQL operation, decoding "data" into out (if non-nil). On an
+// auth failure with TokenFn set, it refreshes + retries once (OnAuthError),
+// then degrades to FallbackAPIKey rather than failing every call.
 func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out any) error {
+	if c.FallbackAPIKey != "" && c.degraded.Load() {
+		return c.exec(ctx, c.FallbackAPIKey, query, vars, out)
+	}
+
+	authz, err := c.authHeader(ctx)
+	if err != nil {
+		// Couldn't obtain a token (refresh failed). Degrade if we can.
+		if c.FallbackAPIKey != "" {
+			c.degradeOnce(err)
+			return c.exec(ctx, c.FallbackAPIKey, query, vars, out)
+		}
+		return err
+	}
+
+	execErr := c.exec(ctx, authz, query, vars, out)
+	if execErr == nil || !isAuthError(execErr) {
+		return execErr
+	}
+
+	if c.OnAuthError != nil {
+		if rerr := c.OnAuthError(ctx); rerr != nil {
+			execErr = rerr // surface the real refresh failure as the degrade cause
+		} else if authz2, aerr := c.authHeader(ctx); aerr != nil {
+			execErr = aerr
+		} else if e2 := c.exec(ctx, authz2, query, vars, out); e2 == nil || !isAuthError(e2) {
+			return e2
+		} else {
+			execErr = e2
+		}
+	}
+
+	if c.FallbackAPIKey != "" {
+		c.degradeOnce(execErr)
+		return c.exec(ctx, c.FallbackAPIKey, query, vars, out)
+	}
+	return execErr
+}
+
+// authHeader builds the Authorization header for the primary credential.
+func (c *Client) authHeader(ctx context.Context) (string, error) {
+	if c.TokenFn != nil {
+		tok, err := c.TokenFn(ctx)
+		if err != nil {
+			return "", err
+		}
+		return "Bearer " + tok, nil
+	}
+	if c.Bearer {
+		return "Bearer " + c.APIKey, nil
+	}
+	return c.APIKey, nil
+}
+
+// degradeOnce latches the fallback and fires OnDegrade exactly once.
+func (c *Client) degradeOnce(cause error) {
+	if c.degraded.CompareAndSwap(false, true) {
+		slog.Warn("linear: app identity (OAuth) failed to authenticate; falling back to personal API key", "err", cause)
+		if c.OnDegrade != nil {
+			c.OnDegrade(cause)
+		}
+	}
+}
+
+// isAuthError reports whether err looks like a Linear auth rejection.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "authentication") ||
+		strings.Contains(s, "not authenticated") ||
+		strings.Contains(s, "unauthorized")
+}
+
+// exec performs a single GraphQL request with the given Authorization header.
+func (c *Client) exec(ctx context.Context, authz, query string, vars map[string]any, out any) error {
 	payload, err := json.Marshal(map[string]any{
 		"query":     query,
 		"variables": vars,
@@ -60,11 +154,7 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	auth := c.APIKey
-	if c.Bearer {
-		auth = "Bearer " + c.APIKey
-	}
-	req.Header.Set("Authorization", auth)
+	req.Header.Set("Authorization", authz)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

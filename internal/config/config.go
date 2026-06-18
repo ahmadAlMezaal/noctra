@@ -110,16 +110,19 @@ const (
 type Config struct {
 	// Linear
 	LinearAPIKey string
-	// LinearOAuthToken, when set, is an OAuth access token obtained with the
-	// `actor=app` parameter, so Noctra's comments + state changes are
-	// attributed to the "Noctra" app instead of the personal user behind the
-	// API key. Takes precedence over LinearAPIKey for all Linear calls.
+	// LinearOAuthToken is a static actor=app access token. Legacy: Linear
+	// access tokens expire after ~24h, so prefer the refresh triplet below.
 	LinearOAuthToken string
-	LinearTeamKey    string
-	TriggerMode      string // "state" (default) or "label"
-	TriggerState     string // watched column name (state mode)
-	TriggerLabel     string // label name to watch (label mode)
-	InReviewState    string
+	// LinearOAuth{ClientID,ClientSecret,RefreshToken} enable durable actor=app
+	// identity via auto-refresh (ENG-236). All-or-none; preferred when set.
+	LinearOAuthClientID     string
+	LinearOAuthClientSecret string
+	LinearOAuthRefreshToken string
+	LinearTeamKey           string
+	TriggerMode             string // "state" (default) or "label"
+	TriggerState            string // watched column name (state mode)
+	TriggerLabel            string // label name to watch (label mode)
+	InReviewState           string
 
 	// Repos
 	RepoPath   string // optional single-repo fallback for unmapped projects
@@ -201,13 +204,16 @@ func Load(scriptDir string) (*Config, error) {
 	reposBase := getenv(fileEnv, "REPOS_BASE", filepath.Join(home, ".noctra-repos"))
 
 	cfg := &Config{
-		LinearAPIKey:     getenv(fileEnv, "LINEAR_API_KEY", ""),
-		LinearOAuthToken: getenv(fileEnv, "LINEAR_OAUTH_TOKEN", ""),
-		LinearTeamKey:    getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
-		TriggerMode:      strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
-		TriggerState:     getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
-		TriggerLabel:     getenv(fileEnv, "TRIGGER_LABEL", ""),
-		InReviewState:    getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
+		LinearAPIKey:            getenv(fileEnv, "LINEAR_API_KEY", ""),
+		LinearOAuthToken:        getenv(fileEnv, "LINEAR_OAUTH_TOKEN", ""),
+		LinearOAuthClientID:     getenv(fileEnv, "LINEAR_OAUTH_CLIENT_ID", ""),
+		LinearOAuthClientSecret: getenv(fileEnv, "LINEAR_OAUTH_CLIENT_SECRET", ""),
+		LinearOAuthRefreshToken: getenv(fileEnv, "LINEAR_OAUTH_REFRESH_TOKEN", ""),
+		LinearTeamKey:           getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
+		TriggerMode:             strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
+		TriggerState:            getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
+		TriggerLabel:            getenv(fileEnv, "TRIGGER_LABEL", ""),
+		InReviewState:           getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),
@@ -280,8 +286,13 @@ func Load(scriptDir string) (*Config, error) {
 func (c *Config) Validate() error {
 	var errs []string
 
-	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" {
+	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.OAuthRefreshConfigured() {
 		errs = append(errs, "LINEAR_API_KEY (or LINEAR_OAUTH_TOKEN) is required — run ./noctra setup or set it in .env")
+	}
+
+	// The actor=app refresh triplet is all-or-none: a partial set can't refresh.
+	if n := nonEmptyCount(c.LinearOAuthClientID, c.LinearOAuthClientSecret, c.LinearOAuthRefreshToken); n != 0 && n != 3 {
+		errs = append(errs, "LINEAR_OAUTH_CLIENT_ID, LINEAR_OAUTH_CLIENT_SECRET, and LINEAR_OAUTH_REFRESH_TOKEN must all be set together (actor=app auto-refresh)")
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {
@@ -331,6 +342,23 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// OAuthRefreshConfigured reports whether the actor=app refresh triplet is set.
+func (c *Config) OAuthRefreshConfigured() bool {
+	return c.LinearOAuthClientID != "" &&
+		c.LinearOAuthClientSecret != "" &&
+		c.LinearOAuthRefreshToken != ""
+}
+
+func nonEmptyCount(vals ...string) int {
+	n := 0
+	for _, v := range vals {
+		if v != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // AgentCLI returns the CLI binary the configured backend requires on PATH.
