@@ -217,6 +217,18 @@ func checkLinearKey(cfg *config.Config) check {
 	var client *linear.Client
 	var isOAuth bool
 	switch {
+	case cfg.OAuthRefreshConfigured():
+		name = "LINEAR_OAUTH (actor=app, auto-refresh)"
+		// No store: rely on Linear's 30-min refresh grace so this check
+		// doesn't strand the running service's persisted token.
+		tm := linear.NewTokenManager(linear.TokenManagerConfig{
+			ClientID:     cfg.LinearOAuthClientID,
+			ClientSecret: cfg.LinearOAuthClientSecret,
+			RefreshToken: cfg.LinearOAuthRefreshToken,
+		})
+		client = linear.New(cfg.LinearAPIKey)
+		client.TokenFn = tm.Token
+		isOAuth = true
 	case cfg.LinearOAuthToken != "":
 		name = "LINEAR_OAUTH_TOKEN"
 		client = linear.NewOAuth(cfg.LinearOAuthToken)
