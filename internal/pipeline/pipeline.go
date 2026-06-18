@@ -106,10 +106,10 @@ func New(cfg *config.Config) *Pipeline {
 	var store *state.Store
 	if cfg.AutoIteratePRs || cfg.SweepEnabled {
 		var err error
-		store, err = state.Open(cfg.StateFile)
+		store, err = state.Open(cfg.StateDB, cfg.StateFile)
 		if err != nil {
 			slog.Warn("state store open failed; auto-iterate and sweep disabled",
-				"path", cfg.StateFile, "err", err)
+				"path", cfg.StateDB, "legacy_json", cfg.StateFile, "err", err)
 			return p
 		}
 		p.store = store

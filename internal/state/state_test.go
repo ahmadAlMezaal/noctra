@@ -1,7 +1,10 @@
 package state
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -172,5 +175,121 @@ func TestUpdateSweep_CoexistsWithPRState(t *testing.T) {
 	sw := s2.GetSweep("my-repo/lint")
 	if sw.LastRunAt.IsZero() {
 		t.Error("Sweep state lost: LastRunAt is zero")
+	}
+}
+
+func TestOpen_MigratesLegacyJSONPRAndSweepState(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+
+	commentTs := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	sweepTs := time.Date(2026, 6, 2, 11, 0, 0, 0, time.UTC)
+	legacy := fileFormat{
+		PRs: map[string]*PRState{
+			"https://github.com/me/repo/pull/42": {
+				TicketID:       "ENG-42",
+				AgentBackend:   "codex",
+				LastCommentAt:  commentTs,
+				LastCISHA:      "abc123",
+				Iterations:     2,
+				LastIteratedAt: commentTs.Add(time.Hour),
+			},
+		},
+		Sweeps: map[string]*SweepState{
+			SweepKey("repo", "lint-cleanup"): {LastRunAt: sweepTs},
+		},
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dbPath, jsonPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	got := s.Get("https://github.com/me/repo/pull/42")
+	if got.TicketID != "ENG-42" || got.AgentBackend != "codex" || got.LastCISHA != "abc123" || got.Iterations != 2 {
+		t.Fatalf("PR state not migrated: %+v", got)
+	}
+	if !got.LastCommentAt.Equal(commentTs) {
+		t.Errorf("LastCommentAt: got %v, want %v", got.LastCommentAt, commentTs)
+	}
+	if sw := s.GetSweep(SweepKey("repo", "lint-cleanup")); !sw.LastRunAt.Equal(sweepTs) {
+		t.Errorf("Sweep LastRunAt: got %v, want %v", sw.LastRunAt, sweepTs)
+	}
+}
+
+func TestOpen_LegacyMigrationIsIdempotentAndDoesNotClobberDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+	const prURL = "https://github.com/me/repo/pull/42"
+
+	writeLegacy := func(ticket string) {
+		t.Helper()
+		raw, err := json.Marshal(fileFormat{
+			PRs: map[string]*PRState{prURL: {TicketID: ticket}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeLegacy("ENG-42")
+	s, err := Open(dbPath, jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update(prURL, func(r *PRState) { r.TicketID = "ENG-99" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLegacy("ENG-42")
+	s2, err := Open(dbPath, jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if got := s2.Get(prURL).TicketID; got != "ENG-99" {
+		t.Errorf("migration clobbered existing DB row: got %q, want ENG-99", got)
+	}
+}
+
+func TestUpdate_ReturnsReadError(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.TicketID = "ENG-1"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DROP TABLE pr_states`); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.TicketID = ""
+		r.Iterations = 0
+	})
+	if err == nil {
+		t.Fatal("expected Update to return a read error")
+	}
+	if !strings.Contains(err.Error(), "load pr state for update") {
+		t.Fatalf("expected read error context, got %v", err)
 	}
 }

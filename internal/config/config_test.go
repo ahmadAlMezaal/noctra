@@ -21,7 +21,7 @@ var noctraEnvKeys = []string{
 	"GEMINI_MODE", "GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
-	"TRUSTED_REVIEWERS", "STATE_FILE",
+	"TRUSTED_REVIEWERS", "STATE_FILE", "STATE_DB",
 	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
 	"SWEEP_ENABLED", "SWEEP_SCHEDULE", "SWEEP_INTERVAL", "SWEEP_MAX_TASKS", "SWEEP_TASKS",
 }
@@ -227,6 +227,32 @@ func TestLoad_AutoIterateDefaults(t *testing.T) {
 	}
 	if cfg.StateFile == "" {
 		t.Error("StateFile should have a default path")
+	}
+	if cfg.StateDB == "" {
+		t.Error("StateDB should have a default path")
+	}
+	if !strings.HasSuffix(cfg.StateDB, filepath.Join(".noctra", "state.db")) {
+		t.Errorf("StateDB = %q, want default under .noctra/state.db", cfg.StateDB)
+	}
+}
+
+func TestLoad_StatePathsFromEnv(t *testing.T) {
+	isolateEnv(t)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"
+STATE_FILE="/tmp/legacy-state.json"
+STATE_DB="/tmp/noctra-state.db"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.StateFile != "/tmp/legacy-state.json" {
+		t.Errorf("StateFile = %q", cfg.StateFile)
+	}
+	if cfg.StateDB != "/tmp/noctra-state.db" {
+		t.Errorf("StateDB = %q", cfg.StateDB)
 	}
 }
 

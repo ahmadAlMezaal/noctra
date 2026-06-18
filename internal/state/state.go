@@ -1,27 +1,26 @@
-// Package state persists Noctra's view of the PRs it has created and how
-// far it has caught up on each — last-seen comment / review cursors and the
-// per-PR iteration counter. The watcher reads this on startup so a restart
-// doesn't re-react to comments that pre-date the cursor.
+// Package state persists Noctra's durable runtime state.
 //
-// It also tracks sweep task cooldowns (ENG-222): per-repo, per-task last-run
-// timestamps so the same maintenance task isn't re-run before its cooldown
-// expires.
-//
-// Backed by a single JSON file at the path passed to Open. Concurrent-safe:
-// the store guards its in-memory map with a mutex and writes the file
-// atomically (write-temp, rename) on every update.
+// The store tracks PR review/CI cursors, autonomous sweep cooldowns, and the
+// first history-oriented tables used by budget/run analytics. It is backed by
+// SQLite so future features can query historical data without replacing this
+// package again.
 package state
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
-// PRState is the per-PR record stored in the state file.
+// PRState is the per-PR record stored in the state database.
 type PRState struct {
 	// TicketID is the Linear identifier the PR was opened for (e.g. ENG-42).
 	// Used to route comments on Linear when re-engaging or capping.
@@ -70,38 +69,109 @@ type fileFormat struct {
 	Sweeps map[string]*SweepState `json:"sweeps,omitempty"`
 }
 
-// Store is a thread-safe, file-backed PR and sweep state.
+// Store is a thread-safe SQLite-backed PR and sweep state store.
 type Store struct {
 	mu   sync.Mutex
 	path string
-	data fileFormat
+	db   *sql.DB
 }
 
-// Open loads the state file at path. A missing file is not an error — the
-// returned store starts empty and Save will create the file on first write.
-func Open(path string) (*Store, error) {
-	s := &Store{path: path, data: fileFormat{
-		PRs:    map[string]*PRState{},
-		Sweeps: map[string]*SweepState{},
-	}}
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
 
-	raw, err := os.ReadFile(path)
+// Open opens the SQLite state database at path. If legacyJSONPath is provided,
+// an existing JSON state file is imported once after the schema is ready. A
+// missing database is not an error; it is created on first open.
+func Open(path string, legacyJSONPath ...string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	}
+
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return s, nil
+		return nil, fmt.Errorf("open sqlite state %s: %w", path, err)
+	}
+	db.SetMaxOpenConns(1)
+
+	s := &Store{path: path, db: db}
+	if err := s.init(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if len(legacyJSONPath) > 0 && legacyJSONPath[0] != "" {
+		if err := s.migrateJSON(legacyJSONPath[0]); err != nil {
+			db.Close()
+			return nil, err
 		}
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	if err := json.Unmarshal(raw, &s.data); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if s.data.PRs == nil {
-		s.data.PRs = map[string]*PRState{}
-	}
-	if s.data.Sweeps == nil {
-		s.data.Sweeps = map[string]*SweepState{}
 	}
 	return s, nil
+}
+
+// Close releases the underlying database handle.
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+func (s *Store) init() error {
+	stmts := []string{
+		`PRAGMA busy_timeout = 5000`,
+		`CREATE TABLE IF NOT EXISTS pr_states (
+			pr_url TEXT PRIMARY KEY,
+			ticket_id TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			last_comment_at_ns INTEGER NOT NULL DEFAULT 0,
+			last_review_at_ns INTEGER NOT NULL DEFAULT 0,
+			last_ci_sha TEXT NOT NULL DEFAULT '',
+			iterations INTEGER NOT NULL DEFAULT 0,
+			last_iterated_at_ns INTEGER NOT NULL DEFAULT 0,
+			updated_at_ns INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS sweep_states (
+			key TEXT PRIMARY KEY,
+			last_run_at_ns INTEGER NOT NULL DEFAULT 0,
+			updated_at_ns INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS agent_usage (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			recorded_at_ns INTEGER NOT NULL,
+			identifier TEXT NOT NULL DEFAULT '',
+			ticket_id TEXT NOT NULL DEFAULT '',
+			pr_url TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cost_usd REAL NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_usage_recorded_at ON agent_usage(recorded_at_ns)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_usage_ticket ON agent_usage(ticket_id, recorded_at_ns)`,
+		`CREATE TABLE IF NOT EXISTS run_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			identifier TEXT NOT NULL DEFAULT '',
+			ticket_id TEXT NOT NULL DEFAULT '',
+			repo TEXT NOT NULL DEFAULT '',
+			pr_url TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			iterations INTEGER NOT NULL DEFAULT 0,
+			started_at_ns INTEGER NOT NULL DEFAULT 0,
+			completed_at_ns INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_run_history_started_at ON run_history(started_at_ns)`,
+		`CREATE INDEX IF NOT EXISTS idx_run_history_repo_started ON run_history(repo, started_at_ns)`,
+		`CREATE TABLE IF NOT EXISTS migrations (
+			name TEXT PRIMARY KEY,
+			applied_at_ns INTEGER NOT NULL
+		)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("init sqlite state: %w", err)
+		}
+	}
+	return nil
 }
 
 // Get returns a copy of the record for prURL, or a zero-value PRState if the
@@ -109,45 +179,113 @@ func Open(path string) (*Store, error) {
 func (s *Store) Get(prURL string) PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r, ok := s.data.PRs[prURL]; ok && r != nil {
-		return *r
+
+	r, err := s.getLocked(prURL)
+	if err != nil {
+		slog.Error("state get failed", "pr_url", prURL, "err", err)
+		return PRState{}
 	}
-	return PRState{}
+	return r
+}
+
+func (s *Store) getLocked(prURL string) (PRState, error) {
+	return getPRState(s.db, prURL)
+}
+
+func getPRState(q rowQuerier, prURL string) (PRState, error) {
+	var r PRState
+	var lastComment, lastReview, lastIterated int64
+	err := q.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at_ns, last_review_at_ns,
+		last_ci_sha, iterations, last_iterated_at_ns FROM pr_states WHERE pr_url = ?`, prURL).
+		Scan(&r.TicketID, &r.AgentBackend, &lastComment, &lastReview, &r.LastCISHA, &r.Iterations, &lastIterated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PRState{}, nil
+	}
+	if err != nil {
+		return PRState{}, fmt.Errorf("read pr state: %w", err)
+	}
+	r.LastCommentAt = timeFromUnixNano(lastComment)
+	r.LastReviewAt = timeFromUnixNano(lastReview)
+	r.LastIteratedAt = timeFromUnixNano(lastIterated)
+	return r, nil
 }
 
 // All returns a copy of every tracked PR keyed by URL.
 func (s *Store) All() map[string]PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make(map[string]PRState, len(s.data.PRs))
-	for k, v := range s.data.PRs {
-		if v != nil {
-			out[k] = *v
+
+	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at_ns, last_review_at_ns,
+		last_ci_sha, iterations, last_iterated_at_ns FROM pr_states ORDER BY pr_url`)
+	if err != nil {
+		slog.Error("state list failed", "err", err)
+		return map[string]PRState{}
+	}
+	defer rows.Close()
+
+	out := map[string]PRState{}
+	for rows.Next() {
+		var prURL string
+		var r PRState
+		var lastComment, lastReview, lastIterated int64
+		if err := rows.Scan(&prURL, &r.TicketID, &r.AgentBackend, &lastComment, &lastReview, &r.LastCISHA, &r.Iterations, &lastIterated); err != nil {
+			slog.Error("state list scan failed", "err", err)
+			return out
 		}
+		r.LastCommentAt = timeFromUnixNano(lastComment)
+		r.LastReviewAt = timeFromUnixNano(lastReview)
+		r.LastIteratedAt = timeFromUnixNano(lastIterated)
+		out[prURL] = r
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("state list iteration failed", "err", err)
 	}
 	return out
 }
 
-// Update mutates the record for prURL in place via fn and writes the file.
-// A nil fn is a no-op. fn is called while the store is locked; do not call
-// back into the Store from inside fn.
+// Update mutates the record for prURL in place via fn and writes it in one
+// transaction. A nil fn is a no-op. fn is called while the store is locked; do
+// not call back into the Store from inside fn.
 func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if fn == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.data.PRs[prURL]
-	if !ok || r == nil {
-		r = &PRState{}
-		s.data.PRs[prURL] = r
-	}
-	fn(r)
-	data, err := json.MarshalIndent(s.data, "", "  ")
+
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
+		return fmt.Errorf("begin pr state update: %w", err)
 	}
-	return writeAtomic(s.path, data)
+	defer tx.Rollback()
+
+	r, err := getPRState(tx, prURL)
+	if err != nil {
+		return fmt.Errorf("load pr state for update: %w", err)
+	}
+	fn(&r)
+	_, err = tx.Exec(`INSERT INTO pr_states (
+			pr_url, ticket_id, agent_backend, last_comment_at_ns, last_review_at_ns,
+			last_ci_sha, iterations, last_iterated_at_ns, updated_at_ns
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(pr_url) DO UPDATE SET
+			ticket_id = excluded.ticket_id,
+			agent_backend = excluded.agent_backend,
+			last_comment_at_ns = excluded.last_comment_at_ns,
+			last_review_at_ns = excluded.last_review_at_ns,
+			last_ci_sha = excluded.last_ci_sha,
+			iterations = excluded.iterations,
+			last_iterated_at_ns = excluded.last_iterated_at_ns,
+			updated_at_ns = excluded.updated_at_ns`,
+		prURL, r.TicketID, r.AgentBackend, unixNano(r.LastCommentAt), unixNano(r.LastReviewAt),
+		r.LastCISHA, r.Iterations, unixNano(r.LastIteratedAt), time.Now().UTC().UnixNano())
+	if err != nil {
+		return fmt.Errorf("write pr state: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit pr state update: %w", err)
+	}
+	return nil
 }
 
 // SweepKey builds the state key for a sweep task on a specific repo.
@@ -161,56 +299,149 @@ func SweepKey(repoSlug, taskName string) string {
 func (s *Store) GetSweep(key string) SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r, ok := s.data.Sweeps[key]; ok && r != nil {
-		return *r
+
+	ss, err := s.getSweepLocked(key)
+	if err != nil {
+		slog.Error("state sweep get failed", "key", key, "err", err)
+		return SweepState{}
 	}
-	return SweepState{}
+	return ss
 }
 
-// UpdateSweep mutates the sweep state for the given key and writes the file.
+func (s *Store) getSweepLocked(key string) (SweepState, error) {
+	return getSweepState(s.db, key)
+}
+
+func getSweepState(q rowQuerier, key string) (SweepState, error) {
+	var lastRun int64
+	err := q.QueryRow(`SELECT last_run_at_ns FROM sweep_states WHERE key = ?`, key).Scan(&lastRun)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SweepState{}, nil
+	}
+	if err != nil {
+		return SweepState{}, fmt.Errorf("read sweep state: %w", err)
+	}
+	return SweepState{LastRunAt: timeFromUnixNano(lastRun)}, nil
+}
+
+// UpdateSweep mutates the sweep state for the given key and writes it.
 func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 	if fn == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.data.Sweeps[key]
-	if !ok || r == nil {
-		r = &SweepState{}
-		s.data.Sweeps[key] = r
-	}
-	fn(r)
-	data, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
-	}
-	return writeAtomic(s.path, data)
-}
 
-// writeAtomic writes to a sibling temp file then renames over the target.
-// On POSIX, rename(2) is atomic — a crash mid-write leaves the previous
-// state file intact instead of an empty/corrupt one.
-func writeAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("begin sweep state update: %w", err)
 	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
+	defer tx.Rollback()
+
+	ss, err := getSweepState(tx, key)
+	if err != nil {
+		return fmt.Errorf("load sweep state for update: %w", err)
 	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
+	fn(&ss)
+	_, err = tx.Exec(`INSERT INTO sweep_states (key, last_run_at_ns, updated_at_ns)
+		VALUES (?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			last_run_at_ns = excluded.last_run_at_ns,
+			updated_at_ns = excluded.updated_at_ns`,
+		key, unixNano(ss.LastRunAt), time.Now().UTC().UnixNano())
+	if err != nil {
+		return fmt.Errorf("write sweep state: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // don't leak the temp file on a failed rename
-		return err
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sweep state update: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) migrateJSON(path string) error {
+	if path == s.path {
+		return nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat legacy state %s: %w", path, err)
+	}
+
+	var already bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM migrations WHERE name = 'legacy_json_v1')`).Scan(&already)
+	if err != nil {
+		return fmt.Errorf("check legacy migration: %w", err)
+	}
+	if already {
+		return nil
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read legacy state %s: %w", path, err)
+	}
+	var data fileFormat
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return fmt.Errorf("parse legacy state %s: %w", path, err)
+	}
+	if data.PRs == nil {
+		data.PRs = map[string]*PRState{}
+	}
+	if data.Sweeps == nil {
+		data.Sweeps = map[string]*SweepState{}
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin legacy state migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC().UnixNano()
+	for prURL, r := range data.PRs {
+		if r == nil {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO pr_states (
+				pr_url, ticket_id, agent_backend, last_comment_at_ns, last_review_at_ns,
+				last_ci_sha, iterations, last_iterated_at_ns, updated_at_ns
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			prURL, r.TicketID, r.AgentBackend, unixNano(r.LastCommentAt), unixNano(r.LastReviewAt),
+			r.LastCISHA, r.Iterations, unixNano(r.LastIteratedAt), now); err != nil {
+			return fmt.Errorf("migrate legacy pr state: %w", err)
+		}
+	}
+	for key, ss := range data.Sweeps {
+		if ss == nil {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO sweep_states (key, last_run_at_ns, updated_at_ns)
+			VALUES (?, ?, ?)`, key, unixNano(ss.LastRunAt), now); err != nil {
+			return fmt.Errorf("migrate legacy sweep state: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO migrations (name, applied_at_ns) VALUES ('legacy_json_v1', ?)`, now); err != nil {
+		return fmt.Errorf("mark legacy state migration: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit legacy state migration: %w", err)
+	}
+	slog.Info("migrated legacy JSON state to SQLite", "json", path, "db", s.path, "prs", len(data.PRs), "sweeps", len(data.Sweeps))
+	return nil
+}
+
+func unixNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UTC().UnixNano()
+}
+
+func timeFromUnixNano(ns int64) time.Time {
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns).UTC()
 }

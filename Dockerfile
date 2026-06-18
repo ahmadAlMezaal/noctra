@@ -68,6 +68,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV REPOS_BASE=/data/repos \
     WORKTREE_BASE=/data/worktrees \
     LOG_DIR=/data/logs \
+    STATE_DB=/data/state.db \
     STATE_FILE=/data/state.json
 WORKDIR /data
 VOLUME /data
