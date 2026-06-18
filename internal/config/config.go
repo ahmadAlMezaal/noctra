@@ -119,10 +119,10 @@ type Config struct {
 	LinearOAuthClientSecret string
 	LinearOAuthRefreshToken string
 	LinearTeamKey           string
-	TriggerMode      string // "state" (default) or "label"
-	TriggerState     string // watched column name (state mode)
-	TriggerLabel     string // label name to watch (label mode)
-	InReviewState    string
+	TriggerMode             string // "state" (default) or "label"
+	TriggerState            string // watched column name (state mode)
+	TriggerLabel            string // label name to watch (label mode)
+	InReviewState           string
 
 	// Repos
 	RepoPath   string // optional single-repo fallback for unmapped projects
@@ -210,10 +210,10 @@ func Load(scriptDir string) (*Config, error) {
 		LinearOAuthClientSecret: getenv(fileEnv, "LINEAR_OAUTH_CLIENT_SECRET", ""),
 		LinearOAuthRefreshToken: getenv(fileEnv, "LINEAR_OAUTH_REFRESH_TOKEN", ""),
 		LinearTeamKey:           getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
-		TriggerMode:      strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
-		TriggerState:     getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
-		TriggerLabel:     getenv(fileEnv, "TRIGGER_LABEL", ""),
-		InReviewState:    getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
+		TriggerMode:             strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
+		TriggerState:            getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
+		TriggerLabel:            getenv(fileEnv, "TRIGGER_LABEL", ""),
+		InReviewState:           getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),

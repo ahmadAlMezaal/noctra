@@ -94,6 +94,7 @@ func Run(scriptDir string) error {
 	// Optional: post as the Noctra app (actor=app) with auto-refresh, instead
 	// of as your personal user.
 	var oauthClientID, oauthClientSecret, oauthRefreshToken string
+	clearOAuth := false
 	actorPrompt := "Post to Linear as the Noctra app (actor=app)? Needs a Linear OAuth app."
 	if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
 		actorPrompt = "actor=app identity is configured. Keep / update it?"
@@ -104,6 +105,9 @@ func Run(scriptDir string) error {
 		oauthClientID = w.askEx("OAuth client ID", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_ID"], required: true})
 		oauthClientSecret = w.askEx("OAuth client secret", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_SECRET"], secret: true, required: true})
 		oauthRefreshToken = w.askEx("OAuth refresh token", askOpts{existing: existingEnv["LINEAR_OAUTH_REFRESH_TOKEN"], secret: true, required: true})
+	} else if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
+		// Declined with keys already set — clear them so "No" actually disables.
+		clearOAuth = true
 	}
 
 	// Trigger mode: state (column) or label.
@@ -290,27 +294,28 @@ func Run(scriptDir string) error {
 		oauthClientID:     oauthClientID,
 		oauthClientSecret: oauthClientSecret,
 		oauthRefreshToken: oauthRefreshToken,
+		clearOAuth:        clearOAuth,
 		agentBackend:      agentBackend,
-		triggerMode:  triggerMode,
-		trigger:      trigger,
-		triggerLabel: triggerLabel,
-		review:       review,
-		mainBranch:   mainBranch,
-		repoPath:     repoPath,
-		concurrency:  strconv.Itoa(concurrency),
-		dispatches:   strconv.Itoa(dispatches),
-		retries:      strconv.Itoa(retries),
-		timeoutMin:   strconv.Itoa(timeoutMin),
-		geminiKey:    geminiKey,
-		geminiMode:   geminiMode,
-		tgEnabled:    tgEnabled,
-		tgToken:      tgToken,
-		tgChat:       tgChat,
-		tgVerbose:    tgVerbose,
-		autoIterate:  autoIterate,
-		maxIter:      strconv.Itoa(maxIter),
-		prPoll:       strconv.Itoa(prPoll),
-		trusted:      trusted,
+		triggerMode:       triggerMode,
+		trigger:           trigger,
+		triggerLabel:      triggerLabel,
+		review:            review,
+		mainBranch:        mainBranch,
+		repoPath:          repoPath,
+		concurrency:       strconv.Itoa(concurrency),
+		dispatches:        strconv.Itoa(dispatches),
+		retries:           strconv.Itoa(retries),
+		timeoutMin:        strconv.Itoa(timeoutMin),
+		geminiKey:         geminiKey,
+		geminiMode:        geminiMode,
+		tgEnabled:         tgEnabled,
+		tgToken:           tgToken,
+		tgChat:            tgChat,
+		tgVerbose:         tgVerbose,
+		autoIterate:       autoIterate,
+		maxIter:           strconv.Itoa(maxIter),
+		prPoll:            strconv.Itoa(prPoll),
+		trusted:           trusted,
 	}
 
 	// Merge into existing .env when the file already exists — this preserves
@@ -722,6 +727,7 @@ type envValues struct {
 	linearKey, team                              string
 	oauthClientID, oauthClientSecret             string
 	oauthRefreshToken                            string
+	clearOAuth                                   bool
 	agentBackend                                 string
 	triggerMode, trigger, triggerLabel, review   string
 	mainBranch, repoPath                         string
@@ -773,11 +779,17 @@ func (v envValues) toMap() map[string]string {
 		m["REPO_PATH"] = v.repoPath
 	}
 
-	// actor=app refresh triplet: only when all three are set.
-	if v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "" {
+	// actor=app refresh triplet: write when all three set; clear when the user
+	// declined a previously-configured identity.
+	switch {
+	case v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "":
 		m["LINEAR_OAUTH_CLIENT_ID"] = v.oauthClientID
 		m["LINEAR_OAUTH_CLIENT_SECRET"] = v.oauthClientSecret
 		m["LINEAR_OAUTH_REFRESH_TOKEN"] = v.oauthRefreshToken
+	case v.clearOAuth:
+		m["LINEAR_OAUTH_CLIENT_ID"] = ""
+		m["LINEAR_OAUTH_CLIENT_SECRET"] = ""
+		m["LINEAR_OAUTH_REFRESH_TOKEN"] = ""
 	}
 
 	return m

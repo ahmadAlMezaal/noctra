@@ -85,14 +85,14 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 	}
 
 	if c.OnAuthError != nil {
-		if rerr := c.OnAuthError(ctx); rerr == nil {
-			if authz2, aerr := c.authHeader(ctx); aerr == nil {
-				if e2 := c.exec(ctx, authz2, query, vars, out); e2 == nil || !isAuthError(e2) {
-					return e2
-				} else {
-					execErr = e2
-				}
-			}
+		if rerr := c.OnAuthError(ctx); rerr != nil {
+			execErr = rerr // surface the real refresh failure as the degrade cause
+		} else if authz2, aerr := c.authHeader(ctx); aerr != nil {
+			execErr = aerr
+		} else if e2 := c.exec(ctx, authz2, query, vars, out); e2 == nil || !isAuthError(e2) {
+			return e2
+		} else {
+			execErr = e2
 		}
 	}
 
