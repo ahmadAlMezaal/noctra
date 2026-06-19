@@ -109,15 +109,12 @@ const (
 // Config is Noctra's resolved runtime configuration.
 type Config struct {
 	// Linear
-	LinearAPIKey string
-	// LinearOAuthToken is a static actor=app access token. Legacy: Linear
-	// access tokens expire after ~24h, so prefer the refresh triplet below.
-	LinearOAuthToken string
-	// LinearOAuth{ClientID,ClientSecret,RefreshToken} enable durable actor=app
-	// identity via auto-refresh (ENG-236). All-or-none; preferred when set.
+	LinearAPIKey            string
+	LinearOAuthToken        string
 	LinearOAuthClientID     string
 	LinearOAuthClientSecret string
 	LinearOAuthRefreshToken string
+	LinearOAuthScope        string
 	LinearTeamKey           string
 	TriggerMode             string // "state" (default) or "label"
 	TriggerState            string // watched column name (state mode)
@@ -209,6 +206,7 @@ func Load(scriptDir string) (*Config, error) {
 		LinearOAuthClientID:     getenv(fileEnv, "LINEAR_OAUTH_CLIENT_ID", ""),
 		LinearOAuthClientSecret: getenv(fileEnv, "LINEAR_OAUTH_CLIENT_SECRET", ""),
 		LinearOAuthRefreshToken: getenv(fileEnv, "LINEAR_OAUTH_REFRESH_TOKEN", ""),
+		LinearOAuthScope:        getenv(fileEnv, "LINEAR_OAUTH_SCOPE", ""),
 		LinearTeamKey:           getenv(fileEnv, "LINEAR_TEAM_KEY", DefaultLinearTeamKey),
 		TriggerMode:             strings.ToLower(getenv(fileEnv, "TRIGGER_MODE", DefaultTriggerMode)),
 		TriggerState:            getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
@@ -286,13 +284,8 @@ func Load(scriptDir string) (*Config, error) {
 func (c *Config) Validate() error {
 	var errs []string
 
-	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.OAuthRefreshConfigured() {
+	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.ActorAppConfigured() {
 		errs = append(errs, "LINEAR_API_KEY (or LINEAR_OAUTH_TOKEN) is required — run ./noctra setup or set it in .env")
-	}
-
-	// The actor=app refresh triplet is all-or-none: a partial set can't refresh.
-	if n := nonEmptyCount(c.LinearOAuthClientID, c.LinearOAuthClientSecret, c.LinearOAuthRefreshToken); n != 0 && n != 3 {
-		errs = append(errs, "LINEAR_OAUTH_CLIENT_ID, LINEAR_OAUTH_CLIENT_SECRET, and LINEAR_OAUTH_REFRESH_TOKEN must all be set together (actor=app auto-refresh)")
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {
@@ -344,21 +337,12 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// OAuthRefreshConfigured reports whether the actor=app refresh triplet is set.
-func (c *Config) OAuthRefreshConfigured() bool {
-	return c.LinearOAuthClientID != "" &&
-		c.LinearOAuthClientSecret != "" &&
-		c.LinearOAuthRefreshToken != ""
+func (c *Config) ActorAppConfigured() bool {
+	return c.LinearOAuthClientID != "" && c.LinearOAuthClientSecret != ""
 }
 
-func nonEmptyCount(vals ...string) int {
-	n := 0
-	for _, v := range vals {
-		if v != "" {
-			n++
-		}
-	}
-	return n
+func (c *Config) OAuthPartiallyConfigured() bool {
+	return (c.LinearOAuthClientID != "") != (c.LinearOAuthClientSecret != "")
 }
 
 // AgentCLI returns the CLI binary the configured backend requires on PATH.

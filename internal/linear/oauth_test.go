@@ -130,10 +130,51 @@ func TestTokenManager_RefreshFailureIsError(t *testing.T) {
 	}
 }
 
-func TestTokenManager_NoRefreshTokenIsError(t *testing.T) {
-	m := NewTokenManager(TokenManagerConfig{ClientID: "id", ClientSecret: "secret"})
+func TestTokenManager_NoCredentialsIsError(t *testing.T) {
+	m := NewTokenManager(TokenManagerConfig{})
 	if _, err := m.Token(context.Background()); err == nil {
-		t.Fatal("Token: want error with no refresh token, got nil")
+		t.Fatal("Token: want error with no credentials, got nil")
+	}
+}
+
+func TestTokenManager_ClientCredentialsMint(t *testing.T) {
+	var grant, actor, scope string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		grant = r.FormValue("grant_type")
+		actor = r.FormValue("actor")
+		scope = r.FormValue("scope")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "app-token",
+			"expires_in":   2591999,
+			"token_type":   "Bearer",
+		})
+	}))
+	defer srv.Close()
+
+	store := &fakeStore{}
+	m := NewTokenManager(TokenManagerConfig{
+		ClientID: "id", ClientSecret: "secret",
+		Endpoint: srv.URL, Store: store,
+	})
+	tok, err := m.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if tok != "app-token" {
+		t.Errorf("token = %q, want app-token", tok)
+	}
+	if grant != "client_credentials" {
+		t.Errorf("grant_type = %q, want client_credentials", grant)
+	}
+	if actor != "app" {
+		t.Errorf("actor = %q, want app", actor)
+	}
+	if scope != "read,write" {
+		t.Errorf("scope = %q, want read,write (default)", scope)
+	}
+	if store.refresh != "" {
+		t.Errorf("persisted refresh = %q, want empty (client_credentials has none)", store.refresh)
 	}
 }
 

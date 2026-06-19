@@ -17,33 +17,28 @@ const (
 	defaultTokenEndpoint  = "https://api.linear.app/oauth/token"
 	tokenRefreshMargin    = 5 * time.Minute
 	defaultAccessTokenTTL = 24 * time.Hour
+	defaultOAuthScope     = "read,write"
 )
 
-// TokenStore persists the rotating OAuth credentials across restarts. Linear
-// rotates the refresh token on every exchange, so the persisted copy — not the
-// .env seed — is the source of truth after the first refresh. *state.Store
-// satisfies this.
 type TokenStore interface {
 	LoadOAuth() (access string, expiresAt time.Time, refresh string)
 	SaveOAuth(access string, expiresAt time.Time, refresh string) error
 }
 
-// TokenManagerConfig configures a TokenManager. RefreshToken seeds the manager;
-// a persisted Store value overrides it. Endpoint/HTTP are test overrides.
 type TokenManagerConfig struct {
 	ClientID     string
 	ClientSecret string
 	RefreshToken string
+	Scope        string
 	Endpoint     string
 	HTTP         *http.Client
 	Store        TokenStore
 }
 
-// TokenManager mints and caches short-lived Linear access tokens from a rotating
-// refresh token, persisting each rotation via Store. Safe for concurrent use.
 type TokenManager struct {
 	clientID     string
 	clientSecret string
+	scope        string
 	endpoint     string
 	http         *http.Client
 	store        TokenStore
@@ -54,16 +49,18 @@ type TokenManager struct {
 	refresh   string
 }
 
-// NewTokenManager builds a TokenManager, preferring a persisted refresh token
-// over the config seed.
 func NewTokenManager(cfg TokenManagerConfig) *TokenManager {
 	m := &TokenManager{
 		clientID:     cfg.ClientID,
 		clientSecret: cfg.ClientSecret,
+		scope:        cfg.Scope,
 		endpoint:     cfg.Endpoint,
 		http:         cfg.HTTP,
 		store:        cfg.Store,
 		refresh:      strings.TrimSpace(cfg.RefreshToken),
+	}
+	if m.scope == "" {
+		m.scope = defaultOAuthScope
 	}
 	if m.endpoint == "" {
 		m.endpoint = defaultTokenEndpoint
@@ -79,8 +76,6 @@ func NewTokenManager(cfg TokenManagerConfig) *TokenManager {
 	return m
 }
 
-// Token returns a valid access token, refreshing within tokenRefreshMargin of
-// expiry.
 func (m *TokenManager) Token(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,25 +88,27 @@ func (m *TokenManager) Token(ctx context.Context) (string, error) {
 	return m.access, nil
 }
 
-// ForceRefresh refreshes immediately, ignoring the cache. Wired as the client's
-// OnAuthError hook for when Linear rejects a token we thought was valid.
 func (m *TokenManager) ForceRefresh(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.refreshLocked(ctx)
 }
 
-// refreshLocked exchanges the refresh token for a new pair. Caller holds m.mu.
 func (m *TokenManager) refreshLocked(ctx context.Context) error {
-	if m.refresh == "" {
-		return fmt.Errorf("linear oauth: no refresh token available")
-	}
-
 	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", m.refresh)
 	form.Set("client_id", m.clientID)
 	form.Set("client_secret", m.clientSecret)
+	switch {
+	case m.refresh != "":
+		form.Set("grant_type", "refresh_token")
+		form.Set("refresh_token", m.refresh)
+	case m.clientID != "" && m.clientSecret != "":
+		form.Set("grant_type", "client_credentials")
+		form.Set("actor", "app")
+		form.Set("scope", m.scope)
+	default:
+		return fmt.Errorf("linear oauth: no client credentials or refresh token")
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -121,16 +118,16 @@ func (m *TokenManager) refreshLocked(ctx context.Context) error {
 
 	resp, err := m.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("linear oauth refresh: %w", err)
+		return fmt.Errorf("linear oauth: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("linear oauth refresh: read response: %w", err)
+		return fmt.Errorf("linear oauth: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("linear oauth refresh: status %d: %s", resp.StatusCode, truncate(string(body), 256))
+		return fmt.Errorf("linear oauth: status %d: %s", resp.StatusCode, truncate(string(body), 256))
 	}
 
 	var tr struct {
@@ -140,10 +137,10 @@ func (m *TokenManager) refreshLocked(ctx context.Context) error {
 		TokenType    string `json:"token_type"`
 	}
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return fmt.Errorf("linear oauth refresh: decode: %w", err)
+		return fmt.Errorf("linear oauth: decode: %w", err)
 	}
 	if tr.AccessToken == "" {
-		return fmt.Errorf("linear oauth refresh: empty access_token")
+		return fmt.Errorf("linear oauth: empty access_token")
 	}
 
 	m.access = tr.AccessToken
@@ -153,12 +150,12 @@ func (m *TokenManager) refreshLocked(ctx context.Context) error {
 		m.expiresAt = time.Now().Add(defaultAccessTokenTTL)
 	}
 	if tr.RefreshToken != "" {
-		m.refresh = tr.RefreshToken // Linear rotates it; persist or break next cycle.
+		m.refresh = tr.RefreshToken
 	}
 
 	if m.store != nil {
 		if err := m.store.SaveOAuth(m.access, m.expiresAt, m.refresh); err != nil {
-			slog.Warn("linear oauth: failed to persist rotated token", "err", err)
+			slog.Warn("linear oauth: failed to persist token", "err", err)
 		}
 	}
 	return nil

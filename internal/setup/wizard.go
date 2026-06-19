@@ -91,9 +91,7 @@ func Run(scriptDir string) error {
 		fallback: config.DefaultLinearTeamKey,
 	})
 
-	// Optional: post as the Noctra app (actor=app) with auto-refresh, instead
-	// of as your personal user.
-	var oauthClientID, oauthClientSecret, oauthRefreshToken string
+	var oauthClientID, oauthClientSecret string
 	clearOAuth := false
 	actorPrompt := "Post to Linear as the Noctra app (actor=app)? Needs a Linear OAuth app."
 	if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
@@ -101,12 +99,10 @@ func Run(scriptDir string) error {
 	}
 	if w.confirm(actorPrompt) {
 		fmt.Println("  Create one at Linear → Settings → API → OAuth applications,")
-		fmt.Println("  then authorize with actor=app to get a refresh token.")
+		fmt.Println("  then copy its client ID and secret (Noctra mints + renews the token).")
 		oauthClientID = w.askEx("OAuth client ID", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_ID"], required: true})
 		oauthClientSecret = w.askEx("OAuth client secret", askOpts{existing: existingEnv["LINEAR_OAUTH_CLIENT_SECRET"], secret: true, required: true})
-		oauthRefreshToken = w.askEx("OAuth refresh token", askOpts{existing: existingEnv["LINEAR_OAUTH_REFRESH_TOKEN"], secret: true, required: true})
 	} else if existingEnv["LINEAR_OAUTH_CLIENT_ID"] != "" {
-		// Declined with keys already set — clear them so "No" actually disables.
 		clearOAuth = true
 	}
 
@@ -237,7 +233,7 @@ func Run(scriptDir string) error {
 	fmt.Printf("  LINEAR_API_KEY        = %s\n", mask(linearKey))
 	fmt.Printf("  LINEAR_TEAM_KEY       = %s\n", team)
 	if oauthClientID != "" {
-		fmt.Printf("  Linear identity       = Noctra app (actor=app, auto-refresh)\n")
+		fmt.Printf("  Linear identity       = Noctra app (actor=app)\n")
 	}
 	fmt.Printf("  AGENT_BACKEND         = %s\n", agentBackend)
 	fmt.Printf("  TRIGGER_MODE          = %s\n", triggerMode)
@@ -293,7 +289,6 @@ func Run(scriptDir string) error {
 		team:              team,
 		oauthClientID:     oauthClientID,
 		oauthClientSecret: oauthClientSecret,
-		oauthRefreshToken: oauthRefreshToken,
 		clearOAuth:        clearOAuth,
 		agentBackend:      agentBackend,
 		triggerMode:       triggerMode,
@@ -726,7 +721,6 @@ func copyFile(src, dst string) error {
 type envValues struct {
 	linearKey, team                              string
 	oauthClientID, oauthClientSecret             string
-	oauthRefreshToken                            string
 	clearOAuth                                   bool
 	agentBackend                                 string
 	triggerMode, trigger, triggerLabel, review   string
@@ -779,17 +773,13 @@ func (v envValues) toMap() map[string]string {
 		m["REPO_PATH"] = v.repoPath
 	}
 
-	// actor=app refresh triplet: write when all three set; clear when the user
-	// declined a previously-configured identity.
 	switch {
-	case v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "":
+	case v.oauthClientID != "" && v.oauthClientSecret != "":
 		m["LINEAR_OAUTH_CLIENT_ID"] = v.oauthClientID
 		m["LINEAR_OAUTH_CLIENT_SECRET"] = v.oauthClientSecret
-		m["LINEAR_OAUTH_REFRESH_TOKEN"] = v.oauthRefreshToken
 	case v.clearOAuth:
 		m["LINEAR_OAUTH_CLIENT_ID"] = ""
 		m["LINEAR_OAUTH_CLIENT_SECRET"] = ""
-		m["LINEAR_OAUTH_REFRESH_TOKEN"] = ""
 	}
 
 	return m
@@ -810,15 +800,13 @@ func writeEnvFile(path string, v envValues) error {
 		repoPathLine = fmt.Sprintf(`REPO_PATH="%s"`, v.repoPath)
 	}
 
-	// actor=app refresh triplet: real lines when set, commented placeholders otherwise.
-	oauthLines := `# Optional: post as the Noctra app (actor=app). All three required together;
-# Noctra auto-refreshes the 24h access token and persists rotations (ENG-236).
+	oauthLines := `# Optional: post as the Noctra app (actor=app). Client id + secret only —
+# Noctra mints + renews the token. Create an app at Linear Settings > API.
 # LINEAR_OAUTH_CLIENT_ID=""
-# LINEAR_OAUTH_CLIENT_SECRET=""
-# LINEAR_OAUTH_REFRESH_TOKEN=""`
-	if v.oauthClientID != "" && v.oauthClientSecret != "" && v.oauthRefreshToken != "" {
-		oauthLines = fmt.Sprintf("LINEAR_OAUTH_CLIENT_ID=\"%s\"\nLINEAR_OAUTH_CLIENT_SECRET=\"%s\"\nLINEAR_OAUTH_REFRESH_TOKEN=\"%s\"",
-			v.oauthClientID, v.oauthClientSecret, v.oauthRefreshToken)
+# LINEAR_OAUTH_CLIENT_SECRET=""`
+	if v.oauthClientID != "" && v.oauthClientSecret != "" {
+		oauthLines = fmt.Sprintf("LINEAR_OAUTH_CLIENT_ID=\"%s\"\nLINEAR_OAUTH_CLIENT_SECRET=\"%s\"",
+			v.oauthClientID, v.oauthClientSecret)
 	}
 
 	// Render trigger lines based on mode.
