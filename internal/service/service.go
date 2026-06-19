@@ -215,7 +215,7 @@ func Uninstall(purge bool) error {
 				fmt.Printf("✓ Removed %s\n", p)
 			}
 		}
-		fmt.Println("  (custom REPOS_BASE / WORKTREE_BASE / STATE_FILE / LOG_DIR paths, if any, were not touched — remove them manually.)")
+		fmt.Println("  (custom REPOS_BASE / WORKTREE_BASE / STATE_DB / STATE_FILE / LOG_DIR paths, if any, were not touched — remove them manually.)")
 	}
 
 	// Remove the binary last: once the service is stopped, deleting the running

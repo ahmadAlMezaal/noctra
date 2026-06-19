@@ -1,27 +1,31 @@
-// Package state persists Noctra's view of the PRs it has created and how
-// far it has caught up on each — last-seen comment / review cursors and the
-// per-PR iteration counter. The watcher reads this on startup so a restart
-// doesn't re-react to comments that pre-date the cursor.
+// Package state persists Noctra's view of PRs it has created and how far it
+// has caught up on each: last-seen comment / review cursors, CI cursor, and
+// the per-PR iteration counter. The watcher reads this on startup so a restart
+// does not re-react to comments that pre-date the cursor.
 //
 // It also tracks sweep task cooldowns (ENG-222): per-repo, per-task last-run
-// timestamps so the same maintenance task isn't re-run before its cooldown
+// timestamps so the same maintenance task is not re-run before its cooldown
 // expires.
 //
-// Backed by a single JSON file at the path passed to Open. Concurrent-safe:
-// the store guards its in-memory map with a mutex and writes the file
-// atomically (write-temp, rename) on every update.
+// The active store is SQLite. A legacy JSON state file can be migrated once at
+// startup via OpenMigrating.
 package state
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
-// PRState is the per-PR record stored in the state file.
+// PRState is the per-PR record stored in the state database.
 type PRState struct {
 	// TicketID is the Linear identifier the PR was opened for (e.g. ENG-42).
 	// Used to route comments on Linear when re-engaging or capping.
@@ -43,18 +47,18 @@ type PRState struct {
 	// processed.
 	LastReviewAt time.Time `json:"last_review_at,omitempty"`
 
-	// LastCISHA is the head commit SHA whose failing CI Noctra has
-	// already re-engaged on. CI is keyed by SHA (not timestamp) so a failure
-	// is acted on once per commit; pushing a fix changes the SHA, making a
-	// fresh failure eligible again — bounded by Iterations.
+	// LastCISHA is the head commit SHA whose failing CI Noctra has already
+	// re-engaged on. CI is keyed by SHA (not timestamp) so a failure is acted on
+	// once per commit; pushing a fix changes the SHA, making a fresh failure
+	// eligible again, bounded by Iterations.
 	LastCISHA string `json:"last_ci_sha,omitempty"`
 
-	// Iterations counts how many times Noctra has re-engaged on this
-	// PR. Capped by config.MaxPRIterations.
+	// Iterations counts how many times Noctra has re-engaged on this PR. Capped
+	// by config.MaxPRIterations.
 	Iterations int `json:"iterations,omitempty"`
 
-	// LastIteratedAt is the timestamp of the most recent re-engage. Mostly
-	// for telemetry — also useful for spotting stuck iteration loops.
+	// LastIteratedAt is the timestamp of the most recent re-engage. Mostly for
+	// telemetry; also useful for spotting stuck iteration loops.
 	LastIteratedAt time.Time `json:"last_iterated_at,omitempty"`
 }
 
@@ -66,7 +70,7 @@ type SweepState struct {
 }
 
 // OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236)
-// so a restart doesn't lose a refresh-token rotation.
+// so a restart does not lose a refresh-token rotation.
 type OAuthState struct {
 	AccessToken  string    `json:"access_token,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
@@ -79,84 +83,265 @@ type fileFormat struct {
 	OAuth  *OAuthState            `json:"oauth,omitempty"`
 }
 
-// Store is a thread-safe, file-backed PR and sweep state.
+// Store is a thread-safe, SQLite-backed PR, sweep, and OAuth state store.
 type Store struct {
 	mu   sync.Mutex
 	path string
-	data fileFormat
+	db   *sql.DB
 }
 
-// Open loads the state file at path. A missing file is not an error — the
-// returned store starts empty and Save will create the file on first write.
+// Open opens the SQLite state database at path. A missing database is created
+// with the current schema.
 func Open(path string) (*Store, error) {
-	s := &Store{path: path, data: fileFormat{
-		PRs:    map[string]*PRState{},
-		Sweeps: map[string]*SweepState{},
-	}}
-
-	raw, err := os.ReadFile(path)
+	s, err := openSQLite(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return s, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	if err := json.Unmarshal(raw, &s.data); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if s.data.PRs == nil {
-		s.data.PRs = map[string]*PRState{}
-	}
-	if s.data.Sweeps == nil {
-		s.data.Sweeps = map[string]*SweepState{}
+		return nil, err
 	}
 	return s, nil
 }
 
+// OpenMigrating opens the SQLite state database at dbPath and, when the DB did
+// not already exist, migrates records from legacyJSONPath if that file exists.
+// Existing DBs are never clobbered.
+func OpenMigrating(dbPath, legacyJSONPath string) (*Store, error) {
+	dbExisted := pathExists(dbPath)
+	s, err := openSQLite(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if dbExisted || legacyJSONPath == "" || !pathExists(legacyJSONPath) {
+		return s, nil
+	}
+	if err := s.migrateLegacyJSON(legacyJSONPath); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	slog.Info("migrated legacy state file to sqlite", "from", legacyJSONPath, "to", dbPath)
+	return s, nil
+}
+
+func openSQLite(path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create state db dir: %w", err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open state db %s: %w", path, err)
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{path: path, db: db}
+	if err := s.initSchema(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Close closes the underlying SQLite connection.
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+func (s *Store) initSchema() error {
+	stmts := []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA busy_timeout=5000`,
+		`CREATE TABLE IF NOT EXISTS pr_states (
+			pr_url TEXT PRIMARY KEY,
+			ticket_id TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			last_comment_at TEXT,
+			last_review_at TEXT,
+			last_ci_sha TEXT NOT NULL DEFAULT '',
+			iterations INTEGER NOT NULL DEFAULT 0,
+			last_iterated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS sweep_states (
+			key TEXT PRIMARY KEY,
+			last_run_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_state (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			access_token TEXT NOT NULL DEFAULT '',
+			expires_at TEXT,
+			refresh_token TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS usage_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			occurred_at TEXT NOT NULL,
+			source TEXT NOT NULL DEFAULT '',
+			ticket_id TEXT NOT NULL DEFAULT '',
+			pr_url TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cost_usd REAL NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_occurred_at_idx ON usage_events (occurred_at)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_ticket_id_idx ON usage_events (ticket_id)`,
+		`CREATE TABLE IF NOT EXISTS run_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			identifier TEXT NOT NULL DEFAULT '',
+			ticket_id TEXT NOT NULL DEFAULT '',
+			pr_url TEXT NOT NULL DEFAULT '',
+			repo TEXT NOT NULL DEFAULT '',
+			agent_backend TEXT NOT NULL DEFAULT '',
+			run_type TEXT NOT NULL DEFAULT '',
+			started_at TEXT NOT NULL,
+			finished_at TEXT,
+			status TEXT NOT NULL DEFAULT '',
+			iterations INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS run_history_started_at_idx ON run_history (started_at)`,
+		`CREATE INDEX IF NOT EXISTS run_history_ticket_id_idx ON run_history (ticket_id)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("init state schema: %w", err)
+		}
+	}
+	return nil
+}
+
 // Get returns a copy of the record for prURL, or a zero-value PRState if the
-// PR isn't tracked yet.
+// PR is not tracked yet.
 func (s *Store) Get(prURL string) PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r, ok := s.data.PRs[prURL]; ok && r != nil {
-		return *r
+	r, err := s.getPRLocked(prURL)
+	if err != nil {
+		slog.Warn("state get failed", "pr_url", prURL, "err", err)
+		return PRState{}
 	}
-	return PRState{}
+	return r
+}
+
+func (s *Store) getPRLocked(prURL string) (PRState, error) {
+	var r PRState
+	var lastComment, lastReview, lastIterated sql.NullString
+	err := s.db.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at
+		FROM pr_states WHERE pr_url = ?`, prURL).Scan(
+		&r.TicketID,
+		&r.AgentBackend,
+		&lastComment,
+		&lastReview,
+		&r.LastCISHA,
+		&r.Iterations,
+		&lastIterated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PRState{}, nil
+	}
+	if err != nil {
+		return PRState{}, fmt.Errorf("read pr state: %w", err)
+	}
+	var convErr error
+	if r.LastCommentAt, convErr = parseNullTime(lastComment); convErr != nil {
+		return PRState{}, fmt.Errorf("parse last_comment_at: %w", convErr)
+	}
+	if r.LastReviewAt, convErr = parseNullTime(lastReview); convErr != nil {
+		return PRState{}, fmt.Errorf("parse last_review_at: %w", convErr)
+	}
+	if r.LastIteratedAt, convErr = parseNullTime(lastIterated); convErr != nil {
+		return PRState{}, fmt.Errorf("parse last_iterated_at: %w", convErr)
+	}
+	return r, nil
 }
 
 // All returns a copy of every tracked PR keyed by URL.
 func (s *Store) All() map[string]PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make(map[string]PRState, len(s.data.PRs))
-	for k, v := range s.data.PRs {
-		if v != nil {
-			out[k] = *v
-		}
+	out, err := s.allLocked()
+	if err != nil {
+		slog.Warn("state all failed", "err", err)
+		return map[string]PRState{}
 	}
 	return out
 }
 
-// Update mutates the record for prURL in place via fn and writes the file.
-// A nil fn is a no-op. fn is called while the store is locked; do not call
-// back into the Store from inside fn.
+func (s *Store) allLocked() (map[string]PRState, error) {
+	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at
+		FROM pr_states ORDER BY pr_url`)
+	if err != nil {
+		return nil, fmt.Errorf("list pr states: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]PRState{}
+	for rows.Next() {
+		var prURL string
+		var r PRState
+		var lastComment, lastReview, lastIterated sql.NullString
+		if err := rows.Scan(
+			&prURL,
+			&r.TicketID,
+			&r.AgentBackend,
+			&lastComment,
+			&lastReview,
+			&r.LastCISHA,
+			&r.Iterations,
+			&lastIterated,
+		); err != nil {
+			return nil, fmt.Errorf("scan pr state: %w", err)
+		}
+		var convErr error
+		if r.LastCommentAt, convErr = parseNullTime(lastComment); convErr != nil {
+			return nil, fmt.Errorf("parse last_comment_at: %w", convErr)
+		}
+		if r.LastReviewAt, convErr = parseNullTime(lastReview); convErr != nil {
+			return nil, fmt.Errorf("parse last_review_at: %w", convErr)
+		}
+		if r.LastIteratedAt, convErr = parseNullTime(lastIterated); convErr != nil {
+			return nil, fmt.Errorf("parse last_iterated_at: %w", convErr)
+		}
+		out[prURL] = r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pr states: %w", err)
+	}
+	return out, nil
+}
+
+// Update mutates the record for prURL in place via fn and writes it. A nil fn
+// is a no-op. fn is called while the store is locked; do not call back into the
+// Store from inside fn.
 func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if fn == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.data.PRs[prURL]
-	if !ok || r == nil {
-		r = &PRState{}
-		s.data.PRs[prURL] = r
-	}
-	fn(r)
-	data, err := json.MarshalIndent(s.data, "", "  ")
+	r, err := s.getPRLocked(prURL)
 	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
+		return err
 	}
-	return writeAtomic(s.path, data)
+	fn(&r)
+	_, err = s.db.Exec(`INSERT INTO pr_states (
+			pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(pr_url) DO UPDATE SET
+			ticket_id = excluded.ticket_id,
+			agent_backend = excluded.agent_backend,
+			last_comment_at = excluded.last_comment_at,
+			last_review_at = excluded.last_review_at,
+			last_ci_sha = excluded.last_ci_sha,
+			iterations = excluded.iterations,
+			last_iterated_at = excluded.last_iterated_at`,
+		prURL,
+		r.TicketID,
+		r.AgentBackend,
+		formatTime(r.LastCommentAt),
+		formatTime(r.LastReviewAt),
+		r.LastCISHA,
+		r.Iterations,
+		formatTime(r.LastIteratedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("write pr state: %w", err)
+	}
+	return nil
 }
 
 // LoadOAuth returns the persisted access token, expiry, and refresh token (zero
@@ -164,26 +349,41 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 func (s *Store) LoadOAuth() (access string, expiresAt time.Time, refresh string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.data.OAuth == nil {
+	var expires sql.NullString
+	err := s.db.QueryRow(`SELECT access_token, expires_at, refresh_token FROM oauth_state WHERE id = 1`).Scan(&access, &expires, &refresh)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", time.Time{}, ""
 	}
-	return s.data.OAuth.AccessToken, s.data.OAuth.ExpiresAt, s.data.OAuth.RefreshToken
+	if err != nil {
+		slog.Warn("state oauth load failed", "err", err)
+		return "", time.Time{}, ""
+	}
+	expiresAt, err = parseNullTime(expires)
+	if err != nil {
+		slog.Warn("state oauth expiry parse failed", "err", err)
+		return "", time.Time{}, ""
+	}
+	return access, expiresAt, refresh
 }
 
 // SaveOAuth persists the credentials atomically. Satisfies linear.TokenStore.
 func (s *Store) SaveOAuth(access string, expiresAt time.Time, refresh string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data.OAuth = &OAuthState{
-		AccessToken:  access,
-		ExpiresAt:    expiresAt,
-		RefreshToken: refresh,
-	}
-	data, err := json.MarshalIndent(s.data, "", "  ")
+	_, err := s.db.Exec(`INSERT INTO oauth_state (id, access_token, expires_at, refresh_token)
+		VALUES (1, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			access_token = excluded.access_token,
+			expires_at = excluded.expires_at,
+			refresh_token = excluded.refresh_token`,
+		access,
+		formatTime(expiresAt),
+		refresh,
+	)
 	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
+		return fmt.Errorf("write oauth state: %w", err)
 	}
-	return writeAtomic(s.path, data)
+	return nil
 }
 
 // SweepKey builds the state key for a sweep task on a specific repo.
@@ -193,60 +393,149 @@ func SweepKey(repoSlug, taskName string) string {
 }
 
 // GetSweep returns a copy of the sweep state for the given key, or a
-// zero-value SweepState if the task hasn't run yet.
+// zero-value SweepState if the task has not run yet.
 func (s *Store) GetSweep(key string) SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r, ok := s.data.Sweeps[key]; ok && r != nil {
-		return *r
+	r, err := s.getSweepLocked(key)
+	if err != nil {
+		slog.Warn("state get sweep failed", "key", key, "err", err)
+		return SweepState{}
 	}
-	return SweepState{}
+	return r
 }
 
-// UpdateSweep mutates the sweep state for the given key and writes the file.
+func (s *Store) getSweepLocked(key string) (SweepState, error) {
+	var lastRun sql.NullString
+	err := s.db.QueryRow(`SELECT last_run_at FROM sweep_states WHERE key = ?`, key).Scan(&lastRun)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SweepState{}, nil
+	}
+	if err != nil {
+		return SweepState{}, fmt.Errorf("read sweep state: %w", err)
+	}
+	lastRunAt, err := parseNullTime(lastRun)
+	if err != nil {
+		return SweepState{}, fmt.Errorf("parse last_run_at: %w", err)
+	}
+	return SweepState{LastRunAt: lastRunAt}, nil
+}
+
+// UpdateSweep mutates the sweep state for the given key and writes it.
 func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 	if fn == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.data.Sweeps[key]
-	if !ok || r == nil {
-		r = &SweepState{}
-		s.data.Sweeps[key] = r
-	}
-	fn(r)
-	data, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
-	}
-	return writeAtomic(s.path, data)
-}
-
-// writeAtomic writes to a sibling temp file then renames over the target.
-// On POSIX, rename(2) is atomic — a crash mid-write leaves the previous
-// state file intact instead of an empty/corrupt one.
-func writeAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	r, err := s.getSweepLocked(key)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // don't leak the temp file on a failed rename
-		return err
+	fn(&r)
+	_, err = s.db.Exec(`INSERT INTO sweep_states (key, last_run_at)
+		VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET last_run_at = excluded.last_run_at`,
+		key,
+		formatTime(r.LastRunAt),
+	)
+	if err != nil {
+		return fmt.Errorf("write sweep state: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) migrateLegacyJSON(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read legacy state %s: %w", path, err)
+	}
+	var data fileFormat
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return fmt.Errorf("parse legacy state %s: %w", path, err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin legacy state migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	for prURL, r := range data.PRs {
+		if r == nil {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO pr_states (
+				pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(pr_url) DO NOTHING`,
+			prURL,
+			r.TicketID,
+			r.AgentBackend,
+			formatTime(r.LastCommentAt),
+			formatTime(r.LastReviewAt),
+			r.LastCISHA,
+			r.Iterations,
+			formatTime(r.LastIteratedAt),
+		); err != nil {
+			return fmt.Errorf("migrate pr state %s: %w", prURL, err)
+		}
+	}
+
+	for key, r := range data.Sweeps {
+		if r == nil {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO sweep_states (key, last_run_at)
+			VALUES (?, ?)
+			ON CONFLICT(key) DO NOTHING`,
+			key,
+			formatTime(r.LastRunAt),
+		); err != nil {
+			return fmt.Errorf("migrate sweep state %s: %w", key, err)
+		}
+	}
+
+	if data.OAuth != nil {
+		if _, err := tx.Exec(`INSERT INTO oauth_state (id, access_token, expires_at, refresh_token)
+			VALUES (1, ?, ?, ?)
+			ON CONFLICT(id) DO NOTHING`,
+			data.OAuth.AccessToken,
+			formatTime(data.OAuth.ExpiresAt),
+			data.OAuth.RefreshToken,
+		); err != nil {
+			return fmt.Errorf("migrate oauth state: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit legacy state migration: %w", err)
+	}
+	return nil
+}
+
+func pathExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func formatTime(t time.Time) sql.NullString {
+	if t.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.UTC().Format(time.RFC3339Nano), Valid: true}
+}
+
+func parseNullTime(v sql.NullString) (time.Time, error) {
+	if !v.Valid || v.String == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, v.String)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t, nil
 }
