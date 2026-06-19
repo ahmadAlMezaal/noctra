@@ -85,7 +85,7 @@ func New(cfg *config.Config) *Pipeline {
 	// Open the state store up front if any feature needs it: auto-iterate,
 	// sweep, or actor=app OAuth refresh persistence.
 	var store *state.Store
-	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.OAuthRefreshConfigured() {
+	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.ActorAppConfigured() {
 		s, err := state.Open(cfg.StateFile)
 		if err != nil {
 			slog.Warn("state store open failed", "path", cfg.StateFile, "err", err)
@@ -517,11 +517,11 @@ func rateLimited(b agent.Backend, runErr error, output string) bool {
 	return runErr != nil && b.HasRateLimit(output)
 }
 
-// newLinearClient picks the Linear auth, preferring durable actor=app identity
-// (auto-refresh) over a static OAuth token over the personal API key. Both
-// OAuth paths degrade to the personal key on auth failure instead of failing.
 func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
-	if cfg.OAuthRefreshConfigured() {
+	if cfg.OAuthPartiallyConfigured() {
+		slog.Warn("linear actor=app config incomplete (need both client id and secret); using personal API key")
+	}
+	if cfg.ActorAppConfigured() {
 		var ts linear.TokenStore
 		if store != nil {
 			ts = store
@@ -530,6 +530,7 @@ func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
 			ClientID:     cfg.LinearOAuthClientID,
 			ClientSecret: cfg.LinearOAuthClientSecret,
 			RefreshToken: cfg.LinearOAuthRefreshToken,
+			Scope:        cfg.LinearOAuthScope,
 			Store:        ts,
 		})
 		c := linear.New(cfg.LinearAPIKey)
@@ -592,8 +593,8 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
 	linearIdentity := "personal API key"
 	switch {
-	case p.cfg.OAuthRefreshConfigured():
-		linearIdentity = "Noctra app (OAuth actor=app, auto-refresh)"
+	case p.cfg.ActorAppConfigured():
+		linearIdentity = "Noctra app (OAuth actor=app, auto-renew)"
 	case p.cfg.LinearOAuthToken != "":
 		linearIdentity = "Noctra app (OAuth actor=app, static token)"
 	}
