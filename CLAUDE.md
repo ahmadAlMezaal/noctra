@@ -46,7 +46,7 @@ PR poll loop → github.ListNoctraPRs → github.GetPR (comments+reviews+statusC
 When `SWEEP_ENABLED=true`, a **third** loop runs alongside the Linear and PR-watcher loops:
 
 ```
-sweep loop → scheduler.DueIn (interval-based) → scheduler.Plan (all repos × task catalog)
+sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) → scheduler.Plan (all repos × task catalog)
   → filter by cooldown (per-repo, per-task, from state store)
   → pipeline.processSweepTask (bounded, shares the worker pool + active-set)
   → repo.CreateWorktreeWithBranch → agent.Run (task-specific prompt) → commit/push → gh pr create
@@ -65,7 +65,8 @@ sweep loop → scheduler.DueIn (interval-based) → scheduler.Plan (all repos ×
 | Env var | Default | Description |
 |---------|---------|-------------|
 | `SWEEP_ENABLED` | `false` | Enable the sweep scheduler |
-| `SWEEP_INTERVAL` | `86400` (24h) | Seconds between sweep cycles |
+| `SWEEP_SCHEDULE` | (empty) | Cron expression for when to sweep (e.g. `0 0 * * *` = daily midnight); empty = use `SWEEP_INTERVAL`. Parsed by `sweep.ParseCron` (zero-dep, standard 5-field); invalid → warn + fall back to interval |
+| `SWEEP_INTERVAL` | `86400` (24h) | Seconds between sweep cycles (fallback when no cron). Interval mode fires immediately on startup; cron mode waits for the next matching time |
 | `SWEEP_MAX_TASKS` | `5` | Max tasks per sweep run |
 | `SWEEP_TASKS` | (all) | Comma-separated task names to enable (e.g. `lint-cleanup,dead-code`) |
 

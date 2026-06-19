@@ -138,7 +138,17 @@ func New(cfg *config.Config) *Pipeline {
 		if len(tasks) == 0 {
 			slog.Warn("sweep: no tasks enabled; feature disabled")
 		} else {
-			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks)
+			var schedule *sweep.CronSchedule
+			if cfg.SweepSchedule != "" {
+				parsed, err := sweep.ParseCron(cfg.SweepSchedule)
+				if err != nil {
+					slog.Warn("sweep: invalid SWEEP_SCHEDULE; using interval instead",
+						"schedule", cfg.SweepSchedule, "err", err)
+				} else {
+					schedule = parsed
+				}
+			}
+			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks, schedule)
 		}
 	}
 
@@ -571,8 +581,11 @@ func (p *Pipeline) banner() {
 	}
 	sweepMode := "Disabled"
 	if p.sweeper != nil {
-		sweepMode = fmt.Sprintf("On (interval %s, max %d tasks)",
-			p.cfg.SweepInterval, p.cfg.SweepMaxTasks)
+		cadence := fmt.Sprintf("interval %s", p.cfg.SweepInterval)
+		if p.cfg.SweepSchedule != "" {
+			cadence = fmt.Sprintf("cron %q", p.cfg.SweepSchedule)
+		}
+		sweepMode = fmt.Sprintf("On (%s, max %d tasks)", cadence, p.cfg.SweepMaxTasks)
 	}
 
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive

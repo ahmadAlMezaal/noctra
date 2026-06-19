@@ -50,7 +50,7 @@ func initTestRepo(t *testing.T, base, name string) string {
 func TestScheduler_DueIn(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5)
+	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil)
 
 	// Just created — should be immediately due (no startup suppression;
 	// per-task cooldowns prevent spam).
@@ -74,7 +74,7 @@ func TestScheduler_DueIn(t *testing.T) {
 func TestScheduler_MarkSwept(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5)
+	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil)
 
 	s.lastSweep = time.Now().Add(-2 * time.Hour) // make it due
 	s.MarkSwept()
@@ -98,7 +98,7 @@ func TestScheduler_PlanRespectsMaxTasks(t *testing.T) {
 		testTask("t3", time.Hour),
 	}
 
-	s := NewScheduler(store, resolver, tasks, time.Hour, 2) // max 2
+	s := NewScheduler(store, resolver, tasks, time.Hour, 2, nil) // max 2
 
 	jobs := s.Plan(context.Background())
 	if len(jobs) > 2 {
@@ -118,7 +118,7 @@ func TestScheduler_PlanRespectsCooldown(t *testing.T) {
 		testTask("task-b", 24*time.Hour),
 	}
 
-	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10)
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil)
 
 	// Both should be eligible initially.
 	jobs := s.Plan(context.Background())
@@ -145,7 +145,7 @@ func TestScheduler_PlanNoRepos(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()} // empty
 
-	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5)
+	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil)
 	jobs := s.Plan(context.Background())
 	if len(jobs) != 0 {
 		t.Errorf("expected 0 jobs with no repos, got %d", len(jobs))
@@ -157,7 +157,7 @@ func TestScheduler_RecordRun(t *testing.T) {
 	store, _ := state.Open(statePath)
 
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, time.Hour, 5)
+	s := NewScheduler(store, resolver, nil, time.Hour, 5, nil)
 
 	if err := s.RecordRun("my-repo", "lint-cleanup"); err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestScheduler_Summary(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 
-	s := NewScheduler(store, resolver, []Task{testTask("t1", 24*time.Hour)}, time.Hour, 5)
+	s := NewScheduler(store, resolver, []Task{testTask("t1", 24*time.Hour)}, time.Hour, 5, nil)
 	summary := s.Summary()
 	if summary == "" {
 		t.Error("Summary should not be empty")
