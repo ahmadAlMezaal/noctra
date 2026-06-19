@@ -86,9 +86,9 @@ func New(cfg *config.Config) *Pipeline {
 	// sweep, or actor=app OAuth refresh persistence.
 	var store *state.Store
 	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.ActorAppConfigured() {
-		s, err := state.Open(cfg.StateFile)
+		s, err := state.OpenMigrating(cfg.StateDB, cfg.StateFile)
 		if err != nil {
-			slog.Warn("state store open failed", "path", cfg.StateFile, "err", err)
+			slog.Warn("state store open failed", "path", cfg.StateDB, "legacy_path", cfg.StateFile, "err", err)
 		} else {
 			store = s
 		}

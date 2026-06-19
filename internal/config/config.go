@@ -41,7 +41,7 @@ var legacyPathMigrations = [][2]string{
 	{".nightshift", ".noctra"},                       // config dir (.env + logs/)
 	{".nightshift-repos", ".noctra-repos"},           // clone cache
 	{".nightshift-worktrees", ".noctra-worktrees"},   // per-ticket worktrees
-	{".nightshift-state.json", ".noctra-state.json"}, // PR cursor store
+	{".nightshift-state.json", ".noctra-state.json"}, // legacy JSON state store
 }
 
 // MigrateLegacyPaths renames any surviving ~/.nightshift* paths to their
@@ -153,7 +153,8 @@ type Config struct {
 	MaxPRIterations  int
 	PRPollInterval   time.Duration
 	TrustedReviewers []string // GitHub logins/bots Noctra will act on (default: humans only)
-	StateFile        string   // where the per-PR cursor + iteration count is persisted
+	StateDB          string   // SQLite state database path
+	StateFile        string   // legacy JSON state file migration source
 
 	// Auto-release-label (ENG-231) — off by default. When enabled, Noctra
 	// applies a release:* label at PR creation derived from the agent's
@@ -253,6 +254,7 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.PRPollInterval = time.Duration(prPollSecs) * time.Second
 	cfg.TrustedReviewers = getlist(fileEnv, "TRUSTED_REVIEWERS")
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".noctra-state.json"))
+	cfg.StateDB = getenv(fileEnv, "STATE_DB", filepath.Join(DefaultConfigDir(), "state.db"))
 
 	// Auto-release-label
 	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)

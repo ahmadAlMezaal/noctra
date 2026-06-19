@@ -476,7 +476,7 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 			notify.EscapeMarkdown(identifier), prNumber, iterations))
 		if issueID != "" {
 			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
-				"🛑 **Noctra: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Noctra won't re-engage on this PR again unless you reset the iteration count in `~/.noctra-state.json` or close the PR.",
+				"🛑 **Noctra: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Noctra won't re-engage on this PR again unless you reset the iteration count in the state DB or close the PR.",
 				iterations, ch.PR.URL))
 		}
 	}

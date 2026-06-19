@@ -79,7 +79,7 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 }
 
 // GetPR fetches the full view of a PR — comments, reviews, state — used by
-// the watcher to diff against the cursor in state.json.
+// the watcher to diff against the state cursor.
 func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL,

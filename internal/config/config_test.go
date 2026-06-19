@@ -21,7 +21,7 @@ var noctraEnvKeys = []string{
 	"GEMINI_MODE", "GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
-	"TRUSTED_REVIEWERS", "STATE_FILE",
+	"TRUSTED_REVIEWERS", "STATE_DB", "STATE_FILE",
 	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
 	"SWEEP_ENABLED", "SWEEP_SCHEDULE", "SWEEP_INTERVAL", "SWEEP_MAX_TASKS", "SWEEP_TASKS",
 }
@@ -227,6 +227,12 @@ func TestLoad_AutoIterateDefaults(t *testing.T) {
 	}
 	if cfg.StateFile == "" {
 		t.Error("StateFile should have a default path")
+	}
+	if cfg.StateDB == "" {
+		t.Error("StateDB should have a default path")
+	}
+	if !strings.HasSuffix(cfg.StateDB, filepath.Join(".noctra", "state.db")) {
+		t.Errorf("StateDB = %q, want default under .noctra/state.db", cfg.StateDB)
 	}
 }
 

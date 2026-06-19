@@ -1,7 +1,10 @@
 package state
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -85,18 +88,18 @@ func TestGet_UnknownPRReturnsZero(t *testing.T) {
 	}
 }
 
-func TestWriteAtomic_LeavesNoTmpFileOnSuccess(t *testing.T) {
+func TestOpen_CreatesSQLiteFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 
 	s, _ := Open(path)
+	defer closeStore(t, s)
 	if err := s.Update("a", func(r *PRState) { r.TicketID = "ENG-1" }); err != nil {
 		t.Fatal(err)
 	}
 
-	entries, _ := filepath.Glob(filepath.Join(dir, "*.tmp-*"))
-	if len(entries) != 0 {
-		t.Errorf("temp files left behind: %v", entries)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("state db was not created: %v", err)
 	}
 }
 
@@ -172,5 +175,177 @@ func TestUpdateSweep_CoexistsWithPRState(t *testing.T) {
 	sw := s2.GetSweep("my-repo/lint")
 	if sw.LastRunAt.IsZero() {
 		t.Error("Sweep state lost: LastRunAt is zero")
+	}
+}
+
+func TestOpenMigrating_MigratesLegacyJSON(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+
+	commentAt := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	reviewAt := time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC)
+	iteratedAt := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	sweepAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	oauthExp := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	legacy := fileFormat{
+		PRs: map[string]*PRState{
+			"https://github.com/me/repo/pull/42": {
+				TicketID:       "ENG-42",
+				AgentBackend:   "codex",
+				LastCommentAt:  commentAt,
+				LastReviewAt:   reviewAt,
+				LastCISHA:      "abc123",
+				Iterations:     2,
+				LastIteratedAt: iteratedAt,
+			},
+		},
+		Sweeps: map[string]*SweepState{
+			"repo/lint-cleanup": {LastRunAt: sweepAt},
+		},
+		OAuth: &OAuthState{
+			AccessToken:  "access",
+			ExpiresAt:    oauthExp,
+			RefreshToken: "refresh",
+		},
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenMigrating(dbPath, jsonPath)
+	if err != nil {
+		t.Fatalf("OpenMigrating: %v", err)
+	}
+	defer closeStore(t, s)
+
+	pr := s.Get("https://github.com/me/repo/pull/42")
+	if pr.TicketID != "ENG-42" || pr.AgentBackend != "codex" || pr.LastCISHA != "abc123" || pr.Iterations != 2 {
+		t.Fatalf("PR state not migrated: %+v", pr)
+	}
+	if !pr.LastCommentAt.Equal(commentAt) || !pr.LastReviewAt.Equal(reviewAt) || !pr.LastIteratedAt.Equal(iteratedAt) {
+		t.Fatalf("PR timestamps not migrated: %+v", pr)
+	}
+	if got := s.GetSweep("repo/lint-cleanup"); !got.LastRunAt.Equal(sweepAt) {
+		t.Fatalf("sweep state not migrated: %+v", got)
+	}
+	access, exp, refresh := s.LoadOAuth()
+	if access != "access" || refresh != "refresh" || !exp.Equal(oauthExp) {
+		t.Fatalf("OAuth not migrated: access=%q exp=%v refresh=%q", access, exp, refresh)
+	}
+	if _, err := os.Stat(jsonPath); err != nil {
+		t.Fatalf("legacy JSON should remain in place: %v", err)
+	}
+}
+
+func TestOpenMigrating_DoesNotClobberExistingDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+
+	s, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.TicketID = "ENG-1"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := fileFormat{PRs: map[string]*PRState{
+		"https://github.com/me/repo/pull/1": {TicketID: "ENG-OLD"},
+	}}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := OpenMigrating(dbPath, jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s2)
+	if got := s2.Get("https://github.com/me/repo/pull/1").TicketID; got != "ENG-1" {
+		t.Fatalf("existing DB was clobbered: got %q", got)
+	}
+}
+
+func TestOpenMigrating_RemovesNewDBAfterFailedMigration(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+
+	if err := os.WriteFile(jsonPath, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenMigrating(dbPath, jsonPath); err == nil {
+		t.Fatal("expected invalid legacy JSON to fail migration")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("failed migration left db at %s: stat err=%v", dbPath, err)
+	}
+
+	legacy := fileFormat{PRs: map[string]*PRState{
+		"https://github.com/me/repo/pull/42": {TicketID: "ENG-42"},
+	}}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenMigrating(dbPath, jsonPath)
+	if err != nil {
+		t.Fatalf("retry OpenMigrating: %v", err)
+	}
+	defer closeStore(t, s)
+	if got := s.Get("https://github.com/me/repo/pull/42").TicketID; got != "ENG-42" {
+		t.Fatalf("retry migration did not import PR state: got %q", got)
+	}
+}
+
+func TestUpdate_ReturnsReadError(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.TicketID = "ENG-1"
+		r.Iterations = 7
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
+		r.Iterations = 0
+	})
+	if err == nil {
+		t.Fatal("expected Update to return a read error after close")
+	}
+	if !strings.Contains(err.Error(), "read pr state") {
+		t.Fatalf("Update error = %v, want read pr state context", err)
+	}
+}
+
+func closeStore(t *testing.T, s *Store) {
+	t.Helper()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
