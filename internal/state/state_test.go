@@ -93,7 +93,7 @@ func TestOpen_CreatesSQLiteFile(t *testing.T) {
 	path := filepath.Join(dir, "state.db")
 
 	s, _ := Open(path)
-	defer s.Close()
+	defer closeStore(t, s)
 	if err := s.Update("a", func(r *PRState) { r.TicketID = "ENG-1" }); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestOpenMigrating_MigratesLegacyJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenMigrating: %v", err)
 	}
-	defer s.Close()
+	defer closeStore(t, s)
 
 	pr := s.Get("https://github.com/me/repo/pull/42")
 	if pr.TicketID != "ENG-42" || pr.AgentBackend != "codex" || pr.LastCISHA != "abc123" || pr.Iterations != 2 {
@@ -275,9 +275,45 @@ func TestOpenMigrating_DoesNotClobberExistingDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s2.Close()
+	defer closeStore(t, s2)
 	if got := s2.Get("https://github.com/me/repo/pull/1").TicketID; got != "ENG-1" {
 		t.Fatalf("existing DB was clobbered: got %q", got)
+	}
+}
+
+func TestOpenMigrating_RemovesNewDBAfterFailedMigration(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	jsonPath := filepath.Join(dir, "state.json")
+
+	if err := os.WriteFile(jsonPath, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenMigrating(dbPath, jsonPath); err == nil {
+		t.Fatal("expected invalid legacy JSON to fail migration")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("failed migration left db at %s: stat err=%v", dbPath, err)
+	}
+
+	legacy := fileFormat{PRs: map[string]*PRState{
+		"https://github.com/me/repo/pull/42": {TicketID: "ENG-42"},
+	}}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenMigrating(dbPath, jsonPath)
+	if err != nil {
+		t.Fatalf("retry OpenMigrating: %v", err)
+	}
+	defer closeStore(t, s)
+	if got := s.Get("https://github.com/me/repo/pull/42").TicketID; got != "ENG-42" {
+		t.Fatalf("retry migration did not import PR state: got %q", got)
 	}
 }
 
@@ -304,5 +340,12 @@ func TestUpdate_ReturnsReadError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "read pr state") {
 		t.Fatalf("Update error = %v, want read pr state context", err)
+	}
+}
+
+func closeStore(t *testing.T, s *Store) {
+	t.Helper()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

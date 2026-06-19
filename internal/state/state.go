@@ -17,8 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,6 +116,7 @@ func OpenMigrating(dbPath, legacyJSONPath string) (*Store, error) {
 	}
 	if err := s.migrateLegacyJSON(legacyJSONPath); err != nil {
 		_ = s.Close()
+		removeNewStateDB(dbPath)
 		return nil, err
 	}
 	slog.Info("migrated legacy state file to sqlite", "from", legacyJSONPath, "to", dbPath)
@@ -124,7 +127,7 @@ func openSQLite(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create state db dir: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", stateDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open state db %s: %w", path, err)
 	}
@@ -144,8 +147,6 @@ func (s *Store) Close() error {
 
 func (s *Store) initSchema() error {
 	stmts := []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA busy_timeout=5000`,
 		`CREATE TABLE IF NOT EXISTS pr_states (
 			pr_url TEXT PRIMARY KEY,
 			ticket_id TEXT NOT NULL DEFAULT '',
@@ -267,7 +268,11 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list pr states: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close pr state rows failed", "err", err)
+		}
+	}()
 
 	out := map[string]PRState{}
 	for rows.Next() {
@@ -459,7 +464,11 @@ func (s *Store) migrateLegacyJSON(path string) error {
 	if err != nil {
 		return fmt.Errorf("begin legacy state migration: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Warn("rollback legacy state migration failed", "err", err)
+		}
+	}()
 
 	for prURL, r := range data.PRs {
 		if r == nil {
@@ -520,6 +529,26 @@ func pathExists(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func stateDSN(path string) string {
+	values := url.Values{}
+	values.Add("_pragma", "busy_timeout=5000")
+	values.Add("_pragma", "journal_mode(WAL)")
+
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return path + separator + values.Encode()
+}
+
+func removeNewStateDB(path string) {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(candidate); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("remove failed state db after migration error", "path", candidate, "err", err)
+		}
+	}
 }
 
 func formatTime(t time.Time) sql.NullString {
