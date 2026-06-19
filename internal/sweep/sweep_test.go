@@ -22,6 +22,28 @@ func TestCatalog_ContainsRegisteredTasks(t *testing.T) {
 	}
 }
 
+func TestCatalog_ContainsMaintenanceTasks(t *testing.T) {
+	names := map[string]bool{}
+	for _, task := range Catalog() {
+		names[task.Name] = true
+	}
+	for _, want := range []string{"deps-update", "test-coverage", "doc-drift", "modernize", "bug-scan"} {
+		if !names[want] {
+			t.Errorf("missing expected task %q", want)
+		}
+	}
+}
+
+func TestCatalog_UniqueNames(t *testing.T) {
+	seen := map[string]bool{}
+	for _, task := range Catalog() {
+		if seen[task.Name] {
+			t.Errorf("duplicate task Name %q", task.Name)
+		}
+		seen[task.Name] = true
+	}
+}
+
 func TestCatalog_TaskFields(t *testing.T) {
 	for _, task := range Catalog() {
 		if task.Name == "" {
