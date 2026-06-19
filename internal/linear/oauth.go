@@ -42,6 +42,7 @@ type TokenManager struct {
 	endpoint     string
 	http         *http.Client
 	store        TokenStore
+	useRefresh   bool
 
 	mu        sync.Mutex
 	access    string
@@ -59,6 +60,7 @@ func NewTokenManager(cfg TokenManagerConfig) *TokenManager {
 		store:        cfg.Store,
 		refresh:      strings.TrimSpace(cfg.RefreshToken),
 	}
+	m.useRefresh = m.refresh != ""
 	if m.scope == "" {
 		m.scope = defaultOAuthScope
 	}
@@ -68,7 +70,7 @@ func NewTokenManager(cfg TokenManagerConfig) *TokenManager {
 	if m.http == nil {
 		m.http = &http.Client{Timeout: 30 * time.Second}
 	}
-	if m.store != nil {
+	if m.store != nil && m.useRefresh {
 		if access, exp, refresh := m.store.LoadOAuth(); refresh != "" {
 			m.access, m.expiresAt, m.refresh = access, exp, refresh
 		}
@@ -99,7 +101,7 @@ func (m *TokenManager) refreshLocked(ctx context.Context) error {
 	form.Set("client_id", m.clientID)
 	form.Set("client_secret", m.clientSecret)
 	switch {
-	case m.refresh != "":
+	case m.useRefresh && m.refresh != "":
 		form.Set("grant_type", "refresh_token")
 		form.Set("refresh_token", m.refresh)
 	case m.clientID != "" && m.clientSecret != "":

@@ -178,6 +178,35 @@ func TestTokenManager_ClientCredentialsMint(t *testing.T) {
 	}
 }
 
+func TestTokenManager_ClientCredentialsIgnoresStaleStoreRefresh(t *testing.T) {
+	var grant string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		grant = r.FormValue("grant_type")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "app-token",
+			"expires_in":   2591999,
+		})
+	}))
+	defer srv.Close()
+
+	store := &fakeStore{refresh: "stale-refresh-from-old-flow"}
+	m := NewTokenManager(TokenManagerConfig{
+		ClientID: "id", ClientSecret: "secret",
+		Endpoint: srv.URL, Store: store,
+	})
+	tok, err := m.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if tok != "app-token" {
+		t.Errorf("token = %q, want app-token", tok)
+	}
+	if grant != "client_credentials" {
+		t.Errorf("grant_type = %q, want client_credentials (stale store refresh must be ignored)", grant)
+	}
+}
+
 // TestClient_DegradesToAPIKeyOnAuthFailure verifies the graceful fallback: when
 // the OAuth credential is rejected, the client retries with FallbackAPIKey and
 // fires OnDegrade once instead of failing the call.
