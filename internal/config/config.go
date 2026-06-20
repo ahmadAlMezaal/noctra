@@ -142,10 +142,9 @@ type Config struct {
 	TelegramChatID   string
 	TelegramVerbose  bool // also notify on dispatch (otherwise: terminal events only)
 
-	SlackEnabled    bool
+	// A non-empty webhook URL enables the platform; no separate flag.
 	SlackWebhookURL string
 
-	DiscordEnabled    bool
 	DiscordWebhookURL string
 
 	// Gemini review gate (optional)
@@ -232,10 +231,8 @@ func Load(scriptDir string) (*Config, error) {
 		TelegramChatID:   getenv(fileEnv, "TELEGRAM_CHAT_ID", ""),
 		TelegramVerbose:  getbool(fileEnv, "TELEGRAM_VERBOSE", false),
 
-		SlackEnabled:    getbool(fileEnv, "SLACK_ENABLED", false),
 		SlackWebhookURL: getenv(fileEnv, "SLACK_WEBHOOK_URL", ""),
 
-		DiscordEnabled:    getbool(fileEnv, "DISCORD_ENABLED", false),
 		DiscordWebhookURL: getenv(fileEnv, "DISCORD_WEBHOOK_URL", ""),
 
 		GeminiMode:   strings.ToLower(strings.TrimSpace(getenv(fileEnv, "GEMINI_MODE", DefaultGeminiMode))),

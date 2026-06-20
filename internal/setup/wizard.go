@@ -229,6 +229,49 @@ func Run(scriptDir string) error {
 		}
 	}
 
+	// ── Optional: Slack ────────────────────────────────────────────────────────
+	// A non-empty webhook URL is the enable signal — there's no separate flag.
+	slackWebhook := ""
+	slackPrompt := "Enable Slack notifications?"
+	if existingEnv["SLACK_WEBHOOK_URL"] != "" {
+		slackPrompt = "Slack notifications are currently enabled. Keep them?"
+	}
+	if w.confirm(slackPrompt) {
+		slackWebhook = w.askEx("Slack incoming-webhook URL", askOpts{existing: existingEnv["SLACK_WEBHOOK_URL"], secret: true, required: true})
+
+		fmt.Print("  Sending test message ... ")
+		if err := testSlack(slackWebhook); err != nil {
+			fmt.Println("FAILED")
+			fmt.Printf("  ⚠️  %v\n", err)
+			if !w.confirm("  Save Slack config anyway?") {
+				slackWebhook = ""
+			}
+		} else {
+			fmt.Println("ok — check your Slack!")
+		}
+	}
+
+	// ── Optional: Discord ──────────────────────────────────────────────────────
+	discordWebhook := ""
+	discordPrompt := "Enable Discord notifications?"
+	if existingEnv["DISCORD_WEBHOOK_URL"] != "" {
+		discordPrompt = "Discord notifications are currently enabled. Keep them?"
+	}
+	if w.confirm(discordPrompt) {
+		discordWebhook = w.askEx("Discord webhook URL", askOpts{existing: existingEnv["DISCORD_WEBHOOK_URL"], secret: true, required: true})
+
+		fmt.Print("  Sending test message ... ")
+		if err := testDiscord(discordWebhook); err != nil {
+			fmt.Println("FAILED")
+			fmt.Printf("  ⚠️  %v\n", err)
+			if !w.confirm("  Save Discord config anyway?") {
+				discordWebhook = ""
+			}
+		} else {
+			fmt.Println("ok — check your Discord!")
+		}
+	}
+
 	// ── Summary + confirm ──────────────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Summary ───")
@@ -295,6 +338,12 @@ func Run(scriptDir string) error {
 		fmt.Printf("  TELEGRAM_CHAT_ID      = %s\n", tgChat)
 		fmt.Printf("  TELEGRAM_VERBOSE      = %s\n", tgVerbose)
 	}
+	if slackWebhook != "" {
+		fmt.Printf("  SLACK_WEBHOOK_URL     = %s\n", mask(slackWebhook))
+	}
+	if discordWebhook != "" {
+		fmt.Printf("  DISCORD_WEBHOOK_URL   = %s\n", mask(discordWebhook))
+	}
 	fmt.Println()
 	if !w.confirm("Save to .env?") {
 		fmt.Println("Setup cancelled — no files changed.")
@@ -329,6 +378,8 @@ func Run(scriptDir string) error {
 		tgToken:           tgToken,
 		tgChat:            tgChat,
 		tgVerbose:         tgVerbose,
+		slackWebhook:      slackWebhook,
+		discordWebhook:    discordWebhook,
 		autoIterate:       autoIterate,
 		maxIter:           strconv.Itoa(maxIter),
 		prPoll:            strconv.Itoa(prPoll),
@@ -743,6 +794,20 @@ func testTelegram(botToken, chatID string) error {
 		"🌙 *Noctra setup* — this is a test message. If you can read this, your bot is configured correctly.")
 }
 
+func testSlack(webhookURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return notify.NewSlack(webhookURL).SendSync(ctx,
+		"🌙 *Noctra setup* — this is a test message. If you can read this, your Slack webhook is configured correctly.")
+}
+
+func testDiscord(webhookURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return notify.NewDiscord(webhookURL).SendSync(ctx,
+		"🌙 *Noctra setup* — this is a test message. If you can read this, your Discord webhook is configured correctly.")
+}
+
 func isGitRepo(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil && info.IsDir()
@@ -797,6 +862,7 @@ type envValues struct {
 	concurrency, dispatches, retries, timeoutMin string
 	geminiMode, geminiKey                        string
 	tgEnabled, tgToken, tgChat, tgVerbose        string
+	slackWebhook, discordWebhook                 string
 	autoIterate, maxIter, prPoll, trusted        string
 	sweepEnabled, sweepTasks, sweepSchedule      string
 	sweepRepos, sweepMaxTasks                    string
@@ -824,6 +890,8 @@ func (v envValues) toMap() map[string]string {
 		"TELEGRAM_BOT_TOKEN":    v.tgToken,
 		"TELEGRAM_CHAT_ID":      v.tgChat,
 		"TELEGRAM_VERBOSE":      v.tgVerbose,
+		"SLACK_WEBHOOK_URL":     v.slackWebhook,
+		"DISCORD_WEBHOOK_URL":   v.discordWebhook,
 		"GEMINI_MODE":           v.geminiMode,
 		"GEMINI_API_KEY":        v.geminiKey,
 		"AUTO_ITERATE_PRS":      v.autoIterate,
@@ -927,6 +995,14 @@ TELEGRAM_CHAT_ID="%s"
 # Also notify on every ticket dispatch (more chatty)
 TELEGRAM_VERBOSE="%s"
 
+# Slack notifications via an incoming-webhook URL (optional). A non-empty
+# URL enables it — no separate flag. Multiple notifiers can run at once;
+# Noctra fans out to every configured backend.
+SLACK_WEBHOOK_URL="%s"
+
+# Discord notifications via a channel webhook URL (optional). Non-empty = on.
+DISCORD_WEBHOOK_URL="%s"
+
 # Gemini review gate: "api" uses GEMINI_API_KEY; "cli" shells out to gemini.
 # For cli mode, install Gemini CLI and run 'gemini' once on this host to log in.
 GEMINI_MODE="%s"
@@ -964,6 +1040,8 @@ SWEEP_MAX_TASKS="%s"
 		v.concurrency,
 		v.dispatches, v.retries, v.timeoutMin,
 		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
+		v.slackWebhook,
+		v.discordWebhook,
 		v.geminiMode, v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 		v.sweepEnabled, v.sweepTasks, v.sweepRepos, v.sweepSchedule, v.sweepMaxTasks,

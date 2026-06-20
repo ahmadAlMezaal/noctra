@@ -541,11 +541,11 @@ func buildNotifier(cfg *config.Config) *notify.Multi {
 		backends = append(backends, tg)
 		labels = append(labels, "Telegram")
 	}
-	if sl := notify.NewSlack(cfg.SlackEnabled, cfg.SlackWebhookURL); sl.Enabled {
+	if sl := notify.NewSlack(cfg.SlackWebhookURL); sl.Enabled {
 		backends = append(backends, sl)
 		labels = append(labels, "Slack")
 	}
-	if dc := notify.NewDiscord(cfg.DiscordEnabled, cfg.DiscordWebhookURL); dc.Enabled {
+	if dc := notify.NewDiscord(cfg.DiscordWebhookURL); dc.Enabled {
 		backends = append(backends, dc)
 		labels = append(labels, "Discord")
 	}

@@ -18,11 +18,11 @@ type Slack struct {
 	HTTP       *http.Client
 }
 
-// NewSlack returns a Slack notifier. It's safe to call Send on a disabled
-// instance — it just no-ops.
-func NewSlack(enabled bool, webhookURL string) *Slack {
+// NewSlack returns a Slack notifier. A non-empty webhook URL enables it;
+// an empty URL yields a disabled notifier whose Send is a safe no-op.
+func NewSlack(webhookURL string) *Slack {
 	return &Slack{
-		Enabled:    enabled && webhookURL != "",
+		Enabled:    webhookURL != "",
 		WebhookURL: webhookURL,
 		HTTP:       &http.Client{Timeout: 10 * time.Second},
 	}

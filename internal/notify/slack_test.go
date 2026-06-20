@@ -27,7 +27,7 @@ func TestSlackSendSync(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewSlack(true, srv.URL)
+	s := NewSlack(srv.URL)
 	if err := s.SendSync(context.Background(), "hello slack"); err != nil {
 		t.Fatalf("SendSync: %v", err)
 	}
@@ -43,26 +43,26 @@ func TestSlackSendSyncError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewSlack(true, srv.URL)
+	s := NewSlack(srv.URL)
 	err := s.SendSync(context.Background(), "test")
 	if err == nil {
 		t.Fatal("expected error for 403 response")
 	}
 }
 
-func TestSlackDisabled(t *testing.T) {
-	s := NewSlack(false, "https://hooks.slack.com/test")
+func TestSlackDisabledWhenNoURL(t *testing.T) {
+	s := NewSlack("")
 	if s.Enabled {
-		t.Error("expected disabled")
+		t.Error("expected disabled when webhook URL is empty")
 	}
-	// Should no-op without panic.
+	// A disabled notifier should no-op without panic.
 	s.Send(context.Background(), "test")
 }
 
-func TestSlackEmptyWebhook(t *testing.T) {
-	s := NewSlack(true, "")
-	if s.Enabled {
-		t.Error("expected disabled when webhook URL is empty")
+func TestSlackEnabledWhenURLSet(t *testing.T) {
+	s := NewSlack("https://hooks.slack.com/test")
+	if !s.Enabled {
+		t.Error("expected enabled when webhook URL is set")
 	}
 }
 

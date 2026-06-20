@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -15,6 +16,20 @@ import (
 // than this are truncated with an ellipsis to avoid 400 errors.
 const maxDiscordLen = 2000
 
+// discordBoldRe matches Telegram-style single-asterisk bold (*text*).
+// Noctra's messages are templated with Telegram/Slack mrkdwn, where a
+// single * is bold. Discord treats single * as italic and uses ** for
+// bold, so we rewrite *text* → **text** to keep emphasis consistent
+// across platforms. Templates only ever use single *, so this won't
+// double-wrap existing **.
+var discordBoldRe = regexp.MustCompile(`\*([^*\n]+)\*`)
+
+// toDiscordMarkdown converts single-asterisk bold to Discord's double-
+// asterisk bold so status messages render bold rather than italic.
+func toDiscordMarkdown(s string) string {
+	return discordBoldRe.ReplaceAllString(s, "**$1**")
+}
+
 // Discord sends notifications via a Discord webhook URL.
 type Discord struct {
 	Enabled    bool
@@ -22,11 +37,11 @@ type Discord struct {
 	HTTP       *http.Client
 }
 
-// NewDiscord returns a Discord notifier. It's safe to call Send on a
-// disabled instance — it just no-ops.
-func NewDiscord(enabled bool, webhookURL string) *Discord {
+// NewDiscord returns a Discord notifier. A non-empty webhook URL enables
+// it; an empty URL yields a disabled notifier whose Send is a safe no-op.
+func NewDiscord(webhookURL string) *Discord {
 	return &Discord{
-		Enabled:    enabled && webhookURL != "",
+		Enabled:    webhookURL != "",
 		WebhookURL: webhookURL,
 		HTTP:       &http.Client{Timeout: 10 * time.Second},
 	}
@@ -61,15 +76,29 @@ func (d *Discord) post(ctx context.Context, message string) error {
 	if d.HTTP == nil {
 		return fmt.Errorf("discord HTTP client is nil")
 	}
+	// Rewrite single-asterisk bold to Discord's ** before truncation so the
+	// rendered text matches Telegram/Slack emphasis.
+	message = toDiscordMarkdown(message)
+
 	// Truncate by runes, not bytes, to avoid splitting multi-byte UTF-8.
 	runes := []rune(message)
 	if len(runes) > maxDiscordLen {
 		message = string(runes[:maxDiscordLen-3]) + "..."
 	}
 
-	payload, err := json.Marshal(struct {
-		Content string `json:"content"`
-	}{Content: message})
+	// allowed_mentions with an empty parse list disables ALL mention parsing
+	// (@everyone, @here, role/user pings). Status text can include untrusted
+	// Linear ticket titles/comments, so without this a crafted ticket could
+	// mass-ping a server. The parse slice must marshal to [] (not null), so
+	// it's initialized to a non-nil empty slice.
+	body := struct {
+		Content         string `json:"content"`
+		AllowedMentions struct {
+			Parse []string `json:"parse"`
+		} `json:"allowed_mentions"`
+	}{Content: message}
+	body.AllowedMentions.Parse = []string{}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
