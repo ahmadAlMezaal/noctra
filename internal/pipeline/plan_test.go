@@ -1,15 +1,28 @@
 package pipeline
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
+
+// testStore opens a throwaway SQLite store in t.TempDir().
+func testStore(t *testing.T) *state.Store {
+	t.Helper()
+	s, err := state.Open(filepath.Join(t.TempDir(), "test-state.db"))
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	return s
+}
 
 func TestNeedsPlanConfirm_GlobalEnabled(t *testing.T) {
 	p := &Pipeline{
-		cfg: &config.Config{PlanConfirm: true, PlanConfirmLabel: "plan-first"},
+		cfg:   &config.Config{PlanConfirm: true, PlanConfirmLabel: "plan-first"},
+		store: testStore(t),
 	}
 	issue := linear.Issue{Identifier: "ENG-1", Labels: linear.LabelConnection{}}
 	if !p.needsPlanConfirm(issue) {
@@ -19,7 +32,8 @@ func TestNeedsPlanConfirm_GlobalEnabled(t *testing.T) {
 
 func TestNeedsPlanConfirm_LabelActivation(t *testing.T) {
 	p := &Pipeline{
-		cfg: &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
+		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
+		store: testStore(t),
 	}
 	issue := linear.Issue{
 		Identifier: "ENG-2",
@@ -32,7 +46,8 @@ func TestNeedsPlanConfirm_LabelActivation(t *testing.T) {
 
 func TestNeedsPlanConfirm_NoActivation(t *testing.T) {
 	p := &Pipeline{
-		cfg: &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
+		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
+		store: testStore(t),
 	}
 	issue := linear.Issue{
 		Identifier: "ENG-3",
@@ -43,9 +58,21 @@ func TestNeedsPlanConfirm_NoActivation(t *testing.T) {
 	}
 }
 
+func TestNeedsPlanConfirm_NilStore(t *testing.T) {
+	p := &Pipeline{
+		cfg:   &config.Config{PlanConfirm: true, PlanConfirmLabel: "plan-first"},
+		store: nil,
+	}
+	issue := linear.Issue{Identifier: "ENG-5"}
+	if p.needsPlanConfirm(issue) {
+		t.Error("expected needsPlanConfirm=false when store is nil, even with PlanConfirm enabled")
+	}
+}
+
 func TestNeedsPlanConfirm_EmptyLabel(t *testing.T) {
 	p := &Pipeline{
-		cfg: &config.Config{PlanConfirm: false, PlanConfirmLabel: ""},
+		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: ""},
+		store: testStore(t),
 	}
 	issue := linear.Issue{
 		Identifier: "ENG-4",

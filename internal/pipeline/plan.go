@@ -20,6 +20,9 @@ import (
 // flow. True when either the global PLAN_CONFIRM=true is set, or the issue
 // carries the plan-confirm label (e.g. "plan-first").
 func (p *Pipeline) needsPlanConfirm(issue linear.Issue) bool {
+	if p.store == nil {
+		return false
+	}
 	if p.cfg.PlanConfirm {
 		return true
 	}
@@ -98,20 +101,6 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 			issue.Comments = linear.CommentConnection{Nodes: comments}
 		}
 
-		// Remove the plan-confirm label if it's a per-ticket label.
-		if p.planConfirmLabelID != "" && issue.HasLabel(p.cfg.PlanConfirmLabel) {
-			if err := p.linear.RemoveLabel(ctx, issue.ID, p.planConfirmLabelID); err != nil {
-				slog.Warn("could not remove plan-confirm label", "id", identifier, "err", err)
-			}
-		}
-
-		// Delete the plan from state — it's been approved and we're about to
-		// dispatch the implementation.
-		plan := ps.Plan
-		if err := p.store.DeletePlan(identifier); err != nil {
-			slog.Warn("could not delete plan state", "id", identifier, "err", err)
-		}
-
 		p.mu.Lock()
 		if _, dupe := p.active[identifier]; dupe {
 			p.mu.Unlock()
@@ -122,6 +111,20 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		p.cancels[identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()
+
+		// Remove the plan-confirm label if it's a per-ticket label.
+		if p.planConfirmLabelID != "" && issue.HasLabel(p.cfg.PlanConfirmLabel) {
+			if err := p.linear.RemoveLabel(ctx, issue.ID, p.planConfirmLabelID); err != nil {
+				slog.Warn("could not remove plan-confirm label", "id", identifier, "err", err)
+			}
+		}
+
+		// Delete the plan from state — it's been approved and we've
+		// committed to dispatching the implementation.
+		plan := ps.Plan
+		if err := p.store.DeletePlan(identifier); err != nil {
+			slog.Warn("could not delete plan state", "id", identifier, "err", err)
+		}
 
 		*available--
 
@@ -145,25 +148,21 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 		return false, err
 	}
 
-	// Comments are returned in chronological order (last: 50). We look for
-	// an approval comment that appears AFTER the plan comment. We detect the
-	// plan comment by its prefix.
-	pastPlan := false
-	for _, c := range comments {
-		body := c.Body
-		if !pastPlan {
-			if linear.IsSystemComment(body) && isPlanComment(body) {
-				pastPlan = true
-			}
-			continue
+	// Comments are returned in chronological order (last: 50). We iterate
+	// backwards to find the latest plan comment and check if any approval
+	// comment was posted after it. This avoids false-positive approvals
+	// from older plan attempts on re-planned tickets.
+	hasApprovalAfterPlan := false
+	for i := len(comments) - 1; i >= 0; i-- {
+		body := comments[i].Body
+		if linear.IsSystemComment(body) && isPlanComment(body) {
+			return hasApprovalAfterPlan, nil
 		}
-		// Skip system comments after the plan (e.g. a follow-up Noctra notice).
 		if linear.IsSystemComment(body) {
 			continue
 		}
-		// Any non-system, approval-shaped comment after the plan = approved.
 		if linear.IsApprovalComment(body) {
-			return true, nil
+			hasApprovalAfterPlan = true
 		}
 	}
 	return false, nil
