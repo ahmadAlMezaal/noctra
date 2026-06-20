@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,68 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
+
+type fakeResolver struct {
+	all    []string
+	direct map[string]string
+}
+
+func (f fakeResolver) AllRepoPaths() []string { return f.all }
+
+func (f fakeResolver) ResolveDirect(_ context.Context, ref, _ string) (repo.Resolved, error) {
+	if p, ok := f.direct[ref]; ok {
+		return repo.Resolved{Path: p, MainBranch: "main"}, nil
+	}
+	return repo.Resolved{}, fmt.Errorf("unknown repo %q", ref)
+}
+
+func TestPlan_SweepReposOverridesDiscovery(t *testing.T) {
+	base := t.TempDir()
+	wanted := initTestRepo(t, base, "wanted-repo")
+	other := initTestRepo(t, base, "other-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	res := fakeResolver{
+		all:    []string{other},
+		direct: map[string]string{"acme/wanted": wanted},
+	}
+	s := NewScheduler(store, res, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, []string{"acme/wanted"})
+
+	jobs := s.Plan(context.Background())
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].RepoPath != wanted {
+		t.Errorf("swept %q, want the explicit repo %q (discovery should be ignored)", jobs[0].RepoPath, wanted)
+	}
+}
+
+func TestPlan_SweepReposDeduplicates(t *testing.T) {
+	base := t.TempDir()
+	wanted := initTestRepo(t, base, "wanted-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	res := fakeResolver{direct: map[string]string{
+		"acme/wanted":                    wanted,
+		"git@github.com:acme/wanted.git": wanted,
+	}}
+	s := NewScheduler(store, res, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil,
+		[]string{"acme/wanted", "git@github.com:acme/wanted.git"})
+
+	if jobs := s.Plan(context.Background()); len(jobs) != 1 {
+		t.Errorf("expected 1 job (equivalent refs dedup to one repo), got %d", len(jobs))
+	}
+}
+
+func TestPlan_SweepReposSkipsUnresolvable(t *testing.T) {
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+	res := fakeResolver{direct: map[string]string{}}
+	s := NewScheduler(store, res, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, []string{"acme/missing"})
+
+	if jobs := s.Plan(context.Background()); len(jobs) != 0 {
+		t.Errorf("expected 0 jobs when nothing resolves, got %d", len(jobs))
+	}
+}
 
 // testTask returns a minimal task for testing.
 func testTask(name string, cooldown time.Duration) Task {
@@ -50,7 +113,7 @@ func initTestRepo(t *testing.T, base, name string) string {
 func TestScheduler_DueIn(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil)
+	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil, nil)
 
 	// Just created — should be immediately due (no startup suppression;
 	// per-task cooldowns prevent spam).
@@ -74,7 +137,7 @@ func TestScheduler_DueIn(t *testing.T) {
 func TestScheduler_MarkSwept(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil)
+	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil, nil)
 
 	s.lastSweep = time.Now().Add(-2 * time.Hour) // make it due
 	s.MarkSwept()
@@ -98,7 +161,7 @@ func TestScheduler_PlanRespectsMaxTasks(t *testing.T) {
 		testTask("t3", time.Hour),
 	}
 
-	s := NewScheduler(store, resolver, tasks, time.Hour, 2, nil) // max 2
+	s := NewScheduler(store, resolver, tasks, time.Hour, 2, nil, nil) // max 2
 
 	jobs := s.Plan(context.Background())
 	if len(jobs) > 2 {
@@ -118,7 +181,7 @@ func TestScheduler_PlanRespectsCooldown(t *testing.T) {
 		testTask("task-b", 24*time.Hour),
 	}
 
-	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil)
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil, nil)
 
 	// Both should be eligible initially.
 	jobs := s.Plan(context.Background())
@@ -145,7 +208,7 @@ func TestScheduler_PlanNoRepos(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()} // empty
 
-	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil)
+	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, nil)
 	jobs := s.Plan(context.Background())
 	if len(jobs) != 0 {
 		t.Errorf("expected 0 jobs with no repos, got %d", len(jobs))
@@ -157,7 +220,7 @@ func TestScheduler_RecordRun(t *testing.T) {
 	store, _ := state.Open(statePath)
 
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
-	s := NewScheduler(store, resolver, nil, time.Hour, 5, nil)
+	s := NewScheduler(store, resolver, nil, time.Hour, 5, nil, nil)
 
 	if err := s.RecordRun("my-repo", "lint-cleanup"); err != nil {
 		t.Fatal(err)
@@ -185,7 +248,7 @@ func TestScheduler_Summary(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 
-	s := NewScheduler(store, resolver, []Task{testTask("t1", 24*time.Hour)}, time.Hour, 5, nil)
+	s := NewScheduler(store, resolver, []Task{testTask("t1", 24*time.Hour)}, time.Hour, 5, nil, nil)
 	summary := s.Summary()
 	if summary == "" {
 		t.Error("Summary should not be empty")
@@ -201,7 +264,7 @@ func TestDueIn_CronWaitsForNextMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseCron: %v", err)
 	}
-	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch, nil)
 	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return base }
 	s.startedAt = base
@@ -218,7 +281,7 @@ func TestDueIn_UnmatchableCronFallsBackToInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseCron: %v", err)
 	}
-	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch, nil)
 	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return base }
 	s.lastSweep = base.Add(-30 * time.Minute)
@@ -232,7 +295,7 @@ func TestDueIn_UnmatchableCronFallsBackToInterval(t *testing.T) {
 
 func TestDueIn_CronCachesNextComputation(t *testing.T) {
 	sch, _ := ParseCron("0 0 * * *")
-	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch, nil)
 	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return base }
 	s.startedAt = base

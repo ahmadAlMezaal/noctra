@@ -10,16 +10,24 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
+// RepoResolver is the subset of *repo.Resolver the scheduler needs: discover
+// already-cloned repos, or resolve an explicit one (cloning on demand).
+type RepoResolver interface {
+	AllRepoPaths() []string
+	ResolveDirect(ctx context.Context, ref, branch string) (repo.Resolved, error)
+}
+
 // Scheduler determines when the next sweep should fire and which tasks are
 // eligible on which repos. It is side-effect-free: the pipeline drives
 // actual execution.
 type Scheduler struct {
-	store    *state.Store
-	resolver *repo.Resolver
-	tasks    []Task
-	interval time.Duration
-	maxTasks int
-	schedule *CronSchedule
+	store      *state.Store
+	resolver   RepoResolver
+	tasks      []Task
+	interval   time.Duration
+	maxTasks   int
+	schedule   *CronSchedule
+	sweepRepos []string
 
 	lastSweep     time.Time
 	startedAt     time.Time
@@ -28,18 +36,19 @@ type Scheduler struct {
 	nextScheduled time.Time
 }
 
-func NewScheduler(store *state.Store, resolver *repo.Resolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule) *Scheduler {
+func NewScheduler(store *state.Store, resolver RepoResolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule, sweepRepos []string) *Scheduler {
 	now := time.Now
 	return &Scheduler{
-		store:     store,
-		resolver:  resolver,
-		tasks:     tasks,
-		interval:  interval,
-		maxTasks:  maxTasks,
-		schedule:  schedule,
-		lastSweep: time.Time{},
-		startedAt: now(),
-		now:       now,
+		store:      store,
+		resolver:   resolver,
+		tasks:      tasks,
+		interval:   interval,
+		maxTasks:   maxTasks,
+		schedule:   schedule,
+		sweepRepos: sweepRepos,
+		lastSweep:  time.Time{},
+		startedAt:  now(),
+		now:        now,
 	}
 }
 
@@ -90,13 +99,36 @@ func (s *Scheduler) MarkSwept() {
 	s.lastSweep = s.now()
 }
 
+// repoPaths returns the repos to sweep: the explicit SWEEP_REPOS list
+// (resolved/cloned on demand) when set, otherwise every cloned repo.
+func (s *Scheduler) repoPaths(ctx context.Context) []string {
+	if len(s.sweepRepos) == 0 {
+		return s.resolver.AllRepoPaths()
+	}
+	var paths []string
+	seen := make(map[string]bool)
+	for _, ref := range s.sweepRepos {
+		res, err := s.resolver.ResolveDirect(ctx, ref, "")
+		if err != nil {
+			slog.Warn("sweep: skipping repo it could not resolve", "repo", ref, "err", err)
+			continue
+		}
+		if seen[res.Path] {
+			continue
+		}
+		seen[res.Path] = true
+		paths = append(paths, res.Path)
+	}
+	return paths
+}
+
 // Plan scans all known repos and returns the list of eligible (repo, task)
 // jobs — at most maxTasks total. A task is eligible if its cooldown on the
 // repo has expired.
 func (s *Scheduler) Plan(ctx context.Context) []Job {
-	repoPaths := s.resolver.AllRepoPaths()
+	repoPaths := s.repoPaths(ctx)
 	if len(repoPaths) == 0 {
-		slog.Debug("sweep: no repos cloned yet")
+		slog.Debug("sweep: no repos to sweep")
 		return nil
 	}
 

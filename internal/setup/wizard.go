@@ -169,7 +169,7 @@ func Run(scriptDir string) error {
 	// ── Optional: Auto-iterate on PR feedback ─────────────────────────────────
 	autoIterate, maxIter, prPoll, trusted := w.collectAutoIterate(existingEnv)
 
-	sweepEnabled, sweepTasks, sweepSchedule, sweepMaxTasks := w.collectSweep(existingEnv)
+	sweepEnabled, sweepTasks, sweepSchedule, sweepRepos, sweepMaxTasks := w.collectSweep(existingEnv)
 
 	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
@@ -277,6 +277,11 @@ func Run(scriptDir string) error {
 		} else {
 			fmt.Printf("  SWEEP_TASKS           = %s\n", sweepTasks)
 		}
+		if sweepRepos == "" {
+			fmt.Printf("  SWEEP_REPOS           = (all cloned)\n")
+		} else {
+			fmt.Printf("  SWEEP_REPOS           = %s\n", sweepRepos)
+		}
 		if sweepSchedule == "" {
 			fmt.Printf("  SWEEP_SCHEDULE        = (interval %ds)\n", int(config.DefaultSweepInterval/time.Second))
 		} else {
@@ -331,6 +336,7 @@ func Run(scriptDir string) error {
 		sweepEnabled:      sweepEnabled,
 		sweepTasks:        sweepTasks,
 		sweepSchedule:     sweepSchedule,
+		sweepRepos:        sweepRepos,
 		sweepMaxTasks:     strconv.Itoa(sweepMaxTasks),
 	}
 
@@ -677,7 +683,7 @@ func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate str
 	return autoIterate, maxIter, prPoll, trusted
 }
 
-func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, schedule string, maxTasks int) {
+func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, schedule, repos string, maxTasks int) {
 	enabled = "false"
 	maxTasks = config.DefaultSweepMaxTasks
 
@@ -687,7 +693,7 @@ func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, sched
 		prompt = "Maintenance sweeps are currently on. Keep them?"
 	}
 	if !w.confirm(prompt) {
-		return enabled, "", "", maxTasks
+		return enabled, "", "", "", maxTasks
 	}
 	enabled = "true"
 
@@ -697,6 +703,10 @@ func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, sched
 	}
 	fmt.Println("Enter a comma-separated subset, or leave blank to run all of them.")
 	tasks = w.askEx("Sweep tasks", askOpts{existing: existing["SWEEP_TASKS"]})
+
+	fmt.Println("Repos to sweep: comma-separated owner/name or git URLs.")
+	fmt.Println("Leave blank to sweep every repo Noctra has already cloned from tickets.")
+	repos = w.askEx("Sweep repos", askOpts{existing: existing["SWEEP_REPOS"]})
 
 	fmt.Println("Schedule: a cron expression (e.g. \"0 0 * * *\" = every day at midnight),")
 	fmt.Println("or leave blank to use a fixed interval instead.")
@@ -712,7 +722,7 @@ func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, sched
 	fmt.Println("ℹ️  To add your own task, create internal/sweep/task_<name>.go that calls")
 	fmt.Println("   Register(Task{...}) — copy task_lint.go as a starting point.")
 
-	return enabled, tasks, schedule, maxTasks
+	return enabled, tasks, schedule, repos, maxTasks
 }
 
 // ── Helpers (file I/O, validators, formatting) ──────────────────────────────
@@ -789,7 +799,7 @@ type envValues struct {
 	tgEnabled, tgToken, tgChat, tgVerbose        string
 	autoIterate, maxIter, prPoll, trusted        string
 	sweepEnabled, sweepTasks, sweepSchedule      string
-	sweepMaxTasks                                string
+	sweepRepos, sweepMaxTasks                    string
 }
 
 // toMap returns the wizard-managed keys as a flat map suitable for
@@ -822,6 +832,7 @@ func (v envValues) toMap() map[string]string {
 		"TRUSTED_REVIEWERS":     v.trusted,
 		"SWEEP_ENABLED":         v.sweepEnabled,
 		"SWEEP_TASKS":           v.sweepTasks,
+		"SWEEP_REPOS":           v.sweepRepos,
 		"SWEEP_SCHEDULE":        v.sweepSchedule,
 		"SWEEP_MAX_TASKS":       v.sweepMaxTasks,
 	}
@@ -934,11 +945,14 @@ PR_POLL_INTERVAL="%s"
 TRUSTED_REVIEWERS="%s"
 
 # Autonomous maintenance sweeps (ENG-222). Opt-in. Runs maintenance tasks
-# (lint, deps, docs, tests, modernize, bug-scan) across cloned repos.
-# SWEEP_TASKS: comma-separated subset, empty = all. SWEEP_SCHEDULE: a cron
-# expression (e.g. "0 0 * * *" = daily midnight), empty = use SWEEP_INTERVAL.
+# (lint, deps, docs, tests, modernize, bug-scan) across repos.
+# SWEEP_TASKS: comma-separated subset, empty = all. SWEEP_REPOS: comma-separated
+# owner/name or git URLs to sweep, empty = every repo Noctra has cloned.
+# SWEEP_SCHEDULE: a cron expression (e.g. "0 0 * * *" = daily midnight), empty =
+# use SWEEP_INTERVAL.
 SWEEP_ENABLED="%s"
 SWEEP_TASKS="%s"
+SWEEP_REPOS="%s"
 SWEEP_SCHEDULE="%s"
 SWEEP_INTERVAL="86400"
 SWEEP_MAX_TASKS="%s"
@@ -952,7 +966,7 @@ SWEEP_MAX_TASKS="%s"
 		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
 		v.geminiMode, v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
-		v.sweepEnabled, v.sweepTasks, v.sweepSchedule, v.sweepMaxTasks,
+		v.sweepEnabled, v.sweepTasks, v.sweepRepos, v.sweepSchedule, v.sweepMaxTasks,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
 }
