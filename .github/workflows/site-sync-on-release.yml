@@ -1,0 +1,71 @@
+name: Sync getnoctra.dev on release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to document (manual test run)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  file-site-ticket:
+    name: File a Linear ticket to update the site
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.release.draft == false && github.event.release.prerelease == false) }}
+    env:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      NOTES: ${{ github.event.release.body || 'Manual test run — no release notes provided.' }}
+      TEAM_ID: 9b095a64-9aa8-4fe0-a515-345ba6e5af63
+      PROJECT_ID: 24719bc7-b280-4458-be98-8b1f39b69b70
+      TRIGGER_STATE: Next
+    steps:
+      - name: Create Linear ticket in the Noctra Site project
+        run: |
+          set -euo pipefail
+
+          if [ -z "${LINEAR_API_KEY:-}" ]; then
+            echo "::error::LINEAR_API_KEY secret is not set — add it under repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+          api() {
+            curl -sS -X POST https://api.linear.app/graphql \
+              -H "Authorization: $LINEAR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$1"
+          }
+
+          state_query=$(jq -n --arg teamId "$TEAM_ID" \
+            '{query:"query($teamId:String!){team(id:$teamId){states{nodes{id name}}}}",variables:{teamId:$teamId}}')
+          state_resp=$(api "$state_query")
+          state_id=$(printf '%s' "$state_resp" | jq -r --arg name "$TRIGGER_STATE" \
+            '.data.team.states.nodes[]? | select(.name==$name) | .id')
+          if [ -z "$state_id" ] || [ "$state_id" = "null" ]; then
+            echo "::error::could not resolve the '$TRIGGER_STATE' state id. Response: $state_resp"
+            exit 1
+          fi
+
+          title="getnoctra.dev: document $TAG"
+          body=$(printf 'Update the marketing/docs site at getnoctra.dev so it reflects Noctra %s.\n\n## Release notes\n\n%s\n\n## What to do\n- Read the release notes above and update anything user-facing to match.\n- Likely files: `src/components/Features.astro`, `src/components/HowItWorks.astro`, `src/components/Compare.astro`, `src/pages/docs.astro`.\n- Keep the existing design, structure, and tone — make minimal, accurate edits.\n- If nothing user-facing changed in this release, respond: BLOCKED: Nothing on the site needs updating for %s.\n\nRepo: ahmadAlMezaal/noctra-site\nAuto-filed by the release workflow in ahmadAlMezaal/noctra.\n' "$TAG" "$NOTES" "$TAG")
+
+          create=$(jq -n \
+            --arg title "$title" --arg desc "$body" \
+            --arg teamId "$TEAM_ID" --arg projectId "$PROJECT_ID" --arg stateId "$state_id" \
+            '{query:"mutation($input:IssueCreateInput!){issueCreate(input:$input){success issue{identifier url}}}",variables:{input:{title:$title,description:$desc,teamId:$teamId,projectId:$projectId,stateId:$stateId}}}')
+          resp=$(api "$create")
+
+          if [ "$(printf '%s' "$resp" | jq -r '.data.issueCreate.success')" != "true" ]; then
+            echo "::error::issueCreate failed: $resp"
+            exit 1
+          fi
+
+          ident=$(printf '%s' "$resp" | jq -r '.data.issueCreate.issue.identifier')
+          url=$(printf '%s' "$resp" | jq -r '.data.issueCreate.issue.url')
+          echo "Created $ident for $TAG — $url"
+          echo "### 🌙 Site update ticket filed: [$ident]($url)" >> "$GITHUB_STEP_SUMMARY"
