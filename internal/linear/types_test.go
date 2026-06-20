@@ -117,3 +117,66 @@ func TestBackendLabel_EmptyIssue(t *testing.T) {
 		t.Errorf("empty issue BackendLabel() = %q, want empty", got)
 	}
 }
+
+func TestHasLabel(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels []Label
+		target string
+		want   bool
+	}{
+		{"no labels", nil, "plan-first", false},
+		{"exact match", []Label{{Name: "plan-first"}}, "plan-first", true},
+		{"case-insensitive", []Label{{Name: "Plan-First"}}, "plan-first", true},
+		{"whitespace trimmed", []Label{{Name: " plan-first "}}, "plan-first", true},
+		{"no match", []Label{{Name: "bug"}, {Name: "noctra"}}, "plan-first", false},
+		{"empty target", []Label{{Name: "bug"}}, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			issue := Issue{Labels: LabelConnection{Nodes: c.labels}}
+			if got := issue.HasLabel(c.target); got != c.want {
+				t.Errorf("HasLabel(%q) = %v, want %v", c.target, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsApprovalComment(t *testing.T) {
+	cases := []struct {
+		body string
+		want bool
+	}{
+		{"go", true},
+		{"Go", true},
+		{"GO", true},
+		{"  go  ", true},
+		{"lgtm", true},
+		{"LGTM", true},
+		{"approved", true},
+		{"approve", true},
+		{"👍", true},
+		{":thumbsup:", true},
+		{":+1:", true},
+		// Non-approval comments.
+		{"", false},
+		{"looks good but needs changes", false},
+		{"go ahead and fix the bug too", false},
+		{"not approved", false},
+		{"please go fix it", false},
+	}
+	for _, c := range cases {
+		t.Run(c.body, func(t *testing.T) {
+			if got := IsApprovalComment(c.body); got != c.want {
+				t.Errorf("IsApprovalComment(%q) = %v, want %v", c.body, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsSystemComment_PlanConfirmComment(t *testing.T) {
+	planComment := PlanConfirmCommentPrefix + "\n\n## Summary\nDo this and that."
+	if !IsSystemComment(planComment) {
+		t.Error("plan-confirm comment should be classified as a system comment")
+	}
+}

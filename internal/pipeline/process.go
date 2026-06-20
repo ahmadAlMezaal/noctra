@@ -57,6 +57,19 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// label overrides the configured default.
 	backend := p.resolveBackend(issue)
 
+	// ── Plan-confirm gate (ENG-221) ──────────────────────────────────────────
+	// When plan-confirm is active for this ticket and no approved plan is
+	// queued, run a plan-only pass instead of implementing. The plan is posted
+	// as a Linear comment and the ticket stays in the trigger state until a
+	// human approves.
+	p.mu.Lock()
+	_, hasApprovedPlan := p.approvedPlans[id]
+	p.mu.Unlock()
+	if p.needsPlanConfirm(issue) && !hasApprovedPlan {
+		p.processPlanOnly(ctx, issue)
+		return
+	}
+
 	if p.cfg.TelegramVerbose {
 		p.telegram.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNoctra picked it up — working on it.",
 			id, notify.EscapeMarkdown(issue.Title)))
@@ -126,14 +139,24 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	logger.Info("worktree", "path", wt.Path, "branch", wt.Branch)
 
 	// ── Run Claude ───────────────────────────────────────────────────────────
-	prompt := agent.BuildPrompt(agent.BuildPromptInput{
+	promptInput := agent.BuildPromptInput{
 		Identifier:       id,
 		Title:            issue.Title,
 		Description:      issue.Description,
 		Comments:         issue.ClarificationComments(),
 		UseTeams:         p.cfg.UseAgentTeams,
 		AutoReleaseLabel: p.cfg.AutoReleaseLabel,
-	})
+	}
+	var prompt string
+	p.mu.Lock()
+	approvedPlan := p.approvedPlans[id]
+	p.mu.Unlock()
+	if approvedPlan != "" {
+		prompt = agent.BuildPlanImplementPrompt(promptInput, approvedPlan)
+		logger.Info("using approved plan as implementation context")
+	} else {
+		prompt = agent.BuildPrompt(promptInput)
+	}
 
 	logger.Info("running agent",
 		"backend", backend.Name(),
