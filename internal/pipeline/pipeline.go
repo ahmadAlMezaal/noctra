@@ -152,7 +152,7 @@ func New(cfg *config.Config) *Pipeline {
 					schedule = parsed
 				}
 			}
-			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks, schedule)
+			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks, schedule, cfg.SweepRepos)
 		}
 	}
 
@@ -589,7 +589,11 @@ func (p *Pipeline) banner() {
 		if p.cfg.SweepSchedule != "" {
 			cadence = fmt.Sprintf("cron %q", p.cfg.SweepSchedule)
 		}
-		sweepMode = fmt.Sprintf("On (%s, max %d tasks)", cadence, p.cfg.SweepMaxTasks)
+		scope := "all cloned repos"
+		if n := len(p.cfg.SweepRepos); n > 0 {
+			scope = fmt.Sprintf("%d listed repo(s)", n)
+		}
+		sweepMode = fmt.Sprintf("On (%s, max %d tasks, %s)", cadence, p.cfg.SweepMaxTasks, scope)
 	}
 
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive

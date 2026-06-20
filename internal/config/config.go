@@ -174,6 +174,7 @@ type Config struct {
 	SweepInterval time.Duration // fallback fixed interval when no cron (default 24h)
 	SweepMaxTasks int           // max tasks per sweep run (default 5)
 	SweepTasks    []string      // enabled task names (nil = all registered tasks)
+	SweepRepos    []string      // explicit repos to sweep (owner/name or URL); nil = all cloned
 
 	// Derived paths
 	ScriptDir    string
@@ -274,6 +275,7 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.SweepInterval = time.Duration(sweepIntervalSecs) * time.Second
 	cfg.SweepMaxTasks = getint(fileEnv, "SWEEP_MAX_TASKS", DefaultSweepMaxTasks)
 	cfg.SweepTasks = getlist(fileEnv, "SWEEP_TASKS")
+	cfg.SweepRepos = getlist(fileEnv, "SWEEP_REPOS")
 
 	return cfg, nil
 }

@@ -46,7 +46,7 @@ PR poll loop → github.ListNoctraPRs → github.GetPR (comments+reviews+statusC
 When `SWEEP_ENABLED=true`, a **third** loop runs alongside the Linear and PR-watcher loops:
 
 ```
-sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) → scheduler.Plan (all repos × task catalog)
+sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) → scheduler.Plan (SWEEP_REPOS or all cloned repos × task catalog)
   → filter by cooldown (per-repo, per-task, from state store)
   → pipeline.processSweepTask (bounded, shares the worker pool + active-set)
   → repo.CreateWorktreeWithBranch → agent.Run (task-specific prompt) → commit/push → gh pr create
@@ -69,6 +69,7 @@ sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) →
 | `SWEEP_INTERVAL` | `86400` (24h) | Seconds between sweep cycles (fallback when no cron). Interval mode fires immediately on startup; cron mode waits for the next matching time |
 | `SWEEP_MAX_TASKS` | `5` | Max tasks per sweep run |
 | `SWEEP_TASKS` | (all) | Comma-separated task names to enable (e.g. `lint-cleanup,dead-code`) |
+| `SWEEP_REPOS` | (all cloned) | Comma-separated `owner/name` or git URLs to sweep, resolved via `repo.ResolveDirect` (clone-on-demand). When set, **replaces** the `AllRepoPaths()` discovery; unresolvable entries warn and are skipped. Empty = every cloned repo |
 
 ## Multi-repo
 
