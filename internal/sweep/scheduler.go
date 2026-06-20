@@ -106,12 +106,17 @@ func (s *Scheduler) repoPaths(ctx context.Context) []string {
 		return s.resolver.AllRepoPaths()
 	}
 	var paths []string
+	seen := make(map[string]bool)
 	for _, ref := range s.sweepRepos {
 		res, err := s.resolver.ResolveDirect(ctx, ref, "")
 		if err != nil {
 			slog.Warn("sweep: skipping repo it could not resolve", "repo", ref, "err", err)
 			continue
 		}
+		if seen[res.Path] {
+			continue
+		}
+		seen[res.Path] = true
 		paths = append(paths, res.Path)
 	}
 	return paths

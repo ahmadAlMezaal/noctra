@@ -48,6 +48,23 @@ func TestPlan_SweepReposOverridesDiscovery(t *testing.T) {
 	}
 }
 
+func TestPlan_SweepReposDeduplicates(t *testing.T) {
+	base := t.TempDir()
+	wanted := initTestRepo(t, base, "wanted-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	res := fakeResolver{direct: map[string]string{
+		"acme/wanted":                    wanted,
+		"git@github.com:acme/wanted.git": wanted,
+	}}
+	s := NewScheduler(store, res, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil,
+		[]string{"acme/wanted", "git@github.com:acme/wanted.git"})
+
+	if jobs := s.Plan(context.Background()); len(jobs) != 1 {
+		t.Errorf("expected 1 job (equivalent refs dedup to one repo), got %d", len(jobs))
+	}
+}
+
 func TestPlan_SweepReposSkipsUnresolvable(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 	res := fakeResolver{direct: map[string]string{}}
