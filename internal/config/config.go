@@ -136,11 +136,16 @@ type Config struct {
 	MaxDispatches int
 	MaxRetries    int
 
-	// Telegram (optional)
+	// Notifications (optional) — one or more platforms can be active at once.
 	TelegramEnabled  bool
 	TelegramBotToken string
 	TelegramChatID   string
 	TelegramVerbose  bool // also notify on dispatch (otherwise: terminal events only)
+
+	// A non-empty webhook URL enables the platform; no separate flag.
+	SlackWebhookURL string
+
+	DiscordWebhookURL string
 
 	// Gemini review gate (optional)
 	GeminiMode       string
@@ -225,6 +230,10 @@ func Load(scriptDir string) (*Config, error) {
 		TelegramBotToken: getenv(fileEnv, "TELEGRAM_BOT_TOKEN", ""),
 		TelegramChatID:   getenv(fileEnv, "TELEGRAM_CHAT_ID", ""),
 		TelegramVerbose:  getbool(fileEnv, "TELEGRAM_VERBOSE", false),
+
+		SlackWebhookURL: getenv(fileEnv, "SLACK_WEBHOOK_URL", ""),
+
+		DiscordWebhookURL: getenv(fileEnv, "DISCORD_WEBHOOK_URL", ""),
 
 		GeminiMode:   strings.ToLower(strings.TrimSpace(getenv(fileEnv, "GEMINI_MODE", DefaultGeminiMode))),
 		GeminiAPIKey: getenv(fileEnv, "GEMINI_API_KEY", ""),

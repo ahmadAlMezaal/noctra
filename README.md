@@ -341,6 +341,17 @@ Set `TELEGRAM_ENABLED=true` with a bot token + chat ID (the wizard walks you thr
 
 Only your configured chat can issue commands. `TELEGRAM_VERBOSE=true` also pings on every dispatch (otherwise: terminal events only).
 
+### Slack & Discord
+
+For one-way status notifications you can also (or instead) point Noctra at a **Slack** or **Discord** webhook — handy for posting into a team channel:
+
+```bash
+SLACK_WEBHOOK_URL="https://hooks.slack.com/services/…"   # Slack app → Incoming Webhooks
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/…" # Channel → Edit → Integrations → Webhooks
+```
+
+A non-empty URL is the only switch — there's no separate `*_ENABLED` flag. All configured platforms fire together (Telegram + Slack + Discord), and the wizard sends a test message when you add one. These are notification-only; the two-way command channel above is Telegram-specific.
+
 ---
 
 ## Repositories
