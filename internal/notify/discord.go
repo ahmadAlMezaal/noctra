@@ -39,7 +39,9 @@ func (d *Discord) Send(ctx context.Context, message string) {
 		return
 	}
 	go func() {
-		_ = d.post(ctx, message)
+		// Detach from the caller's context — the caller may return (and
+		// cancel ctx) before the HTTP round-trip completes.
+		_ = d.post(context.Background(), message)
 	}()
 }
 
@@ -56,8 +58,13 @@ func (d *Discord) SendSync(ctx context.Context, message string) error {
 }
 
 func (d *Discord) post(ctx context.Context, message string) error {
-	if len(message) > maxDiscordLen {
-		message = message[:maxDiscordLen-3] + "..."
+	if d.HTTP == nil {
+		return fmt.Errorf("discord HTTP client is nil")
+	}
+	// Truncate by runes, not bytes, to avoid splitting multi-byte UTF-8.
+	runes := []rune(message)
+	if len(runes) > maxDiscordLen {
+		message = string(runes[:maxDiscordLen-3]) + "..."
 	}
 
 	payload, err := json.Marshal(struct {

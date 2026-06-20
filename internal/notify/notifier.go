@@ -31,7 +31,7 @@ type Multi struct {
 // backends are silently ignored.
 func NewMulti(backends []Notifier, labels []string) *Multi {
 	var (
-		filtered      []Notifier
+		filtered       []Notifier
 		filteredLabels []string
 	)
 	for i, b := range backends {

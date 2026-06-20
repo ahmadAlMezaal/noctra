@@ -73,9 +73,9 @@ func TestMultiLabels(t *testing.T) {
 
 func TestMultiString(t *testing.T) {
 	cases := []struct {
-		name    string
-		multi   *Multi
-		want    string
+		name  string
+		multi *Multi
+		want  string
 	}{
 		{"nil", nil, "Disabled"},
 		{"empty", NewMulti(nil, nil), "Disabled"},

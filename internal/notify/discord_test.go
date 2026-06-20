@@ -39,7 +39,7 @@ func TestDiscordSendSync(t *testing.T) {
 func TestDiscordSendSyncError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"message":"Invalid Webhook Token"}`))
+		_, _ = w.Write([]byte(`{"message":"Invalid Webhook Token"}`))
 	}))
 	defer srv.Close()
 

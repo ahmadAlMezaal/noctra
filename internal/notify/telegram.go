@@ -40,7 +40,9 @@ func (t *Telegram) Send(ctx context.Context, message string) {
 		return
 	}
 	go func() {
-		_ = t.post(ctx, message)
+		// Detach from the caller's context — the caller may return (and
+		// cancel ctx) before the HTTP round-trip completes.
+		_ = t.post(context.Background(), message)
 	}()
 }
 

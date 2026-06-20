@@ -35,7 +35,9 @@ func (s *Slack) Send(ctx context.Context, message string) {
 		return
 	}
 	go func() {
-		_ = s.post(ctx, message)
+		// Detach from the caller's context — the caller may return (and
+		// cancel ctx) before the HTTP round-trip completes.
+		_ = s.post(context.Background(), message)
 	}()
 }
 
@@ -52,6 +54,9 @@ func (s *Slack) SendSync(ctx context.Context, message string) error {
 }
 
 func (s *Slack) post(ctx context.Context, message string) error {
+	if s.HTTP == nil {
+		return fmt.Errorf("slack HTTP client is nil")
+	}
 	payload, err := json.Marshal(struct {
 		Text string `json:"text"`
 	}{Text: message})

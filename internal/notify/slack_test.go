@@ -23,7 +23,7 @@ func TestSlackSendSync(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
@@ -39,7 +39,7 @@ func TestSlackSendSync(t *testing.T) {
 func TestSlackSendSyncError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("invalid_token"))
+		_, _ = w.Write([]byte("invalid_token"))
 	}))
 	defer srv.Close()
 
