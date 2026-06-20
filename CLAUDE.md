@@ -39,7 +39,8 @@ PR poll loop → github.ListNoctraPRs → github.GetPR (comments+reviews+statusC
 - Trusted-reviewer rule (`watch.actionable`): humans always actionable; bots only if their login is in `TRUSTED_REVIEWERS`. (CI is not gated by this — it's not a person.)
 - Guards: per-PR `MAX_PR_ITERATIONS` cap, **shared** across review + CI re-engagements (timeouts/rate-limits don't count), restart-safe cursor in `state`, `pipeline.active` dedupe so a ticket can't be freshly-dispatched and iterated at once.
 - Cursors: comment/review are **timestamps** (naturally ordered; conversation + inline comments share the comment cursor). CI is keyed by **head commit SHA** (`LastCISHA`) — acted on once per commit, since a fix changes the SHA and makes a fresh failure eligible again.
-- Noctra does **not** post back to the GitHub PR thread (no replies, no thread resolution); it pushes a follow-up commit and notifies via Telegram/Linear.
+- After re-engaging, Noctra replies to and resolves the PR's unresolved review threads (`github.ReplyAndResolveThreads`): "Addressed in `<sha>`." when it pushed a follow-up commit, or a "no change needed" note when the iteration produced no diff (so a no-diff review isn't silent on GitHub). It also notifies via Telegram/Linear.
+- Commit subjects and the PR title follow Conventional Commits when the target repo uses them (`repo.UsesConventionalCommits` detects commitlint/semantic-release config). The type comes from the agent's release-bump suggestion (`patch`→`fix`, `minor`→`feat`, `major`→`feat!` + `BREAKING CHANGE`), so release tooling like semantic-release versions correctly; otherwise the default `feat: implement <id> — <title>` / `<id>: <title>` format is kept.
 
 ## Autonomous maintenance sweeps (optional)
 

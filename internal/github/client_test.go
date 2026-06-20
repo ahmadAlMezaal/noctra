@@ -374,7 +374,7 @@ echo "{}"
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	New().ReplyAndResolveThreads(context.Background(), "https://github.com/me/repo/pull/7", "abc1234")
+	New().ReplyAndResolveThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.")
 
 	log, err := os.ReadFile(logFile)
 	if err != nil {

@@ -410,10 +410,24 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// Commit only if there's staged work — if Claude already committed its own
 	// changes, the staged set is empty and a plain `git commit` would fail with
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
-	commitMsg := appendCoAuthorTrailer(
-		fmt.Sprintf("feat: implement %s — %s\n\nImplemented by Noctra using %s\n\nLinear: %s",
-			id, issue.Title, backend.Label(), issue.URL),
-		backend.CoAuthor())
+	// In Conventional Commits repos, derive the commit type from the agent's
+	// release bump so subject + PR title drive release tooling. bump is reused
+	// for the release label below.
+	bump := agent.ReleaseBump(output)
+	ccType, breaking := conventionalType(bump)
+	useCC := ccType != "" && repo.UsesConventionalCommits(resolved.Path)
+
+	prTitle := fmt.Sprintf("%s: %s", id, issue.Title)
+	commitSubject := fmt.Sprintf("feat: implement %s — %s", id, issue.Title)
+	if useCC {
+		subj := conventionalSubject(ccType, breaking, issue.Title, id)
+		prTitle, commitSubject = subj, subj
+	}
+	commitBody := fmt.Sprintf("Implemented by Noctra using %s\n\nLinear: %s", backend.Label(), issue.URL)
+	if useCC && breaking {
+		commitBody += fmt.Sprintf("\n\nBREAKING CHANGE: %s", issue.Title)
+	}
+	commitMsg := appendCoAuthorTrailer(commitSubject+"\n\n"+commitBody, backend.CoAuthor())
 
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
@@ -463,7 +477,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,
-		fmt.Sprintf("%s: %s", id, issue.Title),
+		prTitle,
 		prBody, resolved.MainBranch, wt.Branch)
 	if err != nil {
 		logger.Error("gh pr create failed", "err", err)
@@ -476,7 +490,6 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	// ── Auto-release label (ENG-231) ────────────────────────────────────────
 	if p.cfg.AutoReleaseLabel {
-		bump := agent.ReleaseBump(output)
 		label := agent.ReleaseLabel(bump, p.cfg.DefaultReleaseBump)
 		if label != "" {
 			if err := ghAddLabel(ctx, resolved.Path, prURL, label); err != nil {

@@ -415,7 +415,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
 
 		// Reply to and resolve addressed review threads (best-effort).
-		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, sha)
+		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, fmt.Sprintf("Addressed in %s.", sha))
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
@@ -423,6 +423,9 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
+		// Reply + resolve so a no-diff review isn't silent on GitHub.
+		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL,
+			"Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited.")
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
 			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}
