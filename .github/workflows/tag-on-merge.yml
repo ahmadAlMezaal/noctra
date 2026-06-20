@@ -32,6 +32,9 @@ jobs:
   tag-on-merge:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      next_version: ${{ steps.version.outputs.next_version }}
+      no_release: ${{ steps.check-label.outputs.no_release }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -148,3 +151,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  # File a site-update ticket once the release is published. Called here (not via
+  # an `on: release` trigger) because the release above is created with
+  # GITHUB_TOKEN, which does not trigger other workflows.
+  sync-site:
+    needs: tag-on-merge
+    if: needs.tag-on-merge.outputs.no_release != 'true'
+    uses: ./.github/workflows/site-sync-on-release.yml
+    with:
+      tag: ${{ needs.tag-on-merge.outputs.next_version }}
+    secrets: inherit

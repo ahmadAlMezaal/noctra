@@ -30,3 +30,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional: set this secret once a homebrew-tap repo exists to publish a formula.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  # File a site-update ticket for the just-published release (the tag name is the
+  # release version). Same reusable workflow tag-on-merge uses.
+  sync-site:
+    needs: goreleaser
+    uses: ./.github/workflows/site-sync-on-release.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
