@@ -19,25 +19,27 @@ type Scheduler struct {
 	tasks    []Task
 	interval time.Duration
 	maxTasks int
+	schedule *CronSchedule
 
-	// lastSweep tracks when the last sweep cycle completed. Zero-valued on
-	// startup so an immediate sweep fires if tasks are due (per-task cooldowns
-	// in the state store prevent repeated runs).
-	lastSweep time.Time
-	// now is a hook for testing — defaults to time.Now.
-	now func() time.Time
+	lastSweep     time.Time
+	startedAt     time.Time
+	now           func() time.Time
+	lastRef       time.Time
+	nextScheduled time.Time
 }
 
-// NewScheduler creates a sweep scheduler.
-func NewScheduler(store *state.Store, resolver *repo.Resolver, tasks []Task, interval time.Duration, maxTasks int) *Scheduler {
+func NewScheduler(store *state.Store, resolver *repo.Resolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule) *Scheduler {
+	now := time.Now
 	return &Scheduler{
 		store:     store,
 		resolver:  resolver,
 		tasks:     tasks,
 		interval:  interval,
 		maxTasks:  maxTasks,
-		lastSweep: time.Time{}, // allow immediate sweep on startup if tasks are due (cooldowns prevent spam)
-		now:       time.Now,
+		schedule:  schedule,
+		lastSweep: time.Time{},
+		startedAt: now(),
+		now:       now,
 	}
 }
 
@@ -50,9 +52,33 @@ type Job struct {
 }
 
 // DueIn returns how long until the next sweep should fire. Returns 0 if
-// a sweep is already due.
+// a sweep is already due. With a cron schedule it waits for the next matching
+// time (no immediate sweep on startup); otherwise it uses the fixed interval
+// (which does fire immediately on startup, since lastSweep is zero).
 func (s *Scheduler) DueIn() time.Duration {
-	elapsed := s.now().Sub(s.lastSweep)
+	now := s.now()
+	if s.schedule != nil {
+		ref := s.lastSweep
+		if ref.IsZero() {
+			ref = s.startedAt
+		}
+		if !ref.Equal(s.lastRef) {
+			s.lastRef = ref
+			s.nextScheduled = s.schedule.Next(ref)
+		}
+		if s.nextScheduled.IsZero() {
+			return s.intervalDueIn(now)
+		}
+		if d := s.nextScheduled.Sub(now); d > 0 {
+			return d
+		}
+		return 0
+	}
+	return s.intervalDueIn(now)
+}
+
+func (s *Scheduler) intervalDueIn(now time.Time) time.Duration {
+	elapsed := now.Sub(s.lastSweep)
 	if elapsed >= s.interval {
 		return 0
 	}

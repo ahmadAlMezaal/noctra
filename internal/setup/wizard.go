@@ -23,6 +23,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
 
 // Run drives the wizard. It writes scriptDir/.env.
@@ -168,6 +169,8 @@ func Run(scriptDir string) error {
 	// ── Optional: Auto-iterate on PR feedback ─────────────────────────────────
 	autoIterate, maxIter, prPoll, trusted := w.collectAutoIterate(existingEnv)
 
+	sweepEnabled, sweepTasks, sweepSchedule, sweepMaxTasks := w.collectSweep(existingEnv)
+
 	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
 	geminiMode := existingEnv["GEMINI_MODE"]
@@ -267,6 +270,20 @@ func Run(scriptDir string) error {
 			fmt.Printf("  TRUSTED_REVIEWERS     = %s\n", trusted)
 		}
 	}
+	fmt.Printf("  SWEEP_ENABLED         = %s\n", sweepEnabled)
+	if sweepEnabled == "true" {
+		if sweepTasks == "" {
+			fmt.Printf("  SWEEP_TASKS           = (all)\n")
+		} else {
+			fmt.Printf("  SWEEP_TASKS           = %s\n", sweepTasks)
+		}
+		if sweepSchedule == "" {
+			fmt.Printf("  SWEEP_SCHEDULE        = (interval %ds)\n", int(config.DefaultSweepInterval/time.Second))
+		} else {
+			fmt.Printf("  SWEEP_SCHEDULE        = %s\n", sweepSchedule)
+		}
+		fmt.Printf("  SWEEP_MAX_TASKS       = %d\n", sweepMaxTasks)
+	}
 	fmt.Printf("  TELEGRAM_ENABLED      = %s\n", tgEnabled)
 	if tgEnabled == "true" {
 		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
@@ -311,6 +328,10 @@ func Run(scriptDir string) error {
 		maxIter:           strconv.Itoa(maxIter),
 		prPoll:            strconv.Itoa(prPoll),
 		trusted:           trusted,
+		sweepEnabled:      sweepEnabled,
+		sweepTasks:        sweepTasks,
+		sweepSchedule:     sweepSchedule,
+		sweepMaxTasks:     strconv.Itoa(sweepMaxTasks),
 	}
 
 	// Merge into existing .env when the file already exists — this preserves
@@ -656,6 +677,44 @@ func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate str
 	return autoIterate, maxIter, prPoll, trusted
 }
 
+func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, schedule string, maxTasks int) {
+	enabled = "false"
+	maxTasks = config.DefaultSweepMaxTasks
+
+	wasEnabled := strings.EqualFold(existing["SWEEP_ENABLED"], "true")
+	prompt := "Enable autonomous maintenance sweeps (lint, deps, docs, tests, ...)?"
+	if wasEnabled {
+		prompt = "Maintenance sweeps are currently on. Keep them?"
+	}
+	if !w.confirm(prompt) {
+		return enabled, "", "", maxTasks
+	}
+	enabled = "true"
+
+	fmt.Println("Available tasks:")
+	for _, t := range sweep.Catalog() {
+		fmt.Printf("  - %-14s %s\n", t.Name, t.Description)
+	}
+	fmt.Println("Enter a comma-separated subset, or leave blank to run all of them.")
+	tasks = w.askEx("Sweep tasks", askOpts{existing: existing["SWEEP_TASKS"]})
+
+	fmt.Println("Schedule: a cron expression (e.g. \"0 0 * * *\" = every day at midnight),")
+	fmt.Println("or leave blank to use a fixed interval instead.")
+	schedule = w.askEx("Sweep schedule (cron)", askOpts{existing: existing["SWEEP_SCHEDULE"]})
+	if schedule != "" {
+		if _, err := sweep.ParseCron(schedule); err != nil {
+			fmt.Printf("  ⚠️  %v — saved anyway; Noctra will fall back to the interval if it can't parse it.\n", err)
+		}
+	}
+
+	maxTasks = w.askInt("Max sweep tasks per cycle", existing["SWEEP_MAX_TASKS"], config.DefaultSweepMaxTasks, 1)
+
+	fmt.Println("ℹ️  To add your own task, create internal/sweep/task_<name>.go that calls")
+	fmt.Println("   Register(Task{...}) — copy task_lint.go as a starting point.")
+
+	return enabled, tasks, schedule, maxTasks
+}
+
 // ── Helpers (file I/O, validators, formatting) ──────────────────────────────
 
 func pingLinear(apiKey string) (string, error) {
@@ -729,6 +788,8 @@ type envValues struct {
 	geminiMode, geminiKey                        string
 	tgEnabled, tgToken, tgChat, tgVerbose        string
 	autoIterate, maxIter, prPoll, trusted        string
+	sweepEnabled, sweepTasks, sweepSchedule      string
+	sweepMaxTasks                                string
 }
 
 // toMap returns the wizard-managed keys as a flat map suitable for
@@ -759,6 +820,10 @@ func (v envValues) toMap() map[string]string {
 		"MAX_PR_ITERATIONS":     v.maxIter,
 		"PR_POLL_INTERVAL":      v.prPoll,
 		"TRUSTED_REVIEWERS":     v.trusted,
+		"SWEEP_ENABLED":         v.sweepEnabled,
+		"SWEEP_TASKS":           v.sweepTasks,
+		"SWEEP_SCHEDULE":        v.sweepSchedule,
+		"SWEEP_MAX_TASKS":       v.sweepMaxTasks,
 	}
 
 	// Trigger-mode-dependent keys.
@@ -867,6 +932,16 @@ PR_POLL_INTERVAL="%s"
 # Comma-separated GitHub logins / bot names whose feedback Noctra will
 # act on. Humans are always trusted; empty = humans only (bots ignored).
 TRUSTED_REVIEWERS="%s"
+
+# Autonomous maintenance sweeps (ENG-222). Opt-in. Runs maintenance tasks
+# (lint, deps, docs, tests, modernize, bug-scan) across cloned repos.
+# SWEEP_TASKS: comma-separated subset, empty = all. SWEEP_SCHEDULE: a cron
+# expression (e.g. "0 0 * * *" = daily midnight), empty = use SWEEP_INTERVAL.
+SWEEP_ENABLED="%s"
+SWEEP_TASKS="%s"
+SWEEP_SCHEDULE="%s"
+SWEEP_INTERVAL="86400"
+SWEEP_MAX_TASKS="%s"
 `,
 		time.Now().Format(time.RFC3339),
 		v.linearKey, v.team, oauthLines, triggerLines, v.review,
@@ -877,6 +952,7 @@ TRUSTED_REVIEWERS="%s"
 		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
 		v.geminiMode, v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
+		v.sweepEnabled, v.sweepTasks, v.sweepSchedule, v.sweepMaxTasks,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
 }
