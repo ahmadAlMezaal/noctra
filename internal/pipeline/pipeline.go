@@ -37,7 +37,7 @@ type Pipeline struct {
 	cfg      *config.Config
 	linear   *linear.Client
 	resolver *repo.Resolver
-	telegram *notify.Telegram
+	notifier *notify.Multi
 	review   *review.Gate
 	agent    agent.Backend // selected coding-agent CLI (claude / codex)
 	states   linear.StateIDs
@@ -98,7 +98,7 @@ func New(cfg *config.Config) *Pipeline {
 		cfg:      cfg,
 		linear:   newLinearClient(cfg, store),
 		resolver: repo.FromConfig(cfg),
-		telegram: notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID),
+		notifier: buildNotifier(cfg),
 		review:   review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
 		agent:    backend,
 		budget: budget.New(budget.Config{
@@ -116,7 +116,7 @@ func New(cfg *config.Config) *Pipeline {
 
 	// Alert when the Linear app identity degrades to the personal API key.
 	p.linear.OnDegrade = func(cause error) {
-		p.telegram.Send(context.Background(),
+		p.notifier.Send(context.Background(),
 			"⚠️ Linear app identity (actor=app) failed to authenticate — now posting as your personal user. Re-mint the OAuth credentials.")
 	}
 
@@ -201,10 +201,10 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	p.startupCleanup(ctx)
 	p.banner()
 	if p.cfg.TriggerMode == "label" {
-		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching label \"%s\" for %s tickets",
+		p.notifier.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching label \"%s\" for %s tickets",
 			notify.EscapeMarkdown(p.cfg.TriggerLabel), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	} else {
-		p.telegram.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching \"%s\" for %s tickets",
+		p.notifier.Send(ctx, fmt.Sprintf("🌙 *Noctra started*\nWatching \"%s\" for %s tickets",
 			notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	}
 
@@ -291,7 +291,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 			// than waiting for the next completed run to call flagBudgetExceeded).
 			if reason := p.budget.ExceededReason(); reason != "" {
 				p.flagBudgetExceeded(reason)
-				p.telegram.Send(ctx, fmt.Sprintf(
+				p.notifier.Send(ctx, fmt.Sprintf(
 					"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 					notify.EscapeMarkdown(reason)))
 				continue
@@ -531,6 +531,28 @@ func rateLimited(b agent.Backend, runErr error, output string) bool {
 	return runErr != nil && b.HasRateLimit(output)
 }
 
+// buildNotifier constructs the multi-platform notifier from config. Every
+// enabled platform gets its own backend; the Multi fans out to all of them.
+func buildNotifier(cfg *config.Config) *notify.Multi {
+	var backends []notify.Notifier
+	var labels []string
+
+	if tg := notify.New(cfg.TelegramEnabled, cfg.TelegramBotToken, cfg.TelegramChatID); tg.Enabled {
+		backends = append(backends, tg)
+		labels = append(labels, "Telegram")
+	}
+	if sl := notify.NewSlack(cfg.SlackEnabled, cfg.SlackWebhookURL); sl.Enabled {
+		backends = append(backends, sl)
+		labels = append(labels, "Slack")
+	}
+	if dc := notify.NewDiscord(cfg.DiscordEnabled, cfg.DiscordWebhookURL); dc.Enabled {
+		backends = append(backends, dc)
+		labels = append(labels, "Discord")
+	}
+
+	return notify.NewMulti(backends, labels)
+}
+
 func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
 	if cfg.OAuthPartiallyConfigured() {
 		slog.Warn("linear actor=app config incomplete (need both client id and secret); using personal API key")
@@ -566,10 +588,7 @@ func (p *Pipeline) banner() {
 	if p.review.Enabled() {
 		reviewMode = fmt.Sprintf("Gemini %s (%s)", p.review.Mode, p.review.Model)
 	}
-	notifyMode := "Disabled"
-	if p.telegram.Enabled {
-		notifyMode = "Telegram"
-	}
+	notifyMode := p.notifier.String()
 	agentMode := fmt.Sprintf("per-ticket via label (default: %s)", p.agent.Label())
 	if p.cfg.UseAgentTeams {
 		agentMode += " + agent teams"
@@ -687,7 +706,7 @@ func (p *Pipeline) summary(ctx context.Context) {
 		}
 	}
 
-	p.telegram.Send(ctx, fmt.Sprintf(
+	p.notifier.Send(ctx, fmt.Sprintf(
 		"🌅 *Noctra session complete*\n✅ %d PRs created\n❌ %d failed\n⏱ Duration: %s%s",
 		succ, fail, dur, usageLine))
 }
@@ -710,7 +729,7 @@ func (p *Pipeline) checkForUpdate(ctx context.Context) {
 	}
 	slog.Info("🆙 a new version is available", "latest", latest, "current", Version,
 		"run", "noctra update")
-	p.telegram.Send(ctx, fmt.Sprintf(
+	p.notifier.Send(ctx, fmt.Sprintf(
 		"🆙 *Noctra update available*\nA new version `%s` is out (running `%s`).\nRun `noctra update` to upgrade.",
 		notify.EscapeMarkdown(latest), notify.EscapeMarkdown(Version)))
 }

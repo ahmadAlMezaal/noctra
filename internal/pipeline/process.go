@@ -58,7 +58,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	backend := p.resolveBackend(issue)
 
 	if p.cfg.TelegramVerbose {
-		p.telegram.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNoctra picked it up — working on it.",
+		p.notifier.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNoctra picked it up — working on it.",
 			id, notify.EscapeMarkdown(issue.Title)))
 	}
 
@@ -95,7 +95,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 					err.Error(), p.cfg.TriggerState)); cerr != nil {
 				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
 			}
-			p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — skipped (no repo mapping)", id))
+			p.notifier.Send(ctx, fmt.Sprintf("⚠️ *%s* — skipped (no repo mapping)", id))
 			return
 		}
 
@@ -174,7 +174,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 			"⏰ **Noctra: Agent timed out**\n\nClaude timed out after %s working on this ticket.\n\nThe ticket may be too complex for a single session. Consider breaking it into smaller tasks.\n\nTicket moved back to **%s**.",
 			p.cfg.AgentTimeout, p.cfg.TriggerState))
-		p.telegram.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
+		p.notifier.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
 			id, notify.EscapeMarkdown(issue.Title), p.cfg.AgentTimeout, notify.EscapeMarkdown(p.cfg.TriggerState)))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
@@ -193,7 +193,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// on the next poll tick (in-flight work drains naturally).
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
-		p.telegram.Send(ctx, fmt.Sprintf(
+		p.notifier.Send(ctx, fmt.Sprintf(
 			"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 			notify.EscapeMarkdown(reason)))
 	}
@@ -219,7 +219,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		p.mu.Lock()
 		s, f, t := p.successCount, p.failCount, p.totalDispatches
 		p.mu.Unlock()
-		p.telegram.Send(ctx, fmt.Sprintf(
+		p.notifier.Send(ctx, fmt.Sprintf(
 			"🛑 *Usage limit detected*\nNoctra %s after %d dispatches.\n✅ %d PRs created | ❌ %d failed",
 			action, t, s, f))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
@@ -234,7 +234,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 			"❌ **Noctra: Agent failed** (attempt %d/%d)\n\nThe agent exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
 			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
-		p.telegram.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
+		p.notifier.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
 			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
@@ -250,7 +250,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
 			"🚧 **Noctra needs your input** (attempt %d/%d)\n\nThe agent got blocked on this ticket:\n\n> %s\n\nClarify in the ticket comments, then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
 			attempts, p.cfg.MaxRetries, blocked, p.cfg.TriggerState, p.cfg.MaxRetries))
-		p.telegram.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
+		p.notifier.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -371,7 +371,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				if reason := p.budget.ExceededReason(); reason != "" {
 					p.flagBudgetExceeded(reason)
-					p.telegram.Send(ctx, fmt.Sprintf(
+					p.notifier.Send(ctx, fmt.Sprintf(
 						"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 						notify.EscapeMarkdown(reason)))
 				}
@@ -492,7 +492,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 
 	logger.Info("✅ PR created", "url", prURL)
 	p.bumpSuccess()
-	p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
+	p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
 		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(backend.Label()), prURL))
 
 	// Persist the chosen backend so auto-iterate uses the same one for

@@ -206,7 +206,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
 
 	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
-	p.telegram.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
+	p.notifier.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
 
 	// On every failure path below we record the iteration before returning.
 	// Otherwise the cursor never advances and the next poll re-discovers the
@@ -342,7 +342,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// takes effect on the next poll tick (in-flight work drains naturally).
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
-		p.telegram.Send(ctx, fmt.Sprintf(
+		p.notifier.Send(ctx, fmt.Sprintf(
 			"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 			notify.EscapeMarkdown(reason)))
 	}
@@ -419,11 +419,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
-		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
+		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
 			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
-		p.telegram.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
+		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
 			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}
 
@@ -471,7 +471,7 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 	)
 
 	if iterations >= p.cfg.MaxPRIterations {
-		p.telegram.Send(ctx, fmt.Sprintf(
+		p.notifier.Send(ctx, fmt.Sprintf(
 			"🛑 *%s* — PR #%d hit iteration cap (%d attempts). Needs human attention.",
 			notify.EscapeMarkdown(identifier), prNumber, iterations))
 		if issueID != "" {

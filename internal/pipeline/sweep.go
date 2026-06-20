@@ -83,7 +83,7 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 
 	slog.Info("sweep: dispatching", "jobs", len(jobs))
-	p.telegram.Send(ctx, fmt.Sprintf("🧹 *Sweep started* — %d maintenance task(s)", len(jobs)))
+	p.notifier.Send(ctx, fmt.Sprintf("🧹 *Sweep started* — %d maintenance task(s)", len(jobs)))
 
 	for _, job := range jobs {
 		if ctx.Err() != nil {
@@ -136,7 +136,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	backend := p.agent
 
 	if p.cfg.TelegramVerbose {
-		p.telegram.Send(ctx, fmt.Sprintf("🧹 *Sweep: %s* on %s\n%s",
+		p.notifier.Send(ctx, fmt.Sprintf("🧹 *Sweep: %s* on %s\n%s",
 			notify.EscapeMarkdown(job.Task.Name),
 			notify.EscapeMarkdown(job.RepoSlug),
 			notify.EscapeMarkdown(job.Task.Description)))
@@ -197,7 +197,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
-		p.telegram.Send(ctx, fmt.Sprintf(
+		p.notifier.Send(ctx, fmt.Sprintf(
 			"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 			notify.EscapeMarkdown(reason)))
 	}
@@ -351,7 +351,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				if reason := p.budget.ExceededReason(); reason != "" {
 					p.flagBudgetExceeded(reason)
-					p.telegram.Send(ctx, fmt.Sprintf(
+					p.notifier.Send(ctx, fmt.Sprintf(
 						"⏸ *Daily budget exceeded*\n%s\nDispatching paused until next UTC midnight.",
 						notify.EscapeMarkdown(reason)))
 				}
@@ -441,7 +441,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	logger.Info("✅ sweep PR created", "url", prURL)
 	p.bumpSuccess()
-	p.telegram.Send(ctx, fmt.Sprintf("✅ *Sweep: %s* on %s\nPR: %s",
+	p.notifier.Send(ctx, fmt.Sprintf("✅ *Sweep: %s* on %s\nPR: %s",
 		notify.EscapeMarkdown(job.Task.Name),
 		notify.EscapeMarkdown(job.RepoSlug),
 		prURL))
