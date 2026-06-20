@@ -63,6 +63,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # github.repository can contain uppercase (the owner login); Docker refs
+      # must be lowercase. metadata-action lowercases its own output, but the
+      # raw name we feed to build-push-action's `outputs:` does not, so derive it.
+      - name: Lowercase image name
+        id: img
+        run: echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -85,7 +94,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version || github.sha }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.img.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
 
@@ -134,6 +143,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Lowercase image name
+        id: img
+        run: echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -148,8 +163,8 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+            $(printf '${{ steps.img.outputs.name }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ steps.img.outputs.name }}:${{ steps.meta.outputs.version }}
