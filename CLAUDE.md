@@ -58,7 +58,7 @@ sweep loop → scheduler.DueIn (interval-based) → scheduler.Plan (all repos ×
 - Sweep branches use the `noctra/sweep-<suffix>` prefix (e.g. `noctra/sweep-lint-cleanup`), distinct from ticket-driven `noctra/<identifier>` — the auto-iterate watcher won't pick them up unless they match the `noctra/*` prefix filter (which they do, so auto-iterate works on sweep PRs too).
 - Sweep PRs get a `maintenance` label so humans can identify and bulk-close them.
 - Sweep identifiers follow the `SWEEP-<repo-slug>-<task-suffix>` pattern for worktree directories and active-set dedup.
-- Task catalog lives in `internal/sweep/task_*.go` — each file registers a task at init time. Current tasks: `lint-cleanup` (weekly cooldown) and `dead-code` (biweekly cooldown).
+- Task catalog lives in `internal/sweep/task_*.go` — each file registers a task at init time. Current tasks: `lint-cleanup` (weekly), `dead-code` (biweekly), `deps-update` (weekly), `test-coverage` (biweekly), `doc-drift` (biweekly), `modernize` (biweekly), and `bug-scan` (biweekly — scoped to high-confidence defects only). Scope sweeps with `SWEEP_TASKS`.
 
 ### Config
 
