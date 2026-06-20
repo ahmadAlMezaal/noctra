@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/review"
@@ -421,8 +422,8 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	prBody := fmt.Sprintf(
-		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*",
-		job.Task.Name, job.Task.Description, job.RepoSlug, summary, reviewSection, backend.Label())
+		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		job.Task.Name, job.Task.Description, job.RepoSlug, summary, reviewSection, backend.Label(), github.NoctraPRBodyMarker)
 
 	prTitle := fmt.Sprintf("%s: %s", job.Task.CommitPrefix, job.Task.Description)
 

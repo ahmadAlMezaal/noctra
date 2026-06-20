@@ -41,7 +41,9 @@ cat <<'JSON'
 [
   {"url":"https://github.com/me/repo/pull/1","number":1,"title":"owned","headRefName":"noctra/eng-1","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) using Claude Code*"},
   {"url":"https://github.com/me/repo/pull/2","number":2,"title":"manual","headRefName":"noctra/eng-2","body":"manual PR"},
-  {"url":"https://github.com/me/repo/pull/3","number":3,"title":"other","headRefName":"feat/eng-3","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra)*"}
+  {"url":"https://github.com/me/repo/pull/3","number":3,"title":"other","headRefName":"feat/eng-3","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra)*"},
+  {"url":"https://github.com/me/repo/pull/4","number":4,"title":"sweep-legacy","headRefName":"noctra/sweep-deps-update","body":"*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) using Claude Code*"},
+  {"url":"https://github.com/me/repo/pull/5","number":5,"title":"hidden-marker","headRefName":"noctra/sweep-lint-cleanup","body":"## cleanup\n<!-- noctra-authored -->"}
 ]
 JSON
 `), 0o700); err != nil {
@@ -53,11 +55,42 @@ JSON
 	if err != nil {
 		t.Fatalf("ListNoctraPRs: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("got %d PRs, want 1: %+v", len(got), got)
+	// Expect: #1 (ticket, legacy footer), #4 (sweep, legacy footer), #5 (hidden
+	// marker only). Skipped: #2 (no marker), #3 (non-noctra branch).
+	var nums []int
+	for _, pr := range got {
+		nums = append(nums, pr.Number)
 	}
-	if got[0].Number != 1 || got[0].RepoURL != "me/repo" {
-		t.Fatalf("PR = %+v, want number 1 with repo URL", got[0])
+	want := []int{1, 4, 5}
+	if len(got) != len(want) {
+		t.Fatalf("got PRs %v, want %v", nums, want)
+	}
+	for i, pr := range got {
+		if pr.Number != want[i] {
+			t.Fatalf("PR[%d] = #%d, want #%d (all: %v)", i, pr.Number, want[i], nums)
+		}
+		if pr.RepoURL != "me/repo" {
+			t.Fatalf("PR #%d missing RepoURL: %+v", pr.Number, pr)
+		}
+	}
+}
+
+func TestIsNoctraAuthoredBody(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"hidden marker", "anything\n" + NoctraPRBodyMarker, true},
+		{"ticket legacy footer", "*Implemented by [Noctra](https://x) using Claude Code*", true},
+		{"sweep legacy footer", "*Autonomous maintenance by [Noctra](https://x)*", true},
+		{"manual PR", "just a manual PR body", false},
+		{"empty", "", false},
+	}
+	for _, c := range cases {
+		if got := IsNoctraAuthoredBody(c.body); got != c.want {
+			t.Errorf("%s: IsNoctraAuthoredBody(%q) = %v, want %v", c.name, c.body, got, c.want)
+		}
 	}
 }
 
