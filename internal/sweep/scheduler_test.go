@@ -195,3 +195,55 @@ func TestScheduler_Summary(t *testing.T) {
 func resolver(reposBase string) *repo.Resolver {
 	return &repo.Resolver{ReposBase: reposBase}
 }
+
+func TestDueIn_CronWaitsForNextMatch(t *testing.T) {
+	sch, err := ParseCron("0 0 * * *")
+	if err != nil {
+		t.Fatalf("ParseCron: %v", err)
+	}
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return base }
+	s.startedAt = base
+
+	got := s.DueIn()
+	want := 10 * time.Hour
+	if got != want {
+		t.Errorf("DueIn = %v, want %v", got, want)
+	}
+}
+
+func TestDueIn_UnmatchableCronFallsBackToInterval(t *testing.T) {
+	sch, err := ParseCron("0 0 30 2 *")
+	if err != nil {
+		t.Fatalf("ParseCron: %v", err)
+	}
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return base }
+	s.lastSweep = base.Add(-30 * time.Minute)
+
+	got := s.DueIn()
+	want := 30 * time.Minute
+	if got != want {
+		t.Errorf("unmatchable cron DueIn = %v, want %v (interval fallback, not 0-spin)", got, want)
+	}
+}
+
+func TestDueIn_CronCachesNextComputation(t *testing.T) {
+	sch, _ := ParseCron("0 0 * * *")
+	s := NewScheduler(nil, nil, nil, time.Hour, 5, sch)
+	base := time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return base }
+	s.startedAt = base
+
+	_ = s.DueIn()
+	first := s.nextScheduled
+	if first.IsZero() {
+		t.Fatal("nextScheduled not cached after first DueIn")
+	}
+	_ = s.DueIn()
+	if !s.nextScheduled.Equal(first) {
+		t.Error("nextScheduled changed without the reference changing (not cached)")
+	}
+}

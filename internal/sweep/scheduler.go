@@ -21,9 +21,11 @@ type Scheduler struct {
 	maxTasks int
 	schedule *CronSchedule
 
-	lastSweep time.Time
-	startedAt time.Time
-	now       func() time.Time
+	lastSweep     time.Time
+	startedAt     time.Time
+	now           func() time.Time
+	lastRef       time.Time
+	nextScheduled time.Time
 }
 
 func NewScheduler(store *state.Store, resolver *repo.Resolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule) *Scheduler {
@@ -60,11 +62,22 @@ func (s *Scheduler) DueIn() time.Duration {
 		if ref.IsZero() {
 			ref = s.startedAt
 		}
-		if d := s.schedule.Next(ref).Sub(now); d > 0 {
+		if !ref.Equal(s.lastRef) {
+			s.lastRef = ref
+			s.nextScheduled = s.schedule.Next(ref)
+		}
+		if s.nextScheduled.IsZero() {
+			return s.intervalDueIn(now)
+		}
+		if d := s.nextScheduled.Sub(now); d > 0 {
 			return d
 		}
 		return 0
 	}
+	return s.intervalDueIn(now)
+}
+
+func (s *Scheduler) intervalDueIn(now time.Time) time.Duration {
 	elapsed := now.Sub(s.lastSweep)
 	if elapsed >= s.interval {
 		return 0

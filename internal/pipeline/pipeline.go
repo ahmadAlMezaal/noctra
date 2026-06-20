@@ -141,10 +141,14 @@ func New(cfg *config.Config) *Pipeline {
 			var schedule *sweep.CronSchedule
 			if cfg.SweepSchedule != "" {
 				parsed, err := sweep.ParseCron(cfg.SweepSchedule)
-				if err != nil {
+				switch {
+				case err != nil:
 					slog.Warn("sweep: invalid SWEEP_SCHEDULE; using interval instead",
 						"schedule", cfg.SweepSchedule, "err", err)
-				} else {
+				case parsed.Next(time.Now()).IsZero():
+					slog.Warn("sweep: SWEEP_SCHEDULE never matches a real date; using interval instead",
+						"schedule", cfg.SweepSchedule)
+				default:
 					schedule = parsed
 				}
 			}
