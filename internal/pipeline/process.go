@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
@@ -458,8 +459,8 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*",
-		id, issue.Title, issue.URL, summary, reviewSection, backend.Label())
+		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		id, issue.Title, issue.URL, summary, reviewSection, backend.Label(), github.NoctraPRBodyMarker)
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,
