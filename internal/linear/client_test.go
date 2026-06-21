@@ -601,7 +601,7 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 	})
 
 	// With empty triggerName, only in-review is required.
-	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review")
+	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review", "")
 	if err != nil {
 		t.Fatalf("ResolveStateIDs: %v", err)
 	}

@@ -254,6 +254,13 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		go p.runSweepLoop(ctx, &wg)
 	}
 
+	// Auto-merge scheduler runs its own loop if enabled. Shares the WaitGroup
+	// so shutdown drains in-flight merges.
+	if p.cfg.AutoMergeOnDone && p.store != nil {
+		wg.Add(1)
+		go p.runAutoMerger(ctx, &wg)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -624,6 +631,7 @@ func buildTicketSources(cfg *config.Config, linearClient *linear.Client) []sourc
 				TriggerState:     cfg.TriggerState,
 				TriggerLabel:     cfg.TriggerLabel,
 				InReviewState:    cfg.InReviewState,
+				DoneState:        cfg.DoneState,
 				PlanConfirmLabel: cfg.PlanConfirmLabel,
 			}))
 		case "github":
@@ -667,6 +675,10 @@ func (p *Pipeline) banner() {
 		}
 		sweepMode = fmt.Sprintf("On (%s, max %d tasks, %s)", cadence, p.cfg.SweepMaxTasks, scope)
 	}
+	autoMergeMode := "Disabled"
+	if p.cfg.AutoMergeOnDone {
+		autoMergeMode = fmt.Sprintf("On (%s, poll %s)", p.cfg.MergeMethod, p.cfg.MergePollInterval)
+	}
 
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive
 	// and cloned on demand, so there's no static list at startup — report the
@@ -709,6 +721,7 @@ func (p *Pipeline) banner() {
 		planConfirmMode = fmt.Sprintf("Per-ticket (label %q)", p.cfg.PlanConfirmLabel)
 	}
 	fmt.Printf("   Sweep:          %s\n", sweepMode)
+	fmt.Printf("   Auto-merge:     %s\n", autoMergeMode)
 	fmt.Printf("   Plan-confirm:   %s\n", planConfirmMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)

@@ -109,6 +109,11 @@ const (
 
 	// Plan-confirm (ENG-221) — disabled by default; opt in via .env.
 	DefaultPlanConfirmLabel = "plan-first"
+
+	// Auto-merge (ENG-220) — disabled by default; opt in via .env.
+	DefaultDoneState      = "Done"
+	DefaultMergeMethod    = "squash"
+	DefaultMergePollInterval = 2 * time.Minute
 )
 
 // Config is Noctra's resolved runtime configuration.
@@ -201,6 +206,13 @@ type Config struct {
 	// for human approval before implementing.
 	PlanConfirm      bool   // global opt-in for plan-confirm on all tickets
 	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
+
+	// Auto-merge (ENG-220) — off by default; opt in via .env.
+	AutoMergeOnDone       bool          // opt-in flag to enable auto-merge when ticket moves to done
+	DoneState             string        // the state name that triggers merge (default "Done")
+	MergeMethod           string        // "squash" (default), "merge", or "rebase"
+	DeleteBranchAfterMerge bool        // whether to delete the branch after merge
+	MergePollInterval     time.Duration // interval to poll for done tickets (default 2m)
 
 	// Derived paths
 	ScriptDir    string
@@ -318,6 +330,14 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.PlanConfirm = getbool(fileEnv, "PLAN_CONFIRM", false)
 	cfg.PlanConfirmLabel = getenv(fileEnv, "PLAN_CONFIRM_LABEL", DefaultPlanConfirmLabel)
 
+	// Auto-merge (ENG-220)
+	cfg.AutoMergeOnDone = getbool(fileEnv, "AUTO_MERGE_ON_DONE", false)
+	cfg.DoneState = getenv(fileEnv, "DONE_STATE", DefaultDoneState)
+	cfg.MergeMethod = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "MERGE_METHOD", DefaultMergeMethod)))
+	cfg.DeleteBranchAfterMerge = getbool(fileEnv, "DELETE_BRANCH_AFTER_MERGE", false)
+	mergePollSecs := getint(fileEnv, "MERGE_POLL_INTERVAL", int(DefaultMergePollInterval/time.Second))
+	cfg.MergePollInterval = time.Duration(mergePollSecs) * time.Second
+
 	return cfg, nil
 }
 
@@ -386,6 +406,17 @@ func (c *Config) Validate() error {
 	case "pause", "shutdown":
 	default:
 		errs = append(errs, fmt.Sprintf("RATE_LIMIT_STRATEGY must be \"pause\" or \"shutdown\", got %q", c.RateLimitStrategy))
+	}
+
+	if c.AutoMergeOnDone {
+		switch c.MergeMethod {
+		case "squash", "merge", "rebase":
+		default:
+			errs = append(errs, fmt.Sprintf("MERGE_METHOD must be \"squash\", \"merge\", or \"rebase\", got %q", c.MergeMethod))
+		}
+		if c.DoneState == "" {
+			errs = append(errs, "DONE_STATE is required when AUTO_MERGE_ON_DONE is enabled")
+		}
 	}
 
 	if c.RepoPath != "" && !isGitRepo(c.RepoPath) {

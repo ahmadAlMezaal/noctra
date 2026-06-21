@@ -334,6 +334,30 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 	return out, nil
 }
 
+// AllByTicketID returns all PR URLs associated with the given ticket ID.
+func (s *Store) AllByTicketID(ticketID string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(`SELECT pr_url FROM pr_states WHERE ticket_id = ? ORDER BY pr_url`, ticketID)
+	if err != nil {
+		slog.Warn("state all by ticket failed", "ticket_id", ticketID, "err", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var prURL string
+		if err := rows.Scan(&prURL); err != nil {
+			slog.Warn("scan pr url failed", "ticket_id", ticketID, "err", err)
+			continue
+		}
+		out = append(out, prURL)
+	}
+	return out
+}
+
 // Update mutates the record for prURL in place via fn and writes it. A nil fn
 // is a no-op. fn is called while the store is locked; do not call back into the
 // Store from inside fn.

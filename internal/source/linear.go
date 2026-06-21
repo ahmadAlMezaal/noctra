@@ -14,6 +14,7 @@ type LinearConfig struct {
 	TriggerState     string
 	TriggerLabel     string
 	InReviewState    string
+	DoneState        string // optional, for auto-merge feature
 	PlanConfirmLabel string
 }
 
@@ -43,7 +44,7 @@ func (s *LinearSource) Prepare(ctx context.Context) error {
 	if s.cfg.TriggerMode == "label" {
 		triggerStateName = ""
 	}
-	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState)
+	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState, s.cfg.DoneState)
 	if err != nil {
 		return fmt.Errorf("resolve linear states: %w", err)
 	}

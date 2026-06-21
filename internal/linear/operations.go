@@ -11,6 +11,7 @@ import (
 type StateIDs struct {
 	Trigger  string
 	InReview string
+	Done     string
 }
 
 // WorkflowStateID is a Linear workflow state with the fields Noctra needs for
@@ -23,8 +24,9 @@ type WorkflowStateID struct {
 // ResolveStateIDs looks up the IDs for the trigger and in-review state names
 // within the team identified by teamKey (e.g. "ENG"). When triggerName is
 // empty (label-based trigger mode), the trigger-state lookup is skipped —
-// only the in-review state is required.
-func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName string) (StateIDs, error) {
+// only the in-review state is required. doneName is optional; an empty value
+// means done-state resolution is skipped.
+func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName, doneName string) (StateIDs, error) {
 	states, err := c.TeamWorkflowStates(ctx, teamKey)
 	if err != nil {
 		return StateIDs{}, err
@@ -39,6 +41,8 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 			ids.Trigger = s.ID
 		case inReviewName:
 			ids.InReview = s.ID
+		case doneName:
+			ids.Done = s.ID
 		}
 	}
 	if triggerName != "" && ids.Trigger == "" {
@@ -48,6 +52,10 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 	if ids.InReview == "" {
 		return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
 			inReviewName, teamKey, available)
+	}
+	if doneName != "" && ids.Done == "" {
+		return StateIDs{}, fmt.Errorf("state %q not found in team %q (available: %v)",
+			doneName, teamKey, available)
 	}
 	return ids, nil
 }
@@ -101,6 +109,20 @@ func (c *Client) ResolveStateID(ctx context.Context, teamKey, stateName string) 
 		}
 	}
 	return "", available, fmt.Errorf("state %q not found in team %q", stateName, teamKey)
+}
+
+// ResolveDoneStateID looks up the done state ID for a team, respecting the
+// provided stateName override. If stateName is empty, returns empty string
+// and no error (done-state resolution is optional when auto-merge is disabled).
+func (c *Client) ResolveDoneStateID(ctx context.Context, teamKey, stateName string) (string, error) {
+	if stateName == "" {
+		return "", nil
+	}
+	id, _, err := c.ResolveStateID(ctx, teamKey, stateName)
+	if err != nil {
+		return "", fmt.Errorf("resolve done state: %w", err)
+	}
+	return id, nil
 }
 
 // FetchTriggerIssues returns every issue currently in the named state, across

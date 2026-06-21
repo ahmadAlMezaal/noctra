@@ -431,6 +431,103 @@ func (c *Client) resolveThread(ctx context.Context, threadID string) error {
 	return nil
 }
 
+// MergePROptions controls how a PR is merged.
+type MergePROptions struct {
+	Method       string // "squash", "merge", or "rebase"
+	DeleteBranch bool   // whether to delete the branch after merge
+}
+
+// MergePRResult holds the result of attempting to merge a PR.
+type MergePRResult struct {
+	Success   bool
+	Merged    bool
+	Mergeable bool
+	Message   string // explanation if merge failed
+}
+
+// MergePR attempts to merge a PR via `gh pr merge`. It checks if the PR is
+// mergeable and all required checks pass before merging. Returns a result
+// indicating success or the reason for failure.
+func (c *Client) MergePR(ctx context.Context, prURL string, opts MergePROptions) MergePRResult {
+	// Validate merge method
+	method := strings.ToLower(strings.TrimSpace(opts.Method))
+	if method == "" {
+		method = "squash"
+	}
+	if method != "squash" && method != "merge" && method != "rebase" {
+		return MergePRResult{
+			Success: false,
+			Message: fmt.Sprintf("invalid merge method %q", method),
+		}
+	}
+
+	// Fetch PR details to check status
+	details, err := c.GetPR(ctx, prURL)
+	if err != nil {
+		return MergePRResult{
+			Success: false,
+			Message: fmt.Sprintf("failed to fetch PR details: %v", err),
+		}
+	}
+
+	// Check if PR is mergeable
+	if details.State != "OPEN" {
+		return MergePRResult{
+			Success:   false,
+			Mergeable: false,
+			Message:   fmt.Sprintf("PR is not open (state: %s)", details.State),
+		}
+	}
+
+	// Check if all required checks are passing
+	failing := false
+	for _, check := range details.StatusCheckRollup {
+		if check.Status != "COMPLETED" || check.Conclusion != "SUCCESS" {
+			failing = true
+			break
+		}
+	}
+	if failing {
+		var reasons []string
+		for _, check := range details.StatusCheckRollup {
+			if check.Status != "COMPLETED" || check.Conclusion != "SUCCESS" {
+				reasons = append(reasons, fmt.Sprintf("%s (%s/%s)", check.Name, check.Status, check.Conclusion))
+			}
+		}
+		return MergePRResult{
+			Success:   false,
+			Mergeable: true,
+			Message:   fmt.Sprintf("checks not passing: %s", strings.Join(reasons, "; ")),
+		}
+	}
+
+	// All checks passed, attempt merge
+	var stderr strings.Builder
+	args := []string{"pr", "merge", prURL, "--" + method}
+	if opts.DeleteBranch {
+		args = append(args, "--delete-branch")
+	}
+	// Don't auto-approve; let the user review if needed
+	args = append(args, "--auto")
+
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		return MergePRResult{
+			Success:   false,
+			Mergeable: true,
+			Message:   fmt.Sprintf("gh pr merge failed: %v (%s)", err, strings.TrimSpace(stderr.String())),
+		}
+	}
+
+	return MergePRResult{
+		Success: true,
+		Merged:  true,
+		Message: strings.TrimSpace(string(stdout)),
+	}
+}
+
 // parsePRURL extracts owner, repo name, and PR number from a GitHub PR URL
 // like https://github.com/owner/repo/pull/42.
 func parsePRURL(prURL string) (owner, repo string, number int, err error) {
