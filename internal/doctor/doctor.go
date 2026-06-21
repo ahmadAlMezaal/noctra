@@ -165,6 +165,7 @@ func checkCLI(name string) check {
 			"claude":  "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code",
 			"codex":   "Install Codex CLI: npm i -g @openai/codex, then run `codex login`",
 			"copilot": "Install Copilot CLI: npm i -g @github/copilot (authenticates via `gh auth login` / GH_TOKEN)",
+			"agy":     "Install Antigravity CLI (`agy`), then run `agy` once to log in (Google AI Pro): https://antigravity.google",
 		}
 		return check{
 			name:   name,

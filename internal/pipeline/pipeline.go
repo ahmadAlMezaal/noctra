@@ -39,7 +39,7 @@ type Pipeline struct {
 	resolver *repo.Resolver
 	notifier *notify.Multi
 	review   *review.Gate
-	agent    agent.Backend // selected coding-agent CLI (claude / codex)
+	agent    agent.Backend // selected coding-agent CLI (claude / codex / copilot / antigravity)
 	states   linear.StateIDs
 
 	// Label-mode trigger — resolved at startup when cfg.TriggerMode == "label".

@@ -10,13 +10,15 @@ import (
 
 func TestNew_SelectsBackend(t *testing.T) {
 	cases := map[string]string{
-		"":          "claude", // default
-		"claude":    "claude",
-		"Claude":    "claude", // case-insensitive
-		" codex ":   "codex",  // trimmed
-		"codex":     "codex",
-		"copilot":   "copilot",
-		" Copilot ": "copilot", // case-insensitive + trimmed
+		"":              "claude", // default
+		"claude":        "claude",
+		"Claude":        "claude", // case-insensitive
+		" codex ":       "codex",  // trimmed
+		"codex":         "codex",
+		"copilot":       "copilot",
+		" Copilot ":     "copilot", // case-insensitive + trimmed
+		"antigravity":   "antigravity",
+		" Antigravity ": "antigravity", // case-insensitive + trimmed
 	}
 	for in, wantName := range cases {
 		b, err := New(in)
@@ -64,6 +66,16 @@ func TestBackend_CLIAndLabel(t *testing.T) {
 	if copilot.Label() != "GitHub Copilot" {
 		t.Errorf("copilot Label = %q, want \"GitHub Copilot\"", copilot.Label())
 	}
+	antigravity, err := New("antigravity")
+	if err != nil {
+		t.Fatalf("New(\"antigravity\") error: %v", err)
+	}
+	if antigravity.CLI() != "agy" {
+		t.Errorf("antigravity CLI = %q, want agy", antigravity.CLI())
+	}
+	if antigravity.Label() != "Google Antigravity" {
+		t.Errorf("antigravity Label = %q, want \"Google Antigravity\"", antigravity.Label())
+	}
 }
 
 func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
@@ -108,6 +120,22 @@ func TestCopilotArgs_UsesAllowAllToolsAndPromptFlag(t *testing.T) {
 	i := slices.Index(args, "-p")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
 		t.Errorf("copilotArgs did not pass prompt after -p: %v", args)
+	}
+}
+
+func TestAntigravityArgs_PromptIsValueOfPrintFlag(t *testing.T) {
+	args := antigravityArgs(RunOptions{Prompt: "do the thing"})
+	if !slices.Contains(args, "--dangerously-skip-permissions") {
+		t.Errorf("antigravityArgs missing --dangerously-skip-permissions: %v", args)
+	}
+	// --print is a string flag: skip-permissions must precede it, and the
+	// prompt must be the final token (its value) — else --print eats the next flag.
+	i := slices.Index(args, "--print")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" || args[len(args)-1] != "do the thing" {
+		t.Errorf("antigravityArgs did not pass prompt as the value of --print: %v", args)
+	}
+	if skip := slices.Index(args, "--dangerously-skip-permissions"); skip > i {
+		t.Errorf("--dangerously-skip-permissions must come before --print: %v", args)
 	}
 }
 
@@ -168,6 +196,7 @@ func TestBackend_CoAuthor(t *testing.T) {
 		{"claude", "Claude <noreply@anthropic.com>"},
 		{"codex", "Codex <noreply@openai.com>"},
 		{"copilot", "Copilot <223556219+Copilot@users.noreply.github.com>"},
+		{"antigravity", "Antigravity <noreply@google.com>"},
 	}
 	for _, tc := range cases {
 		b, err := New(tc.name)
@@ -184,6 +213,7 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 	claude, _ := New("claude")
 	codex, _ := New("codex")
 	copilot, _ := New("copilot")
+	antigravity, _ := New("antigravity")
 
 	// Shared phrasings all backends must catch.
 	shared := map[string]bool{
@@ -203,6 +233,9 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		}
 		if got := copilot.HasRateLimit(in); got != want {
 			t.Errorf("copilot.HasRateLimit(%q) = %v, want %v", in, got, want)
+		}
+		if got := antigravity.HasRateLimit(in); got != want {
+			t.Errorf("antigravity.HasRateLimit(%q) = %v, want %v", in, got, want)
 		}
 	}
 
@@ -225,6 +258,17 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 	for _, in := range copilotOnly {
 		if !copilot.HasRateLimit(in) {
 			t.Errorf("copilot.HasRateLimit(%q) = false, want true", in)
+		}
+	}
+
+	// Antigravity / Gemini-specific phrasings (Google API status codes).
+	antigravityOnly := []string{
+		"You have exceeded your current quota",
+		"error: RESOURCE_EXHAUSTED",
+	}
+	for _, in := range antigravityOnly {
+		if !antigravity.HasRateLimit(in) {
+			t.Errorf("antigravity.HasRateLimit(%q) = false, want true", in)
 		}
 	}
 }
