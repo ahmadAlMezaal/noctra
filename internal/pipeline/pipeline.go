@@ -218,6 +218,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
+	// Cancelled by drainAndStop on every exit path so the long-lived children
+	// (Telegram listener, PR watcher, sweep loop) leave the WaitGroup.
+	loopCtx, stopLoop := context.WithCancel(ctx)
+	defer stopLoop()
+
 	// Start the Telegram command listener alongside the poll loop if configured.
 	// The listener shares the WaitGroup so shutdown drains it like any other goroutine.
 	if p.cfg.TelegramEnabled && p.cfg.TelegramBotToken != "" && p.cfg.TelegramChatID != "" {
@@ -226,7 +231,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := listener.Run(ctx); err != nil {
+			if err := listener.Run(loopCtx); err != nil {
 				slog.Warn("telegram listener stopped", "err", err)
 			}
 		}()
@@ -237,28 +242,28 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	// One poll right away so we don't sit idle for the first interval.
-	p.pollOnce(ctx, &wg)
+	p.pollOnce(loopCtx, &wg)
 
 	// PR watcher runs on its own ticker if auto-iterate is enabled. Lives
 	// inside this Run so it shares the WaitGroup — graceful shutdown waits
 	// for in-flight iterations the same way it waits for fresh dispatches.
 	if p.watcher != nil {
 		wg.Add(1)
-		go p.runWatcher(ctx, &wg)
+		go p.runWatcher(loopCtx, &wg)
 	}
 
 	// Sweep scheduler runs its own loop if enabled. Shares the WaitGroup
 	// so shutdown drains in-flight sweep tasks.
 	if p.sweeper != nil {
 		wg.Add(1)
-		go p.runSweepLoop(ctx, &wg)
+		go p.runSweepLoop(loopCtx, &wg)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("🌅 shutting down — waiting for active tasks")
-			wg.Wait()
+			drainAndStop(stopLoop, &wg)
 			p.summary(ctx)
 			return nil
 
@@ -270,14 +275,14 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 			if rlDetected {
 				slog.Info("🛑 rate limit detected — shutting down")
-				wg.Wait()
+				drainAndStop(stopLoop, &wg)
 				p.summary(ctx)
 				return nil
 			}
 			if atCap {
 				slog.Info("🛑 max dispatches reached — shutting down",
 					"limit", p.cfg.MaxDispatches)
-				wg.Wait()
+				drainAndStop(stopLoop, &wg)
 				p.summary(ctx)
 				return nil
 			}
@@ -300,9 +305,17 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
-			p.pollOnce(ctx, &wg)
+			p.pollOnce(loopCtx, &wg)
 		}
 	}
+}
+
+// drainAndStop cancels the context-bound child goroutines, then waits for them.
+// Order matters: they only return on cancellation, so wg.Wait() before stop()
+// deadlocks.
+func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
+	stop()
+	wg.Wait()
 }
 
 func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
