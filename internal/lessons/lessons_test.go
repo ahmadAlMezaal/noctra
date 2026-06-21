@@ -60,7 +60,11 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("failed to close store: %v", err)
+		}
+	}()
 
 	// Setup tracked PRs
 	const pr1 = "https://github.com/owner/repo/pull/1"

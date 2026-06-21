@@ -110,7 +110,7 @@ func processMergedPR(ctx context.Context, store *state.Store, resolver *repo.Res
 	}
 
 	if reviewGate == nil || !reviewGate.Enabled() {
-		return errors.New("Gemini review gate is not enabled/configured; cannot summarize human edits")
+		return errors.New("gemini review gate is not enabled/configured; cannot summarize human edits")
 	}
 
 	repoSlug := repo.Slug(ownerRepo)
