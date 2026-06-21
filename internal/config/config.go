@@ -107,6 +107,9 @@ const (
 	DefaultSweepInterval = 24 * time.Hour
 	DefaultSweepMaxTasks = 5
 
+	// Jira defaults.
+	DefaultJiraInReviewStatus = "In Review"
+
 	// Plan-confirm (ENG-221) — disabled by default; opt in via .env.
 	DefaultPlanConfirmLabel = "plan-first"
 )
@@ -114,9 +117,18 @@ const (
 // Config is Noctra's resolved runtime configuration.
 type Config struct {
 	// Ticket sources
-	TicketSources      []string // active sources: "linear", "github"
+	TicketSources      []string // active sources: "linear", "github", "jira"
 	GitHubIssuesRepos  []string // owner/name or git URLs polled by the GitHub Issues source
 	GitHubTriggerLabel string
+
+	// Jira
+	JiraBaseURL        string // e.g. "https://your-org.atlassian.net"
+	JiraUserEmail      string // Jira account email for basic auth
+	JiraAPIToken       string // Jira API token
+	JiraProject        string // Jira project key, e.g. "PROJ"
+	JiraTriggerStatus  string // status name that triggers dispatch
+	JiraTriggerLabel   string // optional: label that triggers dispatch instead of status
+	JiraInReviewStatus string // status name after PR is opened
 
 	// Linear
 	LinearAPIKey            string
@@ -279,6 +291,15 @@ func Load(scriptDir string) (*Config, error) {
 		cfg.GitHubTriggerLabel = cfg.TriggerLabel
 	}
 
+	// Jira
+	cfg.JiraBaseURL = getenv(fileEnv, "JIRA_BASE_URL", "")
+	cfg.JiraUserEmail = getenv(fileEnv, "JIRA_USER_EMAIL", "")
+	cfg.JiraAPIToken = getenv(fileEnv, "JIRA_API_TOKEN", "")
+	cfg.JiraProject = getenv(fileEnv, "JIRA_PROJECT", "")
+	cfg.JiraTriggerStatus = getenv(fileEnv, "JIRA_TRIGGER_STATUS", "")
+	cfg.JiraTriggerLabel = getenv(fileEnv, "JIRA_TRIGGER_LABEL", "")
+	cfg.JiraInReviewStatus = getenv(fileEnv, "JIRA_IN_REVIEW_STATUS", DefaultJiraInReviewStatus)
+
 	pollSecs := getint(fileEnv, "POLL_INTERVAL", int(DefaultPollInterval/time.Second))
 	cfg.PollInterval = time.Duration(pollSecs) * time.Second
 
@@ -354,9 +375,9 @@ func (c *Config) Validate() error {
 
 	for _, src := range sources {
 		switch src {
-		case "linear", "github":
+		case "linear", "github", "jira":
 		default:
-			errs = append(errs, fmt.Sprintf("TICKET_SOURCES entries must be \"linear\" or \"github\", got %q", src))
+			errs = append(errs, fmt.Sprintf("TICKET_SOURCES entries must be \"linear\", \"github\", or \"jira\", got %q", src))
 		}
 	}
 	if usesSource(sources, "github") {
@@ -365,6 +386,23 @@ func (c *Config) Validate() error {
 		}
 		if c.GitHubTriggerLabel == "" {
 			errs = append(errs, "GITHUB_TRIGGER_LABEL or TRIGGER_LABEL is required when TICKET_SOURCES includes github")
+		}
+	}
+	if usesSource(sources, "jira") {
+		if c.JiraBaseURL == "" {
+			errs = append(errs, "JIRA_BASE_URL is required when TICKET_SOURCES includes jira")
+		}
+		if c.JiraUserEmail == "" {
+			errs = append(errs, "JIRA_USER_EMAIL is required when TICKET_SOURCES includes jira")
+		}
+		if c.JiraAPIToken == "" {
+			errs = append(errs, "JIRA_API_TOKEN is required when TICKET_SOURCES includes jira")
+		}
+		if c.JiraProject == "" {
+			errs = append(errs, "JIRA_PROJECT is required when TICKET_SOURCES includes jira")
+		}
+		if c.JiraTriggerStatus == "" && c.JiraTriggerLabel == "" {
+			errs = append(errs, "JIRA_TRIGGER_STATUS or JIRA_TRIGGER_LABEL is required when TICKET_SOURCES includes jira")
 		}
 	}
 
