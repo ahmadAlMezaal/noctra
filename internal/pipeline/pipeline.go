@@ -1,6 +1,7 @@
 // Package pipeline runs Noctra's main loop: poll Linear, dispatch a
 // bounded worker pool of process_ticket goroutines, and shut down cleanly on
-// signal, rate-limit, or dispatch cap.
+// signal or rate-limit. The daily dispatch cap pauses dispatching rather than
+// stopping the process.
 package pipeline
 
 import (
@@ -72,7 +73,9 @@ type Pipeline struct {
 	failedAttempts    map[string]int                // per-ticket retry counter
 	approvedPlans     map[string]string             // plan-confirm: approved plans keyed by identifier (ENG-221)
 	skipped           map[string]struct{}           // non-transient failures — never re-dispatched
-	totalDispatches   int
+	totalDispatches   int                           // dispatches in the current UTC day (MAX_DISPATCHES, reset daily)
+	dispatchWindow    time.Time                     // UTC midnight of the day totalDispatches counts
+	dispatchCapped    bool                          // true once today's cap alert has fired
 	successCount      int
 	failCount         int
 	rateLimitDetected bool // only used when RateLimitStrategy=shutdown
@@ -169,8 +172,9 @@ func New(cfg *config.Config) *Pipeline {
 	return p
 }
 
-// Run blocks until ctx is canceled, the dispatch cap is hit, or a rate-limit
-// is detected. It always waits for in-flight workers to finish before
+// Run blocks until ctx is canceled or a rate-limit is detected
+// (RATE_LIMIT_STRATEGY=shutdown). The daily dispatch cap only pauses
+// dispatching. It always waits for in-flight workers to finish before
 // returning, and prints a session summary on the way out.
 func (p *Pipeline) Run(ctx context.Context) error {
 	for _, d := range []string{p.cfg.LogDir, p.cfg.WorktreeBase, p.cfg.ReposBase} {
@@ -268,18 +272,10 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		case <-ticker.C:
 			p.mu.Lock()
 			rlDetected := p.rateLimitDetected
-			atCap := p.totalDispatches >= p.cfg.MaxDispatches
 			p.mu.Unlock()
 
 			if rlDetected {
 				slog.Info("🛑 rate limit detected — shutting down")
-				drainAndStop(stopLoop, &wg)
-				p.summary(ctx)
-				return nil
-			}
-			if atCap {
-				slog.Info("🛑 max dispatches reached — shutting down",
-					"limit", p.cfg.MaxDispatches)
 				drainAndStop(stopLoop, &wg)
 				p.summary(ctx)
 				return nil
@@ -316,6 +312,18 @@ func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
+// rollDispatchWindow makes MAX_DISPATCHES a per-UTC-day cap: when the day
+// rolls over it zeroes the counter and clears the cap alert, so dispatching
+// auto-resumes the next day. Caller must hold p.mu.
+func (p *Pipeline) rollDispatchWindow(now time.Time) {
+	day := now.UTC().Truncate(24 * time.Hour)
+	if !day.Equal(p.dispatchWindow) {
+		p.dispatchWindow = day
+		p.totalDispatches = 0
+		p.dispatchCapped = false
+	}
+}
+
 func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	p.mu.Lock()
 	if p.paused {
@@ -323,12 +331,27 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		slog.Debug("⏸ dispatching paused by operator")
 		return
 	}
+	p.rollDispatchWindow(time.Now())
 	inFlight := len(p.active)
 	available := p.cfg.MaxConcurrent - inFlight
-	dispatched := p.totalDispatches
+	capped := p.totalDispatches >= p.cfg.MaxDispatches
+	notifyCap := capped && !p.dispatchCapped
+	if notifyCap {
+		p.dispatchCapped = true
+	}
 	p.mu.Unlock()
 
-	if dispatched >= p.cfg.MaxDispatches {
+	// Daily cap reached: pause dispatching but keep the loop alive — it
+	// auto-resumes after rollDispatchWindow resets the counter at UTC
+	// midnight. Alert once per day so we don't spam every poll tick.
+	if capped {
+		if notifyCap {
+			slog.Info("⏸ daily dispatch cap reached — pausing until UTC midnight",
+				"limit", p.cfg.MaxDispatches)
+			p.notifier.Send(ctx, fmt.Sprintf(
+				"⏸ *Daily dispatch cap reached* (%d)\nPausing new dispatches until next UTC midnight.",
+				p.cfg.MaxDispatches))
+		}
 		return
 	}
 
@@ -527,7 +550,9 @@ func (p *Pipeline) skipPermanently(id string) {
 	defer p.mu.Unlock()
 	if _, ok := p.skipped[id]; !ok {
 		p.skipped[id] = struct{}{}
-		p.totalDispatches-- // refund — config errors shouldn't count
+		if p.totalDispatches > 0 {
+			p.totalDispatches-- // refund — config errors shouldn't count
+		}
 	}
 }
 
@@ -725,7 +750,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
-	fmt.Printf("   Max dispatches: %d per session\n", p.cfg.MaxDispatches)
+	fmt.Printf("   Max dispatches: %d per day (UTC)\n", p.cfg.MaxDispatches)
 	if p.dispatchPaused() {
 		fmt.Printf("   Dispatch:       Paused by operator\n")
 	} else {
