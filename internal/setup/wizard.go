@@ -266,8 +266,18 @@ func Run(scriptDir string) error {
 	// ── Verbose notifications (applies to every configured notifier) ───────────
 	verboseNotif := "false"
 	if tgEnabled == "true" || slackWebhook != "" || discordWebhook != "" {
-		wasVerbose := strings.EqualFold(existingEnv["VERBOSE_NOTIFICATIONS"], "true") ||
-			strings.EqualFold(existingEnv["TELEGRAM_VERBOSE"], "true") // deprecated alias
+		// Match the runtime parser (config.getbool), which accepts more than
+		// "true" — otherwise an existing VERBOSE_NOTIFICATIONS=1/yes would be
+		// mis-detected as off and silently flipped to false on re-run.
+		isTruthy := func(s string) bool {
+			switch strings.ToLower(strings.TrimSpace(s)) {
+			case "true", "1", "yes", "y":
+				return true
+			}
+			return false
+		}
+		wasVerbose := isTruthy(existingEnv["VERBOSE_NOTIFICATIONS"]) ||
+			isTruthy(existingEnv["TELEGRAM_VERBOSE"]) // deprecated alias
 		verbosePrompt := "Also notify on every ticket dispatch, plan, and sweep (more chatty)?"
 		if wasVerbose {
 			verbosePrompt = "Verbose notifications are currently on. Keep them?"
