@@ -61,7 +61,7 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 			break
 		}
 		p.mu.Lock()
-		if p.totalDispatches >= p.cfg.MaxDispatches {
+		if dispatchCapReached(p.cfg.MaxDispatches, p.totalDispatches) {
 			p.mu.Unlock()
 			return
 		}

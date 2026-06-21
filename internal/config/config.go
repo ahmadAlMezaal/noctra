@@ -85,7 +85,7 @@ const (
 	DefaultMainBranch       = "main"
 	DefaultMaxConcurrent    = 3
 	DefaultPollInterval     = 30 * time.Second
-	DefaultMaxDispatches    = 10
+	DefaultMaxDispatches    = 40
 	DefaultMaxRetries       = 3
 	DefaultAgentTimeout     = 45 * time.Minute
 	DefaultGeminiMode       = "api"

@@ -161,7 +161,7 @@ func Run(scriptDir string) error {
 	fmt.Println()
 	fmt.Println("─── Safety limits ───")
 	concurrency := w.askInt("Max concurrent tickets", existingEnv["MAX_CONCURRENT"], config.DefaultMaxConcurrent, 1)
-	dispatches := w.askInt("Max dispatches per session", existingEnv["MAX_DISPATCHES"], config.DefaultMaxDispatches, 1)
+	dispatches := w.askInt("Max dispatches per day, 0 = unlimited", existingEnv["MAX_DISPATCHES"], config.DefaultMaxDispatches, 0)
 	retries := w.askInt("Max retries per ticket", existingEnv["MAX_RETRIES"], config.DefaultMaxRetries, 1)
 	timeoutMin := w.askInt("Agent timeout (minutes)", existingEnv["AGENT_TIMEOUT_MINUTES"], int(config.DefaultAgentTimeout/time.Minute), 5)
 	fmt.Println()
