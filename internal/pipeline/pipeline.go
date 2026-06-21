@@ -218,8 +218,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
-	// Cancelled by drainAndStop on every exit path so the long-lived children
-	// (Telegram listener, PR watcher, sweep loop) leave the WaitGroup.
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
 
@@ -310,9 +308,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 }
 
-// drainAndStop cancels the context-bound child goroutines, then waits for them.
-// Order matters: they only return on cancellation, so wg.Wait() before stop()
-// deadlocks.
+// drainAndStop cancels before waiting; reversing the order deadlocks.
 func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
 	stop()
 	wg.Wait()

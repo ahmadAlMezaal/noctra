@@ -7,10 +7,8 @@ import (
 	"time"
 )
 
-// TestDrainAndStop_CancelsBeforeWait guards the dispatch-cap deadlock fix: a
-// self-shutdown that calls wg.Wait() without first cancelling the context-bound
-// child goroutines blocks forever. If stop() is dropped or reordered after the
-// wait, the child below never returns and this test times out.
+// TestDrainAndStop_CancelsBeforeWait guards the dispatch-cap deadlock fix:
+// times out if stop() is dropped or reordered after wg.Wait().
 func TestDrainAndStop_CancelsBeforeWait(t *testing.T) {
 	loopCtx, stop := context.WithCancel(context.Background())
 
