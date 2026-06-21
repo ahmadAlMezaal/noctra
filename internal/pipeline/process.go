@@ -448,7 +448,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	useCC := ccType != "" && usesCC
 
 	prTitle := fmt.Sprintf("%s: %s", id, issue.Title)
-	commitSubject := fmt.Sprintf("feat: implement %s — %s", id, issue.Title)
+	commitSubject := prTitle
 	if useCC {
 		subj := conventionalSubject(ccType, breaking, issue.Title, id)
 		prTitle, commitSubject = subj, subj
