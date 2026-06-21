@@ -49,6 +49,28 @@ func TestUsesConventionalCommits(t *testing.T) {
 		}
 	})
 
+	t.Run("goreleaser changelog grouped by conventional types", func(t *testing.T) {
+		dir := t.TempDir()
+		yml := "changelog:\n  groups:\n    - title: Features\n      regexp: '^feat(\\(.+\\))?!?:'\n    - title: Bug Fixes\n      regexp: '^fix(\\(.+\\))?!?:'\n"
+		if err := os.WriteFile(filepath.Join(dir, ".goreleaser.yaml"), []byte(yml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if !UsesConventionalCommits(dir) {
+			t.Error("want true when .goreleaser.yaml groups the changelog by conventional types")
+		}
+	})
+
+	t.Run("goreleaser without conventional grouping", func(t *testing.T) {
+		dir := t.TempDir()
+		yml := "builds:\n  - main: ./cmd/app\nchangelog:\n  use: github\n"
+		if err := os.WriteFile(filepath.Join(dir, ".goreleaser.yaml"), []byte(yml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if UsesConventionalCommits(dir) {
+			t.Error("want false for a GoReleaser config without conventional changelog groups")
+		}
+	})
+
 	t.Run("plain repo", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"x"}`), 0o600); err != nil {
