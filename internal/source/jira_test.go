@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -217,7 +218,7 @@ func TestJiraPrepareValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			src := NewJira(tt.cfg)
-			err := src.Prepare(nil)
+			err := src.Prepare(context.Background())
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -237,7 +238,7 @@ func TestJiraPrepareTrimsBaseURL(t *testing.T) {
 		TriggerStatus:  "Open",
 		InReviewStatus: "In Review",
 	})
-	if err := src.Prepare(nil); err != nil {
+	if err := src.Prepare(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if src.cfg.BaseURL != "https://test.atlassian.net" {
@@ -254,7 +255,7 @@ func TestJiraPrepareLabelModeSatisfiesTrigger(t *testing.T) {
 		TriggerLabel:   "noctra",
 		InReviewStatus: "In Review",
 	})
-	if err := src.Prepare(nil); err != nil {
+	if err := src.Prepare(context.Background()); err != nil {
 		t.Fatalf("Prepare() unexpected error: %v", err)
 	}
 }
