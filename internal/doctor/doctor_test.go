@@ -224,4 +224,3 @@ func TestGather_AgentBackend_Invalid(t *testing.T) {
 		t.Error("expected an 'agent backend' check in gather() results")
 	}
 }
-
