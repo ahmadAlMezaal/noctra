@@ -663,6 +663,7 @@ func buildTicketSources(cfg *config.Config, linearClient *linear.Client) []sourc
 				TriggerState:     cfg.TriggerState,
 				TriggerLabel:     cfg.TriggerLabel,
 				InReviewState:    cfg.InReviewState,
+				DoneState:        cfg.DoneState,
 				PlanConfirmLabel: cfg.PlanConfirmLabel,
 			}))
 		case "github":

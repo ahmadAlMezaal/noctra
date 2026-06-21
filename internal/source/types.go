@@ -23,6 +23,12 @@ type TicketSource interface {
 	Comment(context.Context, Ticket, string) error
 }
 
+// DoneMarker is an optional capability for sources that can move a ticket to a
+// terminal "done" state (used on NO_CHANGES).
+type DoneMarker interface {
+	MarkDone(context.Context, Ticket) error
+}
+
 // ReadyInfo is the source-agnostic status update after Noctra opens a PR.
 type ReadyInfo struct {
 	PRURL        string

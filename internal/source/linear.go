@@ -14,6 +14,7 @@ type LinearConfig struct {
 	TriggerState     string
 	TriggerLabel     string
 	InReviewState    string
+	DoneState        string
 	PlanConfirmLabel string
 }
 
@@ -43,7 +44,7 @@ func (s *LinearSource) Prepare(ctx context.Context) error {
 	if s.cfg.TriggerMode == "label" {
 		triggerStateName = ""
 	}
-	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState)
+	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState, s.cfg.DoneState)
 	if err != nil {
 		return fmt.Errorf("resolve linear states: %w", err)
 	}
@@ -141,6 +142,26 @@ func (s *LinearSource) MarkReady(ctx context.Context, ticket Ticket, info ReadyI
 		info.BackendLabel, info.PRURL, info.ReviewState)
 	if err := s.client.Comment(ctx, ticket.ID, body); err != nil && firstErr == nil {
 		firstErr = err
+	}
+	return firstErr
+}
+
+func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
+	var firstErr error
+	// In label mode the trigger label — not the state — is what re-fetches a
+	// ticket, so it must be removed or the no-op loops back into dispatch.
+	if s.cfg.TriggerMode == "label" && s.triggerLabelID != "" {
+		if err := s.client.RemoveLabel(ctx, ticket.ID, s.triggerLabelID); err != nil {
+			firstErr = err
+		}
+	}
+	if s.states.Done != "" {
+		if err := s.client.SetState(ctx, ticket.ID, s.states.Done); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	} else if s.cfg.TriggerMode != "label" {
+		// State mode relies on the Done transition to leave the trigger column.
+		return fmt.Errorf("no Done state resolved (check DONE_STATE)")
 	}
 	return firstErr
 }

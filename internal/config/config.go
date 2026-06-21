@@ -82,6 +82,7 @@ const (
 	DefaultTriggerMode      = "state"
 	DefaultTriggerState     = "Next"
 	DefaultInReviewState    = "In Review"
+	DefaultDoneState        = "Done"
 	DefaultMainBranch       = "main"
 	DefaultMaxConcurrent    = 3
 	DefaultPollInterval     = 30 * time.Second
@@ -142,6 +143,7 @@ type Config struct {
 	TriggerState            string // watched column name (state mode)
 	TriggerLabel            string // label name to watch (label mode)
 	InReviewState           string
+	DoneState               string
 
 	// Repos
 	RepoPath   string // optional single-repo fallback for unmapped projects
@@ -252,6 +254,7 @@ func Load(scriptDir string) (*Config, error) {
 		TriggerState:            getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
 		TriggerLabel:            getenv(fileEnv, "TRIGGER_LABEL", ""),
 		InReviewState:           getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
+		DoneState:               getenv(fileEnv, "DONE_STATE", DefaultDoneState),
 		GitHubTriggerLabel:      getenv(fileEnv, "GITHUB_TRIGGER_LABEL", ""),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),

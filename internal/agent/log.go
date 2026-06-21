@@ -69,6 +69,19 @@ func BlockedLine(output string) string {
 	return m
 }
 
+var noChangesRe = regexp.MustCompile(`(?im)^NO_CHANGES:\s*(.*)$`)
+
+// NoChangesLine returns the reason from the last "NO_CHANGES: …" line, or "".
+// The last match wins (mirroring ReleaseBump) so an echoed prompt instruction
+// or a draft earlier in the log can't trigger a false positive.
+func NoChangesLine(output string) string {
+	matches := noChangesRe.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(matches[len(matches)-1][1])
+}
+
 // releaseRe matches the "RELEASE: <bump>" line the prompt asks the agent to
 // emit after its summary. Case-insensitive, anchored to start of line.
 var releaseRe = regexp.MustCompile(`(?im)^RELEASE:\s*(.+)$`)

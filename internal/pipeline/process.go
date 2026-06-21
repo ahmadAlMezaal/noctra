@@ -273,6 +273,16 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
+	// ── NO_CHANGES — agent reports the ticket is already satisfied ────────────
+	if nc := agent.NoChangesLine(output); nc != "" {
+		logger.Info("no changes needed", "reason", nc)
+		p.resolveNoChanges(ctx, issue, fmt.Sprintf(
+			"✅ **Noctra: nothing to do**\n\n> %s\n\nNo changes were needed, so this ticket was closed automatically.", nc))
+		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — nothing to do\n%s", id, notify.EscapeMarkdown(nc)))
+		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+		return
+	}
+
 	// ── BLOCKED ──────────────────────────────────────────────────────────────
 	// Count the attempt: the ticket is left in the trigger state, so without a
 	// retry cap it would be re-dispatched every poll until the dispatch budget
@@ -585,6 +595,28 @@ func (p *Pipeline) ticketBackToTrigger(ctx context.Context, ticket source.Ticket
 
 func (p *Pipeline) ticketComment(ctx context.Context, ticket source.Ticket, body string) error {
 	return p.ticketSource(ticket).Comment(ctx, ticket, body)
+}
+
+// resolveNoChanges comments, then moves a no-op ticket to Done (or skips it for
+// the session) so it leaves the trigger state and isn't re-dispatched.
+func (p *Pipeline) resolveNoChanges(ctx context.Context, ticket source.Ticket, body string) {
+	if err := p.ticketComment(ctx, ticket, body); err != nil {
+		slog.Warn("no-changes comment failed", "issue_id", ticket.ID, "err", err)
+	}
+	if dm, ok := p.ticketSource(ticket).(source.DoneMarker); ok {
+		if err := dm.MarkDone(ctx, ticket); err == nil {
+			return
+		} else {
+			slog.Warn("mark-done failed; skipping ticket instead", "issue_id", ticket.ID, "err", err)
+		}
+	}
+	p.markSkipped(ticket.Identifier)
+}
+
+func (p *Pipeline) markSkipped(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.skipped[id] = struct{}{}
 }
 
 func (p *Pipeline) ticketSource(ticket source.Ticket) source.TicketSource {
