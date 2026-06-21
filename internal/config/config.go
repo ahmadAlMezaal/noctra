@@ -13,14 +13,15 @@ import (
 
 // baseCLIs are the external commands Noctra always shells out to,
 // regardless of which coding-agent backend is selected. The agent CLI itself
-// (claude / codex) is appended per-backend — see AgentCLI / RequiredCLIs.
+// (claude / codex / copilot / agy) is appended per-backend — see AgentCLI / RequiredCLIs.
 var baseCLIs = []string{"git", "gh"}
 
 // agentCLIs maps a backend name to the CLI binary it requires on PATH.
 var agentCLIs = map[string]string{
-	"claude":  "claude",
-	"codex":   "codex",
-	"copilot": "copilot",
+	"claude":      "claude",
+	"codex":       "codex",
+	"copilot":     "copilot",
+	"antigravity": "agy",
 }
 
 // DefaultConfigDir returns the per-user config directory (~/.noctra/).
@@ -129,7 +130,7 @@ type Config struct {
 	MainBranch string
 
 	// Agent
-	AgentBackend  string // coding-agent CLI: "claude" (default), "codex", or "copilot"
+	AgentBackend  string // coding-agent CLI: "claude" (default), "codex", "copilot", or "antigravity"
 	MaxConcurrent int
 	PollInterval  time.Duration
 	UseAgentTeams bool
@@ -316,7 +317,7 @@ func (c *Config) Validate() error {
 	}
 
 	if _, ok := agentCLIs[c.AgentBackend]; !ok {
-		errs = append(errs, fmt.Sprintf("AGENT_BACKEND must be \"claude\", \"codex\", or \"copilot\", got %q", c.AgentBackend))
+		errs = append(errs, fmt.Sprintf("AGENT_BACKEND must be \"claude\", \"codex\", \"copilot\", or \"antigravity\", got %q", c.AgentBackend))
 	}
 
 	switch c.TriggerMode {

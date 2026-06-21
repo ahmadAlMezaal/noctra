@@ -623,19 +623,22 @@ func (w *wizard) chooseTriggerMode(existing string) string {
 }
 
 // chooseEngine asks which coding-agent backend to dispatch tickets with and
-// returns the canonical backend name ("claude" / "codex" / "copilot") for
-// AGENT_BACKEND.
+// returns the canonical backend name ("claude" / "codex" / "copilot" /
+// "antigravity") for AGENT_BACKEND.
 func (w *wizard) chooseEngine(existing string) string {
 	fmt.Println("Coding-agent engine:")
-	fmt.Println("  1) Claude Code      (claude CLI)")
-	fmt.Println("  2) OpenAI Codex     (codex CLI — run `codex login` once on the host)")
-	fmt.Println("  3) GitHub Copilot   (copilot CLI — uses your Copilot subscription via `gh`)")
+	fmt.Println("  1) Claude Code        (claude CLI)")
+	fmt.Println("  2) OpenAI Codex       (codex CLI — run `codex login` once on the host)")
+	fmt.Println("  3) GitHub Copilot     (copilot CLI — uses your Copilot subscription via `gh`)")
+	fmt.Println("  4) Google Antigravity (agy CLI — run `agy` once on the host to log in)")
 	fallback := "1"
 	switch {
 	case strings.EqualFold(existing, "codex"):
 		fallback = "2"
 	case strings.EqualFold(existing, "copilot"):
 		fallback = "3"
+	case strings.EqualFold(existing, "antigravity"):
+		fallback = "4"
 	}
 	for {
 		s := w.askEx("Choose", askOpts{fallback: fallback})
@@ -645,6 +648,8 @@ func (w *wizard) chooseEngine(existing string) string {
 				return "codex"
 			case strings.EqualFold(existing, "copilot"):
 				return "copilot"
+			case strings.EqualFold(existing, "antigravity"):
+				return "antigravity"
 			default:
 				return "claude"
 			}
@@ -656,8 +661,10 @@ func (w *wizard) chooseEngine(existing string) string {
 			return "codex"
 		case "3":
 			return "copilot"
+		case "4":
+			return "antigravity"
 		default:
-			fmt.Println("  Enter 1, 2, or 3.")
+			fmt.Println("  Enter 1, 2, 3, or 4.")
 		}
 	}
 }
@@ -976,9 +983,10 @@ LINEAR_TEAM_KEY="%s"
 %s
 MAIN_BRANCH="%s"
 
-# Coding-agent backend: "claude" (default), "codex", or "copilot".
+# Coding-agent backend: "claude" (default), "codex", "copilot", or "antigravity".
 # codex requires the OpenAI Codex CLI on PATH + a one-time 'codex login'.
 # copilot requires the GitHub Copilot CLI on PATH + a Copilot subscription via gh.
+# antigravity requires the Antigravity CLI (agy) on PATH + a one-time 'agy' login (Google AI Pro).
 AGENT_BACKEND="%s"
 
 MAX_CONCURRENT="%s"

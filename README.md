@@ -9,7 +9,7 @@
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
 [![Website](https://img.shields.io/badge/website-getnoctra.dev-7C3AED.svg)](https://getnoctra.dev)
 
-Noctra picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code, OpenAI Codex, or GitHub Copilot** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
+Noctra picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code, OpenAI Codex, GitHub Copilot, or Google Antigravity** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
 <!-- TODO(maintainer): drop a ~20s demo GIF here — drag a ticket to "Next" → PR appears — e.g. ![demo](docs/demo.gif) -->
 
@@ -23,7 +23,7 @@ You: Move 3 tickets to "Next" → Run noctra → Go to sleep
 Noctra:
   1. Polls Linear, finds tickets in "Next" (or carrying a trigger label)
   2. Creates an isolated git worktree per ticket
-  3. Dispatches your agent backend (Claude Code, OpenAI Codex, or GitHub Copilot):
+  3. Dispatches your agent backend (Claude Code, OpenAI Codex, GitHub Copilot, or Google Antigravity):
      → Reads the ticket, plans, implements, and self-reviews
      → (Claude + USE_AGENT_TEAMS) a lead agent delegates to teammates in parallel
   4. (If Gemini key provided) Multi-model review gate:
@@ -40,7 +40,7 @@ You: Wake up → Review 3 PRs → Merge   (check on it from Telegram any time)
 flowchart LR
     L[Linear ticket in Next] --> N[Noctra poll loop]
     N --> W[git worktree per ticket]
-    W --> A[Agent: Claude / Codex / Copilot]
+    W --> A[Agent: Claude / Codex / Copilot / Antigravity]
     A --> G{Gemini review?}
     G -->|pass / disabled| PR[gh pr create]
     G -->|issues found| A
@@ -92,13 +92,13 @@ Noctra is a single Go binary. Beyond Go for the build, it shells out to a few st
 | Tool | Install | Purpose |
 |------|---------|---------|
 | Go 1.23+ | [go.dev/dl](https://go.dev/dl), or `brew install go` / `apt install golang` | Build the binary |
-| `claude`, `codex`, **or** `copilot` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude), `npm i -g @openai/codex` (Codex), or `npm i -g @github/copilot` (Copilot) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
+| `claude`, `codex`, `copilot`, **or** `agy` CLI | [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) (Claude), `npm i -g @openai/codex` (Codex), `npm i -g @github/copilot` (Copilot), or [Antigravity](https://antigravity.google) (`agy`) | Implementation engine — pick one via `AGENT_BACKEND` (default `claude`) |
 | `gh` CLI | `brew install gh` | PR creation |
 | `git` | Pre-installed | Worktrees + clone-on-demand |
 | Linear API key | [Linear settings → API](https://linear.app/settings/api) | Ticket management |
 | Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) | Optional review gate |
 
-You only need the CLI for the backend you select with `AGENT_BACKEND` — `claude` (default), `codex`, or `copilot`. `noctra doctor` checks for the right one.
+You only need the CLI for the backend you select with `AGENT_BACKEND` — `claude` (default), `codex`, `copilot`, or `antigravity`. `noctra doctor` checks for the right one.
 
 **Authentication:**
 
@@ -180,7 +180,7 @@ Or with Compose: `docker compose up -d` (see [`docker-compose.yml`](docker-compo
 | Env var | For |
 |---------|-----|
 | `LINEAR_API_KEY` | Linear (required) |
-| `AGENT_BACKEND` | `claude`, `codex`, or `copilot` |
+| `AGENT_BACKEND` | `claude`, `codex`, `copilot`, or `antigravity` |
 | `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` | the agent backend you chose (copilot uses `GH_TOKEN`) |
 | `GH_TOKEN` | `gh` PR creation + `git push` (a PAT or fine-grained token with repo + PR scope); also authenticates `copilot` |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | commit identity (defaults to a `Noctra` bot) |

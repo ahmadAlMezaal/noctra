@@ -34,7 +34,7 @@ type PRState struct {
 	TicketID string `json:"ticket_id,omitempty"`
 
 	// AgentBackend is the coding-agent backend the PR was created with
-	// (e.g. "claude", "codex", "copilot"). Persisted so the auto-iterate
+	// (e.g. "claude", "codex", "copilot", "antigravity"). Persisted so the auto-iterate
 	// path uses the same backend for follow-up commits on this PR.
 	AgentBackend string `json:"agent_backend,omitempty"`
 

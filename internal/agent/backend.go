@@ -26,8 +26,8 @@ type RunOptions struct {
 }
 
 // Backend abstracts the underlying coding-agent CLI Noctra shells out to.
-// Three implementations exist — Claude Code (default), OpenAI Codex, and
-// GitHub Copilot — selected by AGENT_BACKEND.
+// Four implementations exist — Claude Code (default), OpenAI Codex, GitHub
+// Copilot, and Google Antigravity — selected by AGENT_BACKEND.
 //
 // Everything else in this package is backend-agnostic on purpose: the prompt
 // builders ask the agent to print "BLOCKED: <reason>" so BlockedLine works
@@ -36,7 +36,7 @@ type RunOptions struct {
 // the CLI invocation (flags + how the prompt is passed) and the phrasing of
 // usage/rate-limit errors (HasRateLimit).
 type Backend interface {
-	// Name is the canonical backend identifier ("claude" / "codex" / "copilot").
+	// Name is the canonical backend identifier ("claude" / "codex" / "copilot" / "antigravity").
 	Name() string
 	// Label is the human-friendly backend name for banners / logs
 	// (e.g. "Claude Code", "OpenAI Codex").
@@ -69,8 +69,10 @@ func New(name string) (Backend, error) {
 		return codexBackend{}, nil
 	case "copilot":
 		return copilotBackend{}, nil
+	case "antigravity":
+		return antigravityBackend{}, nil
 	default:
-		return nil, fmt.Errorf("unknown agent backend %q (want \"claude\", \"codex\", or \"copilot\")", name)
+		return nil, fmt.Errorf("unknown agent backend %q (want \"claude\", \"codex\", \"copilot\", or \"antigravity\")", name)
 	}
 }
 
