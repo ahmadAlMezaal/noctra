@@ -186,7 +186,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 
 	backend := p.resolveBackend(issue)
 
-	if p.cfg.TelegramVerbose {
+	if p.cfg.VerboseNotifications {
 		p.notifier.Send(ctx, fmt.Sprintf("📋 *%s* — %s\nRunning plan-only pass.",
 			id, notify.EscapeMarkdown(issue.Title)))
 	}

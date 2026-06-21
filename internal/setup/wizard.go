@@ -197,9 +197,8 @@ func Run(scriptDir string) error {
 	}
 
 	// ── Optional: Telegram ─────────────────────────────────────────────────────
-	tgEnabled, tgToken, tgChat, tgVerbose := "false", "", "", "false"
+	tgEnabled, tgToken, tgChat := "false", "", ""
 	tgWasEnabled := strings.EqualFold(existingEnv["TELEGRAM_ENABLED"], "true")
-	tgWasVerbose := strings.EqualFold(existingEnv["TELEGRAM_VERBOSE"], "true")
 	prompt := "Enable Telegram notifications?"
 	if tgWasEnabled {
 		prompt = "Telegram notifications are currently enabled. Keep them?"
@@ -209,20 +208,12 @@ func Run(scriptDir string) error {
 		tgToken = w.askEx("Telegram bot token", askOpts{existing: existingEnv["TELEGRAM_BOT_TOKEN"], secret: true, required: true})
 		tgChat = w.askEx("Telegram chat ID", askOpts{existing: existingEnv["TELEGRAM_CHAT_ID"], required: true})
 
-		verbosePrompt := "Also notify on every dispatch (more chatty)?"
-		if tgWasVerbose {
-			verbosePrompt = "Verbose notifications are currently on. Keep them?"
-		}
-		if w.confirm(verbosePrompt) {
-			tgVerbose = "true"
-		}
-
 		fmt.Print("  Sending test message ... ")
 		if err := testTelegram(tgToken, tgChat); err != nil {
 			fmt.Println("FAILED")
 			fmt.Printf("  ⚠️  %v\n", err)
 			if !w.confirm("  Save Telegram config anyway?") {
-				tgEnabled, tgToken, tgChat, tgVerbose = "false", "", "", "false"
+				tgEnabled, tgToken, tgChat = "false", "", ""
 			}
 		} else {
 			fmt.Println("ok — check your Telegram!")
@@ -269,6 +260,30 @@ func Run(scriptDir string) error {
 			}
 		} else {
 			fmt.Println("ok — check your Discord!")
+		}
+	}
+
+	// ── Verbose notifications (applies to every configured notifier) ───────────
+	verboseNotif := "false"
+	if tgEnabled == "true" || slackWebhook != "" || discordWebhook != "" {
+		// Match the runtime parser (config.getbool), which accepts more than
+		// "true" — otherwise an existing VERBOSE_NOTIFICATIONS=1/yes would be
+		// mis-detected as off and silently flipped to false on re-run.
+		isTruthy := func(s string) bool {
+			switch strings.ToLower(strings.TrimSpace(s)) {
+			case "true", "1", "yes", "y":
+				return true
+			}
+			return false
+		}
+		wasVerbose := isTruthy(existingEnv["VERBOSE_NOTIFICATIONS"]) ||
+			isTruthy(existingEnv["TELEGRAM_VERBOSE"]) // deprecated alias
+		verbosePrompt := "Also notify on every ticket dispatch, plan, and sweep (more chatty)?"
+		if wasVerbose {
+			verbosePrompt = "Verbose notifications are currently on. Keep them?"
+		}
+		if w.confirm(verbosePrompt) {
+			verboseNotif = "true"
 		}
 	}
 
@@ -336,13 +351,15 @@ func Run(scriptDir string) error {
 	if tgEnabled == "true" {
 		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
 		fmt.Printf("  TELEGRAM_CHAT_ID      = %s\n", tgChat)
-		fmt.Printf("  TELEGRAM_VERBOSE      = %s\n", tgVerbose)
 	}
 	if slackWebhook != "" {
 		fmt.Printf("  SLACK_WEBHOOK_URL     = %s\n", mask(slackWebhook))
 	}
 	if discordWebhook != "" {
 		fmt.Printf("  DISCORD_WEBHOOK_URL   = %s\n", mask(discordWebhook))
+	}
+	if tgEnabled == "true" || slackWebhook != "" || discordWebhook != "" {
+		fmt.Printf("  VERBOSE_NOTIFICATIONS = %s\n", verboseNotif)
 	}
 	fmt.Println()
 	if !w.confirm("Save to .env?") {
@@ -377,9 +394,9 @@ func Run(scriptDir string) error {
 		tgEnabled:         tgEnabled,
 		tgToken:           tgToken,
 		tgChat:            tgChat,
-		tgVerbose:         tgVerbose,
 		slackWebhook:      slackWebhook,
 		discordWebhook:    discordWebhook,
+		verboseNotif:      verboseNotif,
 		autoIterate:       autoIterate,
 		maxIter:           strconv.Itoa(maxIter),
 		prPoll:            strconv.Itoa(prPoll),
@@ -868,8 +885,8 @@ type envValues struct {
 	mainBranch, repoPath                         string
 	concurrency, dispatches, retries, timeoutMin string
 	geminiMode, geminiKey                        string
-	tgEnabled, tgToken, tgChat, tgVerbose        string
-	slackWebhook, discordWebhook                 string
+	tgEnabled, tgToken, tgChat                   string
+	slackWebhook, discordWebhook, verboseNotif   string
 	autoIterate, maxIter, prPoll, trusted        string
 	sweepEnabled, sweepTasks, sweepSchedule      string
 	sweepRepos, sweepMaxTasks                    string
@@ -896,7 +913,7 @@ func (v envValues) toMap() map[string]string {
 		"TELEGRAM_ENABLED":      v.tgEnabled,
 		"TELEGRAM_BOT_TOKEN":    v.tgToken,
 		"TELEGRAM_CHAT_ID":      v.tgChat,
-		"TELEGRAM_VERBOSE":      v.tgVerbose,
+		"VERBOSE_NOTIFICATIONS": v.verboseNotif,
 		"SLACK_WEBHOOK_URL":     v.slackWebhook,
 		"DISCORD_WEBHOOK_URL":   v.discordWebhook,
 		"GEMINI_MODE":           v.geminiMode,
@@ -1000,8 +1017,11 @@ AGENT_TIMEOUT_MINUTES="%s"
 TELEGRAM_ENABLED="%s"
 TELEGRAM_BOT_TOKEN="%s"
 TELEGRAM_CHAT_ID="%s"
-# Also notify on every ticket dispatch (more chatty)
-TELEGRAM_VERBOSE="%s"
+
+# Also notify on every ticket dispatch/plan/sweep (more chatty) via ALL
+# configured notifiers — Telegram, Slack, and Discord — not just Telegram.
+# (TELEGRAM_VERBOSE is honored as a deprecated alias.)
+VERBOSE_NOTIFICATIONS="%s"
 
 # Slack notifications via an incoming-webhook URL (optional). A non-empty
 # URL enables it — no separate flag. Multiple notifiers can run at once;
@@ -1047,7 +1067,7 @@ SWEEP_MAX_TASKS="%s"
 		v.agentBackend,
 		v.concurrency,
 		v.dispatches, v.retries, v.timeoutMin,
-		v.tgEnabled, v.tgToken, v.tgChat, v.tgVerbose,
+		v.tgEnabled, v.tgToken, v.tgChat, v.verboseNotif,
 		v.slackWebhook,
 		v.discordWebhook,
 		v.geminiMode, v.geminiKey,

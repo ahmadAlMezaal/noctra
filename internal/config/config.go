@@ -144,12 +144,16 @@ type Config struct {
 	TelegramEnabled  bool
 	TelegramBotToken string
 	TelegramChatID   string
-	TelegramVerbose  bool // also notify on dispatch (otherwise: terminal events only)
 
 	// A non-empty webhook URL enables the platform; no separate flag.
 	SlackWebhookURL string
 
 	DiscordWebhookURL string
+
+	// VerboseNotifications also notifies on every ticket dispatch (plan and
+	// sweep passes included) via ALL configured notifiers — not just Telegram.
+	// Off by default: only terminal events (PR opened, blocked, etc.) are sent.
+	VerboseNotifications bool
 
 	// Gemini review gate (optional)
 	GeminiMode       string
@@ -240,7 +244,8 @@ func Load(scriptDir string) (*Config, error) {
 		TelegramEnabled:  getbool(fileEnv, "TELEGRAM_ENABLED", false),
 		TelegramBotToken: getenv(fileEnv, "TELEGRAM_BOT_TOKEN", ""),
 		TelegramChatID:   getenv(fileEnv, "TELEGRAM_CHAT_ID", ""),
-		TelegramVerbose:  getbool(fileEnv, "TELEGRAM_VERBOSE", false),
+
+		VerboseNotifications: verboseNotifications(fileEnv),
 
 		SlackWebhookURL: getenv(fileEnv, "SLACK_WEBHOOK_URL", ""),
 
@@ -459,6 +464,20 @@ func getenv(fileEnv map[string]string, key, def string) string {
 		return v
 	}
 	return def
+}
+
+// verboseNotifications resolves the VERBOSE_NOTIFICATIONS flag. It honors the
+// deprecated TELEGRAM_VERBOSE alias (with a one-time warning) when the new key
+// is absent, so existing .env files keep working after the rename.
+func verboseNotifications(fileEnv map[string]string) bool {
+	if getenv(fileEnv, "VERBOSE_NOTIFICATIONS", "") != "" {
+		return getbool(fileEnv, "VERBOSE_NOTIFICATIONS", false)
+	}
+	if getenv(fileEnv, "TELEGRAM_VERBOSE", "") != "" {
+		fmt.Fprintln(os.Stderr, "warning: TELEGRAM_VERBOSE is deprecated; rename it to VERBOSE_NOTIFICATIONS")
+		return getbool(fileEnv, "TELEGRAM_VERBOSE", false)
+	}
+	return false
 }
 
 func getbool(fileEnv map[string]string, key string, def bool) bool {

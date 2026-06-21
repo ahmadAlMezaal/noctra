@@ -17,7 +17,7 @@ var noctraEnvKeys = []string{
 	"REPO_PATH", "MAIN_BRANCH",
 	"MAX_CONCURRENT", "POLL_INTERVAL", "USE_AGENT_TEAMS",
 	"MAX_DISPATCHES", "MAX_RETRIES", "AGENT_TIMEOUT_MINUTES",
-	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_VERBOSE",
+	"TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_VERBOSE", "VERBOSE_NOTIFICATIONS",
 	"GEMINI_MODE", "GEMINI_API_KEY", "GEMINI_MODEL", "MAX_REVIEW_RETRIES",
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
@@ -87,7 +87,7 @@ AGENT_TIMEOUT_MINUTES="60"
 	}
 }
 
-func TestLoad_TelegramVerbose(t *testing.T) {
+func TestLoad_VerboseNotifications(t *testing.T) {
 	isolateEnv(t)
 
 	t.Run("default false when absent", func(t *testing.T) {
@@ -97,12 +97,27 @@ func TestLoad_TelegramVerbose(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.TelegramVerbose {
-			t.Errorf("TelegramVerbose should default to false")
+		if cfg.VerboseNotifications {
+			t.Errorf("VerboseNotifications should default to false")
 		}
 	})
 
 	t.Run("reads true from .env", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+VERBOSE_NOTIFICATIONS="true"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !cfg.VerboseNotifications {
+			t.Errorf("VerboseNotifications should be true when .env says true")
+		}
+	})
+
+	t.Run("honors deprecated TELEGRAM_VERBOSE alias", func(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".env"), `
 LINEAR_API_KEY="lin_xyz"
@@ -112,8 +127,24 @@ TELEGRAM_VERBOSE="true"
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if !cfg.TelegramVerbose {
-			t.Errorf("TelegramVerbose should be true when .env says true")
+		if !cfg.VerboseNotifications {
+			t.Errorf("deprecated TELEGRAM_VERBOSE=true should still enable VerboseNotifications")
+		}
+	})
+
+	t.Run("new key wins over deprecated alias", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+VERBOSE_NOTIFICATIONS="false"
+TELEGRAM_VERBOSE="true"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.VerboseNotifications {
+			t.Errorf("VERBOSE_NOTIFICATIONS=false should override TELEGRAM_VERBOSE=true")
 		}
 	})
 }
