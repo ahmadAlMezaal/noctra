@@ -177,7 +177,7 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 }
 
 func apiErrorMessage(raw []byte, status string) string {
-	const cap = 300
+	const maxLen = 300
 	var parsed struct {
 		Error struct {
 			Message string `json:"message"`
@@ -188,20 +188,22 @@ func apiErrorMessage(raw []byte, status string) string {
 			if i := strings.IndexByte(msg, '\n'); i > 0 {
 				msg = strings.TrimSpace(msg[:i])
 			}
-			if len(msg) > cap {
-				msg = msg[:cap] + "…"
-			}
-			return msg
+			return truncateRunes(msg, maxLen)
 		}
 	}
 	body := strings.TrimSpace(string(raw))
 	if body == "" {
 		return status
 	}
-	if len(body) > cap {
-		body = body[:cap] + "…"
+	return truncateRunes(body, maxLen)
+}
+
+func truncateRunes(s string, maxLen int) string {
+	r := []rune(s)
+	if len(r) <= maxLen {
+		return s
 	}
-	return body
+	return string(r[:maxLen]) + "…"
 }
 
 func (g *Gate) reviewCLI(ctx context.Context, prompt string) (Result, error) {
