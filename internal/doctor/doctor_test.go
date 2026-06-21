@@ -198,3 +198,30 @@ func TestGather_AgentBackend(t *testing.T) {
 		})
 	}
 }
+
+func TestGather_AgentBackend_Invalid(t *testing.T) {
+	t.Setenv("AGENT_BACKEND", "invalidbackend")
+
+	checks := gather(t.TempDir())
+
+	found := false
+	for _, c := range checks {
+		if c.name == "agent backend" {
+			found = true
+			if c.ok {
+				t.Error("expected agent backend check to fail for invalid backend")
+			}
+			if !strings.Contains(c.detail, "unsupported") {
+				t.Errorf("expected detail to mention unsupported, got %q", c.detail)
+			}
+			if !strings.Contains(c.hint, "must be") {
+				t.Errorf("expected hint to instruct valid choices, got %q", c.hint)
+			}
+		}
+	}
+
+	if !found {
+		t.Error("expected an 'agent backend' check in gather() results")
+	}
+}
+

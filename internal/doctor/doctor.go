@@ -43,11 +43,20 @@ func gather(scriptDir string) []check {
 	}
 	for _, cli := range clis {
 		if loadErr == nil && cli == cfg.AgentCLI() {
-			checks = append(checks, check{
-				name:   "agent backend",
-				ok:     true,
-				detail: fmt.Sprintf("%s (%s)", cfg.AgentBackend, cfg.AgentCLI()),
-			})
+			if _, valid := config.AgentCLIs()[cfg.AgentBackend]; valid {
+				checks = append(checks, check{
+					name:   "agent backend",
+					ok:     true,
+					detail: fmt.Sprintf("%s (%s)", cfg.AgentBackend, cfg.AgentCLI()),
+				})
+			} else {
+				checks = append(checks, check{
+					name:   "agent backend",
+					ok:     false,
+					detail: fmt.Sprintf("unsupported backend %q", cfg.AgentBackend),
+					hint:   "AGENT_BACKEND must be \"claude\", \"codex\", \"copilot\", or \"antigravity\"",
+				})
+			}
 		}
 		checks = append(checks, checkCLI(cli))
 	}
