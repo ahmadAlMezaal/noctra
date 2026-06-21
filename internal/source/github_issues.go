@@ -57,12 +57,7 @@ func (s *GitHubIssuesSource) Fetch(ctx context.Context) ([]Ticket, error) {
 			return nil, err
 		}
 		for _, issue := range issues {
-			ticket := s.ticket(ownerRepo, issue)
-			comments, err := s.FetchComments(ctx, ticket)
-			if err == nil {
-				ticket.Comments = comments
-			}
-			out = append(out, ticket)
+			out = append(out, s.ticket(ownerRepo, issue))
 		}
 	}
 	return out, nil
@@ -146,7 +141,7 @@ func (s *GitHubIssuesSource) listIssues(ctx context.Context, ownerRepo string) (
 		"--state", "open",
 		"--label", s.cfg.TriggerLabel,
 		"--limit", "100",
-		"--json", "number,title,body,url,labels")
+		"--json", "number,title,body,url,labels,comments")
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +185,7 @@ func (s *GitHubIssuesSource) ticket(ownerRepo string, issue githubIssue) Ticket 
 		ProjectName: ownerRepo,
 		RepoRef:     repoRef,
 		RepoBranch:  repoBranch,
+		Comments:    commentsFromGitHub(issue.Comments),
 		Labels:      labels,
 		SourceData: githubMeta{
 			OwnerRepo: ownerRepo,

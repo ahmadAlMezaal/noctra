@@ -10,6 +10,10 @@ func TestGitHubIssuesTicketUsesIssueRepoByDefault(t *testing.T) {
 		Body:   "Details",
 		URL:    "https://github.com/acme/widgets/issues/42",
 		Labels: []githubLabel{{Name: "noctra"}, {Name: "agent:codex"}},
+		Comments: []githubComment{{
+			Body:   "Please keep the old redirect path.",
+			Author: githubActor{Login: "octo"},
+		}},
 	})
 	if ticket.Identifier != "GH-ACME-WIDGETS-42" {
 		t.Fatalf("Identifier = %q", ticket.Identifier)
@@ -19,6 +23,9 @@ func TestGitHubIssuesTicketUsesIssueRepoByDefault(t *testing.T) {
 	}
 	if got := ticket.BackendLabel(); got != "codex" {
 		t.Fatalf("BackendLabel = %q; want codex", got)
+	}
+	if got, want := ticket.ClarificationComments(), []string{"octo: Please keep the old redirect path."}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("ClarificationComments = %#v; want %#v", got, want)
 	}
 }
 

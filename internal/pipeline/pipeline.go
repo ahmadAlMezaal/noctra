@@ -404,12 +404,18 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 
 func (p *Pipeline) fetchTickets(ctx context.Context) ([]source.Ticket, error) {
 	var out []source.Ticket
+	failures := 0
 	for _, src := range p.sources {
 		tickets, err := src.Fetch(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", src.Name(), err)
+			failures++
+			slog.Warn("fetch source failed", "source", src.Name(), "err", err)
+			continue
 		}
 		out = append(out, tickets...)
+	}
+	if failures > 0 && failures == len(p.sources) {
+		return nil, fmt.Errorf("all ticket sources failed")
 	}
 	return out, nil
 }
