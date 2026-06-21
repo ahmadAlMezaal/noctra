@@ -436,7 +436,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 		// Persist the pushed HEAD SHA + the agent's reasoning for the next iteration.
 		fullSHA := gitHead(ctx, wt.Path)
-		if fullSHA != "" || summary != "" {
+		if p.store != nil && (fullSHA != "" || summary != "") {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 				if fullSHA != "" {
 					r.LastPushedSHA = fullSHA
@@ -467,7 +467,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		// Reply + resolve so a no-diff review isn't silent on GitHub.
 		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
-		if summary != "" {
+		if p.store != nil && summary != "" {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 				r.LastReasoning = summary
 			}); err != nil {
