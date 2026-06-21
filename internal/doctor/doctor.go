@@ -42,6 +42,13 @@ func gather(scriptDir string) []check {
 		clis = []string{"git", "gh", config.AgentCLIs()[config.DefaultAgentBackend]}
 	}
 	for _, cli := range clis {
+		if loadErr == nil && cli == cfg.AgentCLI() {
+			checks = append(checks, check{
+				name:   "agent backend",
+				ok:     true,
+				detail: fmt.Sprintf("%s (%s)", cfg.AgentBackend, cfg.AgentCLI()),
+			})
+		}
 		checks = append(checks, checkCLI(cli))
 	}
 
