@@ -187,7 +187,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 	backend := p.resolveBackend(issue)
 
 	if p.cfg.TelegramVerbose {
-		p.telegram.Send(ctx, fmt.Sprintf("📋 *%s* — %s\nRunning plan-only pass.",
+		p.notifier.Send(ctx, fmt.Sprintf("📋 *%s* — %s\nRunning plan-only pass.",
 			id, notify.EscapeMarkdown(issue.Title)))
 	}
 
@@ -329,7 +329,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 	}
 
 	logger.Info("plan posted — awaiting approval", "id", id)
-	p.telegram.Send(ctx, fmt.Sprintf("📋 *%s* — %s\nPlan posted. Waiting for human approval.",
+	p.notifier.Send(ctx, fmt.Sprintf("📋 *%s* — %s\nPlan posted. Waiting for human approval.",
 		id, notify.EscapeMarkdown(issue.Title)))
 }
 
