@@ -282,10 +282,8 @@ type reviewThread struct {
 }
 
 // ReplyAndResolveThreads replies to and resolves all unresolved review threads
-// on a PR with a short note referencing the new commit SHA. Best-effort:
-// individual failures are logged, never returned. Mirrors the existing
-// "non-fatal on failure" posture for inline-comment fetches.
-func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, sha string) {
+// on a PR with the given note. Best-effort: failures are logged, never returned.
+func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, replyBody string) {
 	owner, repo, number, err := parsePRURL(prURL)
 	if err != nil {
 		slog.Warn("github: cannot parse PR URL for thread resolution", "url", prURL, "err", err)
@@ -301,8 +299,6 @@ func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, sha string) 
 	if len(threads) == 0 {
 		return
 	}
-
-	replyBody := fmt.Sprintf("Addressed in %s.", sha)
 
 	resolved := 0
 	for _, t := range threads {
