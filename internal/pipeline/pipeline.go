@@ -631,6 +631,16 @@ func buildTicketSources(cfg *config.Config, linearClient *linear.Client) []sourc
 				Repos:        cfg.GitHubIssuesRepos,
 				TriggerLabel: cfg.GitHubTriggerLabel,
 			}))
+		case "jira":
+			sources = append(sources, source.NewJira(source.JiraConfig{
+				BaseURL:        cfg.JiraBaseURL,
+				UserEmail:      cfg.JiraUserEmail,
+				APIToken:       cfg.JiraAPIToken,
+				Project:        cfg.JiraProject,
+				TriggerStatus:  cfg.JiraTriggerStatus,
+				TriggerLabel:   cfg.JiraTriggerLabel,
+				InReviewStatus: cfg.JiraInReviewStatus,
+			}))
 		}
 	}
 	return sources
