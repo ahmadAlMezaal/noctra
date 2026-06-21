@@ -3,10 +3,12 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -149,6 +151,48 @@ func TestReviewAPINon2xxIsUnavailable(t *testing.T) {
 	}
 	if !res.Skipped || !res.Passed {
 		t.Fatalf("result = %+v, want skipped pass", res)
+	}
+}
+
+func TestReviewAPIParsesStructuredFindings(t *testing.T) {
+	reviewJSON := `{"verdict":"FAIL","summary":"Needs a guard.","findings":[{"path":"tracker.py","line":500,"severity":"high","comment":"Guard save_history with dry_run."}]}`
+	candidate := fmt.Sprintf(`{"candidates":[{"content":{"parts":[{"text":%s}]}}]}`, strconv.Quote(reviewJSON))
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(200, candidate), nil
+	})}
+
+	res, err := g.Review(context.Background(), "T", "D", "diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Passed {
+		t.Error("FAIL verdict should not pass")
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Line != 500 || res.Findings[0].Path != "tracker.py" {
+		t.Fatalf("findings: %+v", res.Findings)
+	}
+	if res.Summary != "Needs a guard." {
+		t.Errorf("summary: %q", res.Summary)
+	}
+	if !strings.Contains(res.Body, "tracker.py:500") {
+		t.Errorf("rendered body should locate the finding: %q", res.Body)
+	}
+}
+
+func TestParseStructuredRejectsProse(t *testing.T) {
+	if _, ok := parseStructured("VERDICT: PASS\nlooks good"); ok {
+		t.Error("prose should not parse as structured")
+	}
+}
+
+func TestResultRender(t *testing.T) {
+	r := Result{Summary: "ok overall", Findings: []Finding{{Path: "a.go", Line: 3, Severity: "high", Comment: "fix this"}}}
+	got := r.Render()
+	for _, want := range []string{"ok overall", "a.go:3", "HIGH", "fix this"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render missing %q: %q", want, got)
+		}
 	}
 }
 

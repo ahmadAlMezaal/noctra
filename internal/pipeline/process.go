@@ -339,6 +339,8 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	reviewPassed := true
 	reviewSkipped := false
 	var reviewBody string
+	var reviewSummary string
+	var reviewFindings []review.Finding
 	reviewAttempts := 0
 
 	if p.review.Enabled() {
@@ -361,6 +363,8 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 				break
 			}
 			reviewBody = r.Body
+			reviewSummary = r.Summary
+			reviewFindings = r.Findings
 			if r.Skipped {
 				reviewPassed = true
 				reviewSkipped = true
@@ -517,16 +521,28 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 	reviewSection := ""
 	if p.review.Enabled() {
-		if reviewSkipped {
-			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
-				p.review.Model, p.review.Mode, reviewBody)
-		} else if reviewPassed {
-			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
-				p.review.Model, p.review.Mode)
+		model := fmt.Sprintf("Gemini `%s` via `%s`", p.review.Model, p.review.Mode)
+		switch {
+		case reviewSkipped:
+			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (%s)\n\n%s", model, reviewBody)
+		case reviewSummary != "" || len(reviewFindings) > 0:
+			verdict := "✅ Passed"
+			if !reviewPassed {
+				verdict = "⚠️ Changes requested"
+			}
+			reviewSection = fmt.Sprintf("\n---\n\n%s **Multi-model review** (%s)", verdict, model)
+			if reviewSummary != "" {
+				reviewSection += "\n\n" + reviewSummary
+			}
+			if len(reviewFindings) > 0 {
+				reviewSection += "\n\nSpecific findings are posted as inline review comments."
+			}
+		case reviewPassed:
+			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (%s)", model)
 			if body := strings.TrimSpace(reviewBody); body != "" {
 				reviewSection += fmt.Sprintf("\n\n<details>\n<summary>Gemini review</summary>\n\n```\n%s\n```\n\n</details>", body)
 			}
-		} else {
+		default:
 			reviewSection = fmt.Sprintf(
 				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
 				reviewAttempts, reviewBody)
@@ -566,6 +582,21 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 
 	logger.Info("✅ PR created", "url", prURL)
+
+	if len(reviewFindings) > 0 {
+		headSHA := gitHead(ctx, wt.Path)
+		ics := make([]github.InlineComment, 0, len(reviewFindings))
+		for _, f := range reviewFindings {
+			body := strings.TrimSpace(f.Comment)
+			if f.Severity != "" {
+				body = fmt.Sprintf("**%s priority**\n\n%s", strings.ToUpper(f.Severity), body)
+			}
+			ics = append(ics, github.InlineComment{Path: f.Path, Line: f.Line, Body: body})
+		}
+		posted := p.gh.PostInlineComments(ctx, prURL, headSHA, ics)
+		logger.Info("posted review findings inline", "posted", posted, "total", len(ics))
+	}
+
 	p.bumpSuccess()
 	p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
 		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(backend.Label()), prURL))

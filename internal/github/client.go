@@ -406,6 +406,51 @@ func decodeReviewThreads(data []byte) ([]reviewThread, error) {
 	return threads, nil
 }
 
+// InlineComment is a line-anchored review comment to post on a PR.
+type InlineComment struct {
+	Path string
+	Line int
+	Body string
+}
+
+// PostInlineComments posts each comment as an independent inline review comment
+// on commitSHA. Best-effort: a comment whose line isn't in the diff (GitHub 422)
+// is skipped, not fatal. Each body carries NoctraReplyMarker so the watcher
+// won't re-read Noctra's own comments as feedback. Returns the number posted.
+func (c *Client) PostInlineComments(ctx context.Context, prURL, commitSHA string, comments []InlineComment) int {
+	owner, repo, number, err := parsePRURL(prURL)
+	if err != nil {
+		slog.Warn("github: cannot parse PR URL for inline comments", "url", prURL, "err", err)
+		return 0
+	}
+	apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments", owner, repo, number)
+	posted := 0
+	for _, ic := range comments {
+		if strings.TrimSpace(ic.Body) == "" || ic.Path == "" || ic.Line <= 0 {
+			continue
+		}
+		var stderr strings.Builder
+		cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath,
+			"-f", "body="+ic.Body+"\n\n"+NoctraReplyMarker,
+			"-f", "commit_id="+commitSHA,
+			"-f", "path="+ic.Path,
+			"-F", fmt.Sprintf("line=%d", ic.Line),
+			"-f", "side=RIGHT",
+		)
+		cmd.Stderr = &stderr
+		if _, err := cmd.Output(); err != nil {
+			slog.Warn("github: post inline comment failed (likely out-of-diff line)",
+				"path", ic.Path, "line", ic.Line, "err", strings.TrimSpace(stderr.String()))
+			continue
+		}
+		posted++
+	}
+	if posted > 0 {
+		slog.Info("github: posted inline review comments", "url", prURL, "posted", posted, "total", len(comments))
+	}
+	return posted
+}
+
 // replyToThread posts a reply on a review comment thread via the REST API.
 func (c *Client) replyToThread(ctx context.Context, owner, repo string, prNumber int, commentID int64, body string) error {
 	apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments/%d/replies", owner, repo, prNumber, commentID)

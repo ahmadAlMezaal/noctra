@@ -25,6 +25,14 @@ const defaultMode = "api"
 // review gate instead of treating this like a failed review.
 var ErrUnavailable = errors.New("gemini review unavailable")
 
+// Finding is one line-anchored review comment.
+type Finding struct {
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	Severity string `json:"severity"`
+	Comment  string `json:"comment"`
+}
+
 // Result is the outcome of a single review pass.
 type Result struct {
 	Passed bool
@@ -34,6 +42,32 @@ type Result struct {
 	// Body is Gemini's review text — surfaced in the PR body if the gate
 	// did not pass.
 	Body string
+	// Summary is the short overall assessment (structured API mode only).
+	Summary string
+	// Findings are line-anchored comments to post inline (structured API mode only).
+	Findings []Finding
+}
+
+// Render flattens a structured result into readable text for the fix prompt and
+// the PR-body fallback.
+func (r Result) Render() string {
+	var b strings.Builder
+	if s := strings.TrimSpace(r.Summary); s != "" {
+		b.WriteString(s)
+		b.WriteByte('\n')
+	}
+	for _, f := range r.Findings {
+		loc := f.Path
+		if f.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", f.Path, f.Line)
+		}
+		sev := ""
+		if f.Severity != "" {
+			sev = strings.ToUpper(f.Severity) + " "
+		}
+		fmt.Fprintf(&b, "- [%s%s] %s\n", sev, loc, strings.TrimSpace(f.Comment))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // Gate is a Gemini-backed reviewer.
@@ -80,11 +114,10 @@ func (g *Gate) Review(ctx context.Context, ticketTitle, ticketDescription, diff 
 		return Result{Passed: true, Body: "PASS (Gemini not configured)"}, nil
 	}
 
-	prompt := buildPrompt(ticketTitle, ticketDescription, diff)
 	if g.Mode == "cli" {
-		return g.reviewCLI(ctx, prompt)
+		return g.reviewCLI(ctx, buildPrompt(ticketTitle, ticketDescription, diff))
 	}
-	return g.reviewAPI(ctx, prompt)
+	return g.reviewAPI(ctx, buildStructuredPrompt(ticketTitle, ticketDescription, diff), true)
 }
 
 func buildPrompt(ticketTitle, ticketDescription, diff string) string {
@@ -112,10 +145,55 @@ Then provide your review comments.`,
 		ticketTitle, ticketDescription, diff)
 }
 
-func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
+func buildStructuredPrompt(ticketTitle, ticketDescription, diff string) string {
+	return fmt.Sprintf(`You are a senior code reviewer. Review this diff against the ticket requirements.
+
+## Ticket: %s
+%s
+
+## Diff:
+%s
+
+Return a JSON review:
+- "verdict": "PASS" if it is good to merge (minor nits are fine), otherwise "FAIL".
+- "summary": a 1-3 sentence overall assessment.
+- "findings": specific issues, each anchored to a changed line. For each finding set "path" (the file path exactly as it appears in the diff), "line" (a line number that appears as an added/changed line in the diff), "severity" ("high"/"medium"/"low"), and "comment" (the problem and a suggested fix). Only include findings you can anchor to a changed line; put anything broader in the summary. Use an empty array if there are none.`,
+		ticketTitle, ticketDescription, diff)
+}
+
+func reviewSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"verdict": map[string]any{"type": "string", "enum": []string{"PASS", "FAIL"}},
+			"summary": map[string]any{"type": "string"},
+			"findings": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":     map[string]any{"type": "string"},
+						"line":     map[string]any{"type": "integer"},
+						"severity": map[string]any{"type": "string"},
+						"comment":  map[string]any{"type": "string"},
+					},
+					"required": []string{"path", "comment"},
+				},
+			},
+		},
+		"required": []string{"verdict", "summary"},
+	}
+}
+
+func (g *Gate) reviewAPI(ctx context.Context, prompt string, structured bool) (Result, error) {
+	gen := map[string]any{"temperature": 0.1, "maxOutputTokens": 4096}
+	if structured {
+		gen["responseMimeType"] = "application/json"
+		gen["responseSchema"] = reviewSchema()
+	}
 	body, err := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"parts": []any{map[string]any{"text": prompt}}}},
-		"generationConfig": map[string]any{"temperature": 0.1, "maxOutputTokens": 4096},
+		"generationConfig": gen,
 	})
 	if err != nil {
 		return Result{}, err
@@ -173,7 +251,34 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 	}
 
 	text := parsed.Candidates[0].Content.Parts[0].Text
+	if structured {
+		if r, ok := parseStructured(text); ok {
+			return r, nil
+		}
+	}
 	return parseResult(text), nil
+}
+
+func parseStructured(text string) (Result, bool) {
+	var s struct {
+		Verdict  string    `json:"verdict"`
+		Summary  string    `json:"summary"`
+		Findings []Finding `json:"findings"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(text)), &s) != nil {
+		return Result{}, false
+	}
+	switch strings.ToUpper(strings.TrimSpace(s.Verdict)) {
+	case "PASS":
+		r := Result{Passed: true, Summary: strings.TrimSpace(s.Summary), Findings: s.Findings}
+		r.Body = r.Render()
+		return r, true
+	case "FAIL":
+		r := Result{Passed: false, Summary: strings.TrimSpace(s.Summary), Findings: s.Findings}
+		r.Body = r.Render()
+		return r, true
+	}
+	return Result{}, false
 }
 
 func apiErrorMessage(raw []byte, status string) string {
@@ -313,7 +418,7 @@ Updated lessons list:`,
 	if g.Mode == "cli" {
 		result, err = g.reviewCLI(ctx, prompt)
 	} else {
-		result, err = g.reviewAPI(ctx, prompt)
+		result, err = g.reviewAPI(ctx, prompt, false)
 	}
 	if err != nil {
 		return "", err
