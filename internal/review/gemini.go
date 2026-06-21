@@ -143,11 +143,7 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 		return Result{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body := strings.TrimSpace(string(raw))
-		if body == "" {
-			body = resp.Status
-		}
-		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API unavailable (%s): %s", resp.Status, body)},
+		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API unavailable (%s): %s", resp.Status, apiErrorMessage(raw, resp.Status))},
 			fmt.Errorf("%w: gemini API returned %s", ErrUnavailable, resp.Status)
 	}
 
@@ -178,6 +174,38 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 
 	text := parsed.Candidates[0].Content.Parts[0].Text
 	return parseResult(text), nil
+}
+
+// apiErrorMessage turns a Gemini error response into a concise one-liner for the
+// PR body — the API returns a verbose multi-line JSON blob (quota errors run to
+// dozens of lines) that shouldn't be dumped verbatim. Prefers the structured
+// error.message (first line), falling back to a length-capped raw body.
+func apiErrorMessage(raw []byte, status string) string {
+	const cap = 300
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err == nil {
+		if msg := strings.TrimSpace(parsed.Error.Message); msg != "" {
+			if i := strings.IndexByte(msg, '\n'); i > 0 {
+				msg = strings.TrimSpace(msg[:i])
+			}
+			if len(msg) > cap {
+				msg = msg[:cap] + "…"
+			}
+			return msg
+		}
+	}
+	body := strings.TrimSpace(string(raw))
+	if body == "" {
+		return status
+	}
+	if len(body) > cap {
+		body = body[:cap] + "…"
+	}
+	return body
 }
 
 func (g *Gate) reviewCLI(ctx context.Context, prompt string) (Result, error) {

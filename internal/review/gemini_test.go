@@ -152,6 +152,43 @@ func TestReviewAPINon2xxIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestReviewAPIErrorBodyIsConcise(t *testing.T) {
+	// A real 429 quota error is a multi-line JSON blob; the PR body should get a
+	// short one-liner, not the whole wall.
+	raw := `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan.\n* Quota exceeded for metric: foo\n* Quota exceeded for metric: bar","status":"RESOURCE_EXHAUSTED"}}`
+	g := NewWithMode("api", "secret-key", "gemini-test")
+	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(429, raw), nil
+	})}
+
+	res, _ := g.Review(context.Background(), "Ticket", "Description", "diff")
+	if strings.Contains(res.Body, "Quota exceeded for metric") {
+		t.Errorf("body should not include the raw multi-line blob: %q", res.Body)
+	}
+	if !strings.Contains(res.Body, "You exceeded your current quota") {
+		t.Errorf("body should include the first line of error.message: %q", res.Body)
+	}
+}
+
+func TestAPIErrorMessage(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	cases := []struct {
+		name, raw, want string
+	}{
+		{"structured first line", `{"error":{"message":"boom\ndetail line"}}`, "boom"},
+		{"non-json falls back", "plain text error", "plain text error"},
+		{"empty falls back to status", "", "503 Service Unavailable"},
+	}
+	for _, c := range cases {
+		if got := apiErrorMessage([]byte(c.raw), "503 Service Unavailable"); got != c.want {
+			t.Errorf("%s: apiErrorMessage = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := apiErrorMessage([]byte(long), "503"); len(got) > 320 || !strings.HasSuffix(got, "…") {
+		t.Errorf("long raw body should be capped with ellipsis, got len %d", len(got))
+	}
+}
+
 func TestReviewAPINoCandidatesIsUnavailable(t *testing.T) {
 	g := NewWithMode("api", "secret-key", "gemini-test")
 	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

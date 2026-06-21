@@ -322,6 +322,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	logger.Info("running agent", "backend", backend.Name(), "log", logFile)
 
+	headBefore := gitHead(ctx, wt.Path)
+
 	runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
@@ -425,14 +427,22 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
-	if ahead {
-		if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
-			logger.Error("git push failed", "err", err)
-			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
-			return
+	// "Addressed" is keyed on HEAD moving during the iteration, not on the
+	// branch being ahead of its remote: the agent sometimes commits AND pushes
+	// itself, leaving the branch in sync with the remote (ahead == false) even
+	// though it made the fix. Keying on ahead alone misreported that as
+	// "no code change" (the commit was already pushed).
+	moved := headBefore != "" && gitHead(ctx, wt.Path) != headBefore
+	if moved || ahead {
+		if ahead {
+			if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
+				logger.Error("git push failed", "err", err)
+				p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+				return
+			}
 		}
 		sha := gitHeadShort(ctx, wt.Path)
-		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
+		logger.Info("follow-up commit", "sha", sha, "branch", wt.Branch, "pushed_by_agent", !ahead)
 
 		// Persist the pushed HEAD SHA + the agent's reasoning for the next iteration.
 		fullSHA := gitHead(ctx, wt.Path)
