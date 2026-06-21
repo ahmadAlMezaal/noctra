@@ -13,6 +13,7 @@ import (
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/ahmadAlMezaal/noctra/internal/lessons"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
@@ -56,6 +57,8 @@ func (p *Pipeline) runWatcher(ctx context.Context, wg *sync.WaitGroup) {
 // events, and dispatch iteratePR goroutines for everything that is actionable
 // (and not at the iteration cap).
 func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
+	lessons.ProcessMergedPRs(ctx, p.store, p.gh, p.resolver, p.review)
+
 	scanCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	changes, err := p.watcher.Scan(scanCtx)
 	cancel()
@@ -288,6 +291,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 	}
 
+	var repoLessons string
+	if p.store != nil {
+		repoSlug := repo.Slug(filepath.Base(resolved.Path))
+		if l, err := p.store.GetLessons(repoSlug); err == nil {
+			repoLessons = l
+		}
+	}
+
 	prompt := agent.BuildFixPrompt(agent.FixPromptInput{
 		Identifier:  identifier,
 		Title:       title,
@@ -296,6 +307,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		PRURL:       ch.PR.URL,
 		Feedback:    items,
 		CI:          ciItems,
+		RepoLessons: repoLessons,
 	})
 
 	logFile := filepath.Join(p.cfg.LogDir, identifier+".log")
@@ -413,6 +425,16 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		sha := gitHeadShort(ctx, wt.Path)
 		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
+
+		// Persist the full pushed HEAD commit SHA in state for lessons tracking
+		fullSHA := gitHead(ctx, wt.Path)
+		if fullSHA != "" {
+			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
+				r.LastPushedSHA = fullSHA
+			}); err != nil {
+				logger.Warn("could not persist LastPushedSHA in PR state", "err", err)
+			}
+		}
 
 		// Reply to and resolve addressed review threads (best-effort).
 		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, fmt.Sprintf("Addressed in %s.", sha))

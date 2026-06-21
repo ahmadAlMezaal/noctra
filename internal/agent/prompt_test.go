@@ -89,3 +89,18 @@ func TestBuildPrompt_ReleaseInstructionInTeamsFlavor(t *testing.T) {
 		t.Errorf("teams prompt should include RELEASE instruction when AutoReleaseLabel=true:\n%s", out)
 	}
 }
+
+func TestBuildPrompt_IncludesLessons(t *testing.T) {
+	out := BuildPrompt(BuildPromptInput{
+		Identifier:  "ENG-1",
+		Title:       "Test",
+		Description: "Desc",
+		RepoLessons: "- Lesson A\n- Lesson B",
+	})
+	if !strings.Contains(out, "## Repository Lessons & Conventions") {
+		t.Errorf("expected lessons heading in prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "- Lesson A") {
+		t.Errorf("expected lesson content in prompt:\n%s", out)
+	}
+}

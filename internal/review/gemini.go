@@ -252,3 +252,45 @@ func reviewVerdict(text string) string {
 	}
 	return ""
 }
+
+// SummarizeLessons uses Gemini to consolidate a new post-merge diff with existing lessons.
+func (g *Gate) SummarizeLessons(ctx context.Context, existingLessons, diff string) (string, error) {
+	if !g.Enabled() {
+		return "", errors.New("gemini not enabled")
+	}
+
+	const capBytes = 60000
+	if len(diff) > capBytes {
+		diff = diff[:capBytes] + "\n\n[Diff truncated...]"
+	}
+
+	prompt := fmt.Sprintf(`You are updating a compact, durable list of lessons and conventions for a repository based on human post-merge edits to AI-generated code.
+
+Existing lessons/conventions for this repository:
+%s
+
+New human edits (diff of changes made by human on top of the AI's version):
+%s
+
+Incorporate any new correction patterns, missing conventions, or style guidelines from the new edits into the existing list.
+Follow these rules:
+1. Keep the final list extremely concise and action-oriented.
+2. Keep the final list under 10 bullet points / 300 words total (size-bounded).
+3. Directly focus on what the AI got wrong and how to avoid/fix it in the future.
+4. Output ONLY the updated, consolidated list of lessons/conventions. Do not include any conversational filler, markdown headers like "Here is the updated list", or wrappers.
+
+Updated lessons list:`,
+		existingLessons, diff)
+
+	var result Result
+	var err error
+	if g.Mode == "cli" {
+		result, err = g.reviewCLI(ctx, prompt)
+	} else {
+		result, err = g.reviewAPI(ctx, prompt)
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Body), nil
+}
