@@ -146,3 +146,82 @@ func TestRunJSON_ReturnsErrorOnFailure(t *testing.T) {
 		t.Error("expected JSON output even when checks fail")
 	}
 }
+
+func TestGather_AgentBackend(t *testing.T) {
+	tests := []struct {
+		backend string
+		cli     string
+	}{
+		{"antigravity", "agy"},
+		{"claude", "claude"},
+		{"copilot", "copilot"},
+		{"codex", "codex"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.backend, func(t *testing.T) {
+			t.Setenv("AGENT_BACKEND", tc.backend)
+
+			checks := gather(t.TempDir())
+
+			backendIndex := -1
+			cliIndex := -1
+
+			for i, c := range checks {
+				if c.name == "agent backend" {
+					backendIndex = i
+					if !c.ok {
+						t.Error("expected agent backend check to be ok=true")
+					}
+					expectedDetail := tc.backend + " (" + tc.cli + ")"
+					if c.detail != expectedDetail {
+						t.Errorf("expected detail %q, got %q", expectedDetail, c.detail)
+					}
+				}
+				if c.name == tc.cli {
+					cliIndex = i
+				}
+			}
+
+			if backendIndex == -1 {
+				t.Error("expected an 'agent backend' check in gather() results")
+			}
+			if cliIndex == -1 {
+				t.Error("expected CLI check in gather() results")
+			}
+
+			if backendIndex != -1 && cliIndex != -1 {
+				if backendIndex != cliIndex-1 {
+					t.Errorf("expected 'agent backend' check to be directly before '%s' check, but backend index is %d and CLI index is %d", tc.cli, backendIndex, cliIndex)
+				}
+			}
+		})
+	}
+}
+
+func TestGather_AgentBackend_Invalid(t *testing.T) {
+	t.Setenv("AGENT_BACKEND", "invalidbackend")
+
+	checks := gather(t.TempDir())
+
+	found := false
+	for _, c := range checks {
+		if c.name == "agent backend" {
+			found = true
+			if c.ok {
+				t.Error("expected agent backend check to fail for invalid backend")
+			}
+			if !strings.Contains(c.detail, "unsupported") {
+				t.Errorf("expected detail to mention unsupported, got %q", c.detail)
+			}
+			if !strings.Contains(c.hint, "must be") {
+				t.Errorf("expected hint to instruct valid choices, got %q", c.hint)
+			}
+		}
+	}
+
+	if !found {
+		t.Error("expected an 'agent backend' check in gather() results")
+	}
+}
+
