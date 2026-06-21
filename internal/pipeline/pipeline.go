@@ -73,9 +73,9 @@ type Pipeline struct {
 	failedAttempts    map[string]int                // per-ticket retry counter
 	approvedPlans     map[string]string             // plan-confirm: approved plans keyed by identifier (ENG-221)
 	skipped           map[string]struct{}           // non-transient failures — never re-dispatched
-	totalDispatches   int                           // dispatches in the current UTC day (MAX_DISPATCHES, reset daily)
-	dispatchWindow    time.Time                     // UTC midnight of the day totalDispatches counts
-	dispatchCapped    bool                          // true once today's cap alert has fired
+	totalDispatches   int                           // per-UTC-day dispatch count (MAX_DISPATCHES)
+	dispatchWindow    time.Time
+	dispatchCapped    bool
 	successCount      int
 	failCount         int
 	rateLimitDetected bool // only used when RateLimitStrategy=shutdown
@@ -312,9 +312,8 @@ func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
-// rollDispatchWindow makes MAX_DISPATCHES a per-UTC-day cap: when the day
-// rolls over it zeroes the counter and clears the cap alert, so dispatching
-// auto-resumes the next day. Caller must hold p.mu.
+// rollDispatchWindow resets the daily dispatch counter at UTC midnight.
+// Caller must hold p.mu.
 func (p *Pipeline) rollDispatchWindow(now time.Time) {
 	day := now.UTC().Truncate(24 * time.Hour)
 	if !day.Equal(p.dispatchWindow) {
@@ -341,9 +340,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 	p.mu.Unlock()
 
-	// Daily cap reached: pause dispatching but keep the loop alive — it
-	// auto-resumes after rollDispatchWindow resets the counter at UTC
-	// midnight. Alert once per day so we don't spam every poll tick.
+	// Daily cap reached: pause dispatching (resumes after the UTC-midnight reset); alert once.
 	if capped {
 		if notifyCap {
 			slog.Info("⏸ daily dispatch cap reached — pausing until UTC midnight",

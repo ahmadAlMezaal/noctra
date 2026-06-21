@@ -156,6 +156,10 @@ DEBUG: pwd = /path
 
 `agent.OffsetBefore` records the file size *before* Claude runs; `agent.ReadAfter` reads only the new tail. `agent.BlockedLine` and `agent.HasRateLimit` operate on that tail so failures from previous attempts don't get re-detected. **Do not replace this with a scan over the full file** — that re-detects failures from previous attempts and causes false positives.
 
+## Code style
+
+Keep comments minimal: explain *why* for a non-obvious decision, never narrate *what* the code already says. Prefer a self-explanatory name over a comment. Keep doc comments on exported symbols (Go convention); drop inline comments that just restate the next line.
+
 ## Running tests
 
 ```bash
