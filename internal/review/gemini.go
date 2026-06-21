@@ -176,10 +176,6 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 	return parseResult(text), nil
 }
 
-// apiErrorMessage turns a Gemini error response into a concise one-liner for the
-// PR body — the API returns a verbose multi-line JSON blob (quota errors run to
-// dozens of lines) that shouldn't be dumped verbatim. Prefers the structured
-// error.message (first line), falling back to a length-capped raw body.
 func apiErrorMessage(raw []byte, status string) string {
 	const cap = 300
 	var parsed struct {

@@ -427,11 +427,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
-	// "Addressed" is keyed on HEAD moving during the iteration, not on the
-	// branch being ahead of its remote: the agent sometimes commits AND pushes
-	// itself, leaving the branch in sync with the remote (ahead == false) even
-	// though it made the fix. Keying on ahead alone misreported that as
-	// "no code change" (the commit was already pushed).
+	// Key "addressed" on HEAD moving, not branch-ahead: the agent may self-push.
 	moved := headBefore != "" && gitHead(ctx, wt.Path) != headBefore
 	if moved || ahead {
 		if ahead {

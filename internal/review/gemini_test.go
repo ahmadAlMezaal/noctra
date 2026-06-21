@@ -153,8 +153,6 @@ func TestReviewAPINon2xxIsUnavailable(t *testing.T) {
 }
 
 func TestReviewAPIErrorBodyIsConcise(t *testing.T) {
-	// A real 429 quota error is a multi-line JSON blob; the PR body should get a
-	// short one-liner, not the whole wall.
 	raw := `{"error":{"code":429,"message":"You exceeded your current quota, please check your plan.\n* Quota exceeded for metric: foo\n* Quota exceeded for metric: bar","status":"RESOURCE_EXHAUSTED"}}`
 	g := NewWithMode("api", "secret-key", "gemini-test")
 	g.HTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

@@ -32,13 +32,9 @@ const NoctraPRBodyMarker = "<!-- noctra-authored -->"
 // existed; both old footers contain it.
 const legacyNoctraPRBodyMarker = "by [Noctra]"
 
-// NoctraReplyMarker is a hidden marker embedded in every review-thread reply
-// Noctra posts. The watcher filters it out so Noctra's own replies aren't
-// re-read as actionable feedback — which otherwise loops when Noctra runs under
-// a personal account (its replies look like human comments).
+// NoctraReplyMarker tags replies Noctra posts so the watcher skips its own.
 const NoctraReplyMarker = "<!-- noctra-reply -->"
 
-// IsNoctraReply reports whether a comment body was posted by Noctra itself.
 func IsNoctraReply(body string) bool {
 	return strings.Contains(body, NoctraReplyMarker)
 }
@@ -311,7 +307,6 @@ func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, replyBody st
 		return
 	}
 
-	// Tag the reply so the watcher won't re-read it as new feedback.
 	replyBody += "\n\n" + NoctraReplyMarker
 
 	resolved := 0
