@@ -240,7 +240,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	// One poll right away so we don't sit idle for the first interval.
-	p.pollOnce(loopCtx, &wg)
+	p.pollOnce(ctx, &wg)
 
 	// PR watcher runs on its own ticker if auto-iterate is enabled. Lives
 	// inside this Run so it shares the WaitGroup — graceful shutdown waits
@@ -303,7 +303,9 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
-			p.pollOnce(loopCtx, &wg)
+			// ctx, not loopCtx: a self-shutdown lets in-flight dispatches drain;
+			// only the long-lived loops are cancelled.
+			p.pollOnce(ctx, &wg)
 		}
 	}
 }
