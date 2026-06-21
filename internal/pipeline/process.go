@@ -13,10 +13,10 @@ import (
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/review"
+	"github.com/ahmadAlMezaal/noctra/internal/source"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
@@ -29,7 +29,7 @@ const maxReviewDiffBytes = 60000
 // carries an "agent:<name>" label, that backend is used; otherwise the
 // pipeline's default (p.agent) is returned. An unknown label value degrades
 // to the default with a warning — never a hard failure.
-func (p *Pipeline) resolveBackend(issue linear.Issue) agent.Backend {
+func (p *Pipeline) resolveBackend(issue source.Ticket) agent.Backend {
 	label := issue.BackendLabel()
 	if label == "" {
 		return p.agent
@@ -47,9 +47,9 @@ func (p *Pipeline) resolveBackend(issue linear.Issue) agent.Backend {
 
 // process is one ticket's full lifecycle: resolve repo → worktree → run
 // Claude → check output → (optional) Gemini review → commit/push → create PR
-// → update Linear. Each failure mode posts a Linear comment and moves the
-// ticket back to the trigger state, mirroring the bash predecessor exactly.
-func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
+// → update the ticket source. Each failure mode posts a source comment and
+// moves the ticket back to the trigger state where the source supports that.
+func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
 	logger.Info("starting", "title", issue.Title)
@@ -88,11 +88,11 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		resolved repo.Resolved
 		err      error
 	)
-	if ref, branch := issue.Project.RepoDirective(); ref != "" {
-		logger.Info("repo from Linear project directive", "repo", ref, "branch", branch)
-		resolved, err = p.resolver.ResolveDirect(ctx, ref, branch)
+	if issue.RepoRef != "" {
+		logger.Info("repo from ticket source directive", "repo", issue.RepoRef, "branch", issue.RepoBranch)
+		resolved, err = p.resolver.ResolveDirect(ctx, issue.RepoRef, issue.RepoBranch)
 	} else {
-		resolved, err = p.resolver.Resolve(ctx, issue.ProjectName())
+		resolved, err = p.resolver.Resolve(ctx, issue.ProjectName)
 	}
 	if err != nil {
 		logger.Error("repo resolution failed", "err", err)
@@ -104,10 +104,10 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			// dispatch so config mistakes don't burn the budget or shut
 			// the agent down. Only one comment + notification is posted.
 			p.skipPermanently(id)
-			if cerr := p.linear.Comment(ctx, issue.ID,
-				fmt.Sprintf("❌ **Noctra: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` line to this ticket's **Linear project description** (optionally a `Branch:` line). Then move it back to **%s**.",
+			if cerr := p.ticketComment(ctx, issue,
+				fmt.Sprintf("❌ **Noctra: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` directive to this ticket's source metadata (optionally a `Branch:` line). Then move it back to **%s**.",
 					err.Error(), p.cfg.TriggerState)); cerr != nil {
-				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
+				slog.Warn("ticket comment failed", "issue_id", issue.ID, "err", cerr)
 			}
 			p.notifier.Send(ctx, fmt.Sprintf("⚠️ *%s* — skipped (no repo mapping)", id))
 			return
@@ -123,7 +123,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 			msg = fmt.Sprintf("❌ **Noctra: repo resolution failed** (attempt %d/%d)\n\n%s\n\nTicket moved back to **%s**. Will retry on next poll cycle.",
 				attempts, p.cfg.MaxRetries, err.Error(), p.cfg.TriggerState)
 		}
-		p.linearBackToTrigger(ctx, issue.ID, msg)
+		p.ticketBackToTrigger(ctx, issue, msg)
 		return
 	}
 	logger.Info("repo resolved", "path", resolved.Path, "main", resolved.MainBranch)
@@ -132,7 +132,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {
 		logger.Error("worktree creation failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: Setup failed**\n\nCould not create worktree. This may be a branch naming conflict.\n\nCheck that branch `%s` does not already exist on the remote.\n\nTicket moved back to **%s**.",
 			repo.BranchName(id), p.cfg.TriggerState))
 		return
@@ -195,7 +195,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("timed out", "timeout", p.cfg.AgentTimeout)
 		p.bumpFailed(id)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"⏰ **Noctra: Agent timed out**\n\nClaude timed out after %s working on this ticket.\n\nThe ticket may be too complex for a single session. Consider breaking it into smaller tasks.\n\nTicket moved back to **%s**.",
 			p.cfg.AgentTimeout, p.cfg.TriggerState))
 		p.notifier.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
@@ -237,7 +237,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		if p.cfg.RateLimitStrategy == "shutdown" {
 			action = "shutting down"
 		}
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"🛑 **Noctra: Rate limit detected**\n\nThe agent hit a usage or rate limit while working on this ticket.\n\nTicket moved back to **%s**. Noctra is %s to avoid further limit hits.",
 			p.cfg.TriggerState, action))
 		p.mu.Lock()
@@ -255,7 +255,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		attempts := p.bumpFailed(id)
 		logger.Warn("agent exited with error",
 			"err", runErr, "attempt", attempts, "max", p.cfg.MaxRetries)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: Agent failed** (attempt %d/%d)\n\nThe agent exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
 			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
 		p.notifier.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
@@ -271,7 +271,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	if blocked := agent.BlockedLine(output); blocked != "" {
 		attempts := p.bumpFailed(id)
 		logger.Info("blocked", "line", blocked, "attempt", attempts, "max", p.cfg.MaxRetries)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"🚧 **Noctra needs your input** (attempt %d/%d)\n\nThe agent got blocked on this ticket:\n\n> %s\n\nClarify in the ticket comments, then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
 			attempts, p.cfg.MaxRetries, blocked, p.cfg.TriggerState, p.cfg.MaxRetries))
 		p.notifier.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
@@ -303,7 +303,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		// wrong repo). After MaxRetries it's skipped until restart.
 		attempts := p.bumpFailed(id)
 		logger.Warn("no changes made", "attempt", attempts, "max", p.cfg.MaxRetries)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"💭 **Noctra: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project points at the wrong repo.\n\nAdd more detail (or check the project's `Repo:` directive), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
 			attempts, p.cfg.MaxRetries, p.cfg.TriggerState, p.cfg.MaxRetries))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
@@ -404,7 +404,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 				case agentRunTimedOut:
 					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
 					p.bumpFailed(id)
-					p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+					p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 						"⏰ **Noctra: Agent timed out**\n\n%s timed out after %s while fixing Gemini review feedback.\n\nTicket moved back to **%s**.",
 						backend.Label(), p.cfg.AgentTimeout, p.cfg.TriggerState))
 					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
@@ -413,7 +413,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 					logger.Warn("usage/rate limit detected during fix-pass — triggering shutdown")
 					p.bumpFailed(id)
 					p.flagRateLimit()
-					p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+					p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 						"🛑 **Noctra: Rate limit detected**\n\nThe agent hit a usage or rate limit while fixing Gemini review feedback.\n\nTicket moved back to **%s**. Noctra is shutting down to avoid further limit hits.",
 						p.cfg.TriggerState))
 					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
@@ -448,12 +448,12 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	useCC := ccType != "" && usesCC
 
 	prTitle := fmt.Sprintf("%s: %s", id, issue.Title)
-	commitSubject := fmt.Sprintf("feat: implement %s — %s", id, issue.Title)
+	commitSubject := prTitle
 	if useCC {
 		subj := conventionalSubject(ccType, breaking, issue.Title, id)
 		prTitle, commitSubject = subj, subj
 	}
-	commitBody := fmt.Sprintf("Implemented by Noctra using %s\n\nLinear: %s", backend.Label(), issue.URL)
+	commitBody := fmt.Sprintf("Implemented by Noctra using %s\n\nTicket: %s", backend.Label(), issue.URL)
 	if useCC && breaking {
 		commitBody += fmt.Sprintf("\n\nBREAKING CHANGE: %s", issue.Title)
 	}
@@ -462,21 +462,21 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git diff --cached failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, "❌ **Noctra: commit check failed** — see Noctra logs.")
+		p.ticketBackToTrigger(ctx, issue, "❌ **Noctra: commit check failed** — see Noctra logs.")
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
 	if staged {
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
-			p.linearBackToTrigger(ctx, issue.ID, "❌ **Noctra: commit failed** — see Noctra logs.")
+			p.ticketBackToTrigger(ctx, issue, "❌ **Noctra: commit failed** — see Noctra logs.")
 			repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 			return
 		}
 	}
 	if err := runIn(ctx, wt.Path, "git", "push", "-u", "origin", wt.Branch); err != nil {
 		logger.Error("git push failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, "❌ **Noctra: push failed** — check that the host has push access and `gh auth status` is healthy.")
+		p.ticketBackToTrigger(ctx, issue, "❌ **Noctra: push failed** — check that the host has push access and `gh auth status` is healthy.")
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -502,7 +502,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Linear:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
 		id, issue.Title, issue.URL, summary, reviewSection, backend.Label(), github.NoctraPRBodyMarker)
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
@@ -511,7 +511,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		prBody, resolved.MainBranch, wt.Branch)
 	if err != nil {
 		logger.Error("gh pr create failed", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: PR creation failed**\n\nThe branch `%s` was pushed, but `gh pr create` failed.\n\nCheck that you have push access to the repository and that `gh` is authenticated.\n\nError:\n```\n%s\n```\n\nTicket moved back to **%s**.",
 			wt.Branch, err.Error(), p.cfg.TriggerState))
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
@@ -550,37 +550,40 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	}
 
 	// ── Move to In Review + remove trigger label ────────────────────────────
-	if p.cfg.TriggerMode == "label" && p.labelID != "" {
-		if err := p.linear.RemoveLabel(ctx, issue.ID, p.labelID); err != nil {
-			logger.Warn("could not remove trigger label", "err", err)
-		}
-	}
-	if err := p.linear.SetState(ctx, issue.ID, p.states.InReview); err != nil {
-		logger.Warn("could not set in-review state", "err", err)
-	}
-	if err := p.linear.Comment(ctx, issue.ID, fmt.Sprintf(
-		"🌙 **Noctra created a PR** (via %s)\n\n**PR:** %s\n\nMoved to **%s**. Ready for your review!",
-		backend.Label(), prURL, p.cfg.InReviewState)); err != nil {
-		logger.Warn("could not post Linear comment", "err", err)
+	if err := p.ticketSource(issue).MarkReady(ctx, issue, source.ReadyInfo{
+		PRURL:        prURL,
+		BackendLabel: backend.Label(),
+		ReviewState:  p.cfg.InReviewState,
+	}); err != nil {
+		logger.Warn("could not update ticket source", "err", err)
 	}
 
 	logger.Info("done", "next_state", p.cfg.InReviewState)
 	repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 }
 
-// linearBackToTrigger moves a ticket back to the trigger state and posts the
-// given comment, swallowing API errors (the operation is best-effort). In
-// label mode the trigger label is already present (not removed until
-// success), so only the comment is posted.
-func (p *Pipeline) linearBackToTrigger(ctx context.Context, issueID, body string) {
-	if p.states.Trigger != "" {
-		if err := p.linear.SetState(ctx, issueID, p.states.Trigger); err != nil {
-			slog.Warn("linear SetState failed", "issue_id", issueID, "err", err)
+// ticketBackToTrigger moves a ticket back to the trigger state where the
+// source supports that, then posts the given comment.
+func (p *Pipeline) ticketBackToTrigger(ctx context.Context, ticket source.Ticket, body string) {
+	if err := p.ticketSource(ticket).BackToTrigger(ctx, ticket, body); err != nil {
+		slog.Warn("ticket source back-to-trigger failed", "issue_id", ticket.ID, "source", ticket.Source, "err", err)
+	}
+}
+
+func (p *Pipeline) ticketComment(ctx context.Context, ticket source.Ticket, body string) error {
+	return p.ticketSource(ticket).Comment(ctx, ticket, body)
+}
+
+func (p *Pipeline) ticketSource(ticket source.Ticket) source.TicketSource {
+	for _, src := range p.sources {
+		if src.Name() == ticket.Source {
+			return src
 		}
 	}
-	if err := p.linear.Comment(ctx, issueID, body); err != nil {
-		slog.Warn("linear Comment failed", "issue_id", issueID, "err", err)
+	if len(p.sources) == 0 {
+		panic("pipeline has no ticket sources")
 	}
+	return p.sources[0]
 }
 
 func workingTreeChanged(ctx context.Context, workdir string) (bool, error) {

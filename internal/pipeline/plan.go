@@ -10,16 +10,16 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/source"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
 // needsPlanConfirm reports whether a ticket should go through the plan-confirm
 // flow. True when either the global PLAN_CONFIRM=true is set, or the issue
 // carries the plan-confirm label (e.g. "plan-first").
-func (p *Pipeline) needsPlanConfirm(issue linear.Issue) bool {
+func (p *Pipeline) needsPlanConfirm(issue source.Ticket) bool {
 	if p.store == nil {
 		return false
 	}
@@ -82,23 +82,24 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 
 		slog.Info("plan approved — resuming implementation", "id", identifier)
 
-		// Fetch the full issue so we have all fields for the implementation
+		// Fetch the full ticket so we have all fields for the implementation
 		// prompt (title, description, comments, labels, project).
 		fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		issue, err := p.linear.GetIssueByIdentifier(fctx, identifier)
+		ticketSrc := p.sourceByName(ps.Source)
+		issue, err := ticketSrc.FetchByIdentifier(fctx, identifier)
 		cancel()
 		if err != nil {
-			slog.Warn("could not fetch issue for approved plan", "id", identifier, "err", err)
+			slog.Warn("could not fetch ticket for approved plan", "id", identifier, "source", ps.Source, "err", err)
 			continue
 		}
 
 		// Re-fetch comments for the clarification list — GetIssueByIdentifier
 		// doesn't include them.
 		cctx, ccancel := context.WithTimeout(ctx, 30*time.Second)
-		comments, cerr := p.linear.FetchIssueComments(cctx, issue.ID)
+		comments, cerr := ticketSrc.FetchComments(cctx, issue)
 		ccancel()
 		if cerr == nil {
-			issue.Comments = linear.CommentConnection{Nodes: comments}
+			issue.Comments = comments
 		}
 
 		p.mu.Lock()
@@ -113,8 +114,8 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		p.mu.Unlock()
 
 		// Remove the plan-confirm label if it's a per-ticket label.
-		if p.planConfirmLabelID != "" && issue.HasLabel(p.cfg.PlanConfirmLabel) {
-			if err := p.linear.RemoveLabel(ctx, issue.ID, p.planConfirmLabelID); err != nil {
+		if issue.HasLabel(p.cfg.PlanConfirmLabel) {
+			if err := ticketSrc.RemovePlanLabel(ctx, issue); err != nil {
 				slog.Warn("could not remove plan-confirm label", "id", identifier, "err", err)
 			}
 		}
@@ -129,7 +130,7 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		*available--
 
 		wg.Add(1)
-		go func(iss linear.Issue, approvedPlan string) {
+		go func(iss source.Ticket, approvedPlan string) {
 			defer wg.Done()
 			defer p.markDone(iss.Identifier)
 			p.processWithPlan(ticketCtx, iss, approvedPlan)
@@ -143,7 +144,9 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 	fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	comments, err := p.linear.FetchIssueComments(fctx, ps.IssueID)
+	ticketSrc := p.sourceByName(ps.Source)
+	ticket := source.Ticket{Source: ticketSrc.Name(), ID: ps.IssueID}
+	comments, err := ticketSrc.FetchComments(fctx, ticket)
 	if err != nil {
 		return false, err
 	}
@@ -155,13 +158,13 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 	hasApprovalAfterPlan := false
 	for i := len(comments) - 1; i >= 0; i-- {
 		body := comments[i].Body
-		if linear.IsSystemComment(body) && isPlanComment(body) {
+		if source.IsSystemComment(body) && isPlanComment(body) {
 			return hasApprovalAfterPlan, nil
 		}
-		if linear.IsSystemComment(body) {
+		if source.IsSystemComment(body) {
 			continue
 		}
-		if linear.IsApprovalComment(body) {
+		if source.IsApprovalComment(body) {
 			hasApprovalAfterPlan = true
 		}
 	}
@@ -171,15 +174,15 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 // isPlanComment reports whether a comment body is the plan-confirm comment
 // Noctra posted.
 func isPlanComment(body string) bool {
-	return len(body) >= len(linear.PlanConfirmCommentPrefix) &&
-		body[:len(linear.PlanConfirmCommentPrefix)] == linear.PlanConfirmCommentPrefix
+	return len(body) >= len(source.PlanConfirmCommentPrefix) &&
+		body[:len(source.PlanConfirmCommentPrefix)] == source.PlanConfirmCommentPrefix
 }
 
-// processPlanOnly runs the agent in plan-only mode, posts the plan as a Linear
+// processPlanOnly runs the agent in plan-only mode, posts the plan as a source
 // comment, and records the pending plan in the state store. The ticket stays
 // in its current state (trigger state / has trigger label) so the next poll
 // cycle can check for approval.
-func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
+func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
 	logger.Info("running plan-only pass")
@@ -201,25 +204,25 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 		resolved repo.Resolved
 		err      error
 	)
-	if ref, branch := issue.Project.RepoDirective(); ref != "" {
-		resolved, err = p.resolver.ResolveDirect(ctx, ref, branch)
+	if issue.RepoRef != "" {
+		resolved, err = p.resolver.ResolveDirect(ctx, issue.RepoRef, issue.RepoBranch)
 	} else {
-		resolved, err = p.resolver.Resolve(ctx, issue.ProjectName())
+		resolved, err = p.resolver.Resolve(ctx, issue.ProjectName)
 	}
 	if err != nil {
 		logger.Error("repo resolution failed (plan)", "err", err)
 		var nte *repo.NonTransientError
 		if errors.As(err, &nte) {
 			p.skipPermanently(id)
-			if cerr := p.linear.Comment(ctx, issue.ID,
-				fmt.Sprintf("❌ **Noctra: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` line to this ticket's **Linear project description**.",
+			if cerr := p.ticketComment(ctx, issue,
+				fmt.Sprintf("❌ **Noctra: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` directive to this ticket's source metadata.",
 					err.Error())); cerr != nil {
-				slog.Warn("linear Comment failed", "issue_id", issue.ID, "err", cerr)
+				slog.Warn("ticket comment failed", "issue_id", issue.ID, "err", cerr)
 			}
 			return
 		}
 		attempts := p.bumpFailed(id)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: repo resolution failed** (attempt %d/%d)\n\n%s",
 			attempts, p.cfg.MaxRetries, err.Error()))
 		return
@@ -229,7 +232,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {
 		logger.Error("worktree creation failed (plan)", "err", err)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: Setup failed**\n\nCould not create worktree for planning pass.\n\nTicket moved back to **%s**.",
 			p.cfg.TriggerState))
 		return
@@ -277,7 +280,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		p.bumpFailed(id)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"⏰ **Noctra: Plan generation timed out**\n\nTicket moved back to **%s**.",
 			p.cfg.TriggerState))
 		return
@@ -286,7 +289,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 	if runErr != nil {
 		attempts := p.bumpFailed(id)
 		logger.Warn("plan-only agent failed", "err", runErr, "attempt", attempts)
-		p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"❌ **Noctra: Plan generation failed** (attempt %d/%d)\n\nThe agent failed to produce a plan. Will retry on next poll cycle.\n\nTicket moved back to **%s**.",
 			attempts, p.cfg.MaxRetries, p.cfg.TriggerState))
 		return
@@ -300,7 +303,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 		if plan == "" {
 			attempts := p.bumpFailed(id)
 			logger.Warn("plan-only agent produced no plan", "attempt", attempts)
-			p.linearBackToTrigger(ctx, issue.ID, fmt.Sprintf(
+			p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 				"❌ **Noctra: No plan produced** (attempt %d/%d)\n\nThe agent completed but did not produce an implementation plan.\n\nTicket moved back to **%s**.",
 				attempts, p.cfg.MaxRetries, p.cfg.TriggerState))
 			return
@@ -311,15 +314,16 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 	// Post the plan as a Linear comment.
 	planComment := fmt.Sprintf(
 		"%s\n\n%s\n\n---\n\nReply with **go**, **lgtm**, or **👍** to approve and start implementation.",
-		linear.PlanConfirmCommentPrefix, plan)
+		source.PlanConfirmCommentPrefix, plan)
 
-	if err := p.linear.Comment(ctx, issue.ID, planComment); err != nil {
+	if err := p.ticketComment(ctx, issue, planComment); err != nil {
 		logger.Warn("could not post plan comment", "err", err)
 	}
 
 	// Save the plan to the state store.
 	if p.store != nil {
 		if err := p.store.SavePlan(id, state.PlanState{
+			Source:    issue.Source,
 			IssueID:   issue.ID,
 			Plan:      plan,
 			PlannedAt: time.Now(),
@@ -336,7 +340,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue linear.Issue) {
 // processWithPlan runs the full ticket implementation using the approved plan
 // as context. This is the same as process() but uses BuildPlanImplementPrompt
 // instead of BuildPrompt.
-func (p *Pipeline) processWithPlan(ctx context.Context, issue linear.Issue, plan string) {
+func (p *Pipeline) processWithPlan(ctx context.Context, issue source.Ticket, plan string) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
 	logger.Info("starting implementation with approved plan", "title", issue.Title)
@@ -355,4 +359,16 @@ func (p *Pipeline) processWithPlan(ctx context.Context, issue linear.Issue, plan
 	p.mu.Lock()
 	delete(p.approvedPlans, id)
 	p.mu.Unlock()
+}
+
+func (p *Pipeline) sourceByName(name string) source.TicketSource {
+	if name == "" {
+		name = "linear"
+	}
+	for _, src := range p.sources {
+		if src.Name() == name {
+			return src
+		}
+	}
+	return p.sources[0]
 }

@@ -12,6 +12,7 @@ import (
 // up front so the dev's shell environment (direnv, exported .env, etc.) can't
 // leak through and quietly satisfy a check the test means to fail.
 var noctraEnvKeys = []string{
+	"TICKET_SOURCE", "TICKET_SOURCES", "GITHUB_ISSUES_REPOS", "GITHUB_TRIGGER_LABEL",
 	"LINEAR_API_KEY", "LINEAR_OAUTH_TOKEN", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
 	"TRIGGER_LABEL", "IN_REVIEW_STATE",
 	"REPO_PATH", "MAIN_BRANCH",

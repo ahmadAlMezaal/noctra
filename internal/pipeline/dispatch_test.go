@@ -13,6 +13,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/ahmadAlMezaal/noctra/internal/source"
 )
 
 func TestSkipPermanently_AddToSetAndRefundsDispatch(t *testing.T) {
@@ -122,3 +123,68 @@ func TestPollOnce_OperatorPauseSkipsFetch(t *testing.T) {
 		t.Fatal("pollOnce fetched tickets while operator pause was active")
 	}
 }
+
+func TestFetchTickets_ContinuesAfterOneSourceFails(t *testing.T) {
+	p := &Pipeline{
+		sources: []source.TicketSource{
+			fetchSource{name: "broken", err: errors.New("boom")},
+			fetchSource{name: "ok", tickets: []source.Ticket{{
+				Source:     "ok",
+				ID:         "ok-1",
+				Identifier: "OK-1",
+				Title:      "Keep polling",
+			}}},
+		},
+	}
+
+	tickets, err := p.fetchTickets(context.Background())
+	if err != nil {
+		t.Fatalf("fetchTickets returned error for partial source failure: %v", err)
+	}
+	if len(tickets) != 1 || tickets[0].Identifier != "OK-1" {
+		t.Fatalf("tickets = %#v; want OK-1", tickets)
+	}
+}
+
+func TestFetchTickets_ErrorsWhenAllSourcesFail(t *testing.T) {
+	p := &Pipeline{
+		sources: []source.TicketSource{
+			fetchSource{name: "broken-a", err: errors.New("boom")},
+			fetchSource{name: "broken-b", err: errors.New("bang")},
+		},
+	}
+
+	if _, err := p.fetchTickets(context.Background()); err == nil {
+		t.Fatal("fetchTickets returned nil error when every source failed")
+	}
+}
+
+type fetchSource struct {
+	name    string
+	tickets []source.Ticket
+	err     error
+}
+
+func (s fetchSource) Name() string { return s.name }
+
+func (s fetchSource) Prepare(context.Context) error { return nil }
+
+func (s fetchSource) Fetch(context.Context) ([]source.Ticket, error) {
+	return s.tickets, s.err
+}
+
+func (s fetchSource) FetchByIdentifier(context.Context, string) (source.Ticket, error) {
+	return source.Ticket{}, errors.New("not implemented")
+}
+
+func (s fetchSource) FetchComments(context.Context, source.Ticket) ([]source.Comment, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s fetchSource) RemovePlanLabel(context.Context, source.Ticket) error { return nil }
+
+func (s fetchSource) BackToTrigger(context.Context, source.Ticket, string) error { return nil }
+
+func (s fetchSource) MarkReady(context.Context, source.Ticket, source.ReadyInfo) error { return nil }
+
+func (s fetchSource) Comment(context.Context, source.Ticket, string) error { return nil }

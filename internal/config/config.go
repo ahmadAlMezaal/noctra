@@ -77,6 +77,7 @@ func MigrateLegacyPaths() {
 // reference them.
 const (
 	DefaultLinearTeamKey    = "ENG"
+	DefaultTicketSources    = "linear"
 	DefaultAgentBackend     = "claude"
 	DefaultTriggerMode      = "state"
 	DefaultTriggerState     = "Next"
@@ -112,6 +113,11 @@ const (
 
 // Config is Noctra's resolved runtime configuration.
 type Config struct {
+	// Ticket sources
+	TicketSources      []string // active sources: "linear", "github"
+	GitHubIssuesRepos  []string // owner/name or git URLs polled by the GitHub Issues source
+	GitHubTriggerLabel string
+
 	// Linear
 	LinearAPIKey            string
 	LinearOAuthToken        string
@@ -234,6 +240,7 @@ func Load(scriptDir string) (*Config, error) {
 		TriggerState:            getenv(fileEnv, "TRIGGER_STATE", DefaultTriggerState),
 		TriggerLabel:            getenv(fileEnv, "TRIGGER_LABEL", ""),
 		InReviewState:           getenv(fileEnv, "IN_REVIEW_STATE", DefaultInReviewState),
+		GitHubTriggerLabel:      getenv(fileEnv, "GITHUB_TRIGGER_LABEL", ""),
 
 		RepoPath:   getenv(fileEnv, "REPO_PATH", ""),
 		MainBranch: getenv(fileEnv, "MAIN_BRANCH", DefaultMainBranch),
@@ -266,6 +273,11 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.MaxDispatches = getint(fileEnv, "MAX_DISPATCHES", DefaultMaxDispatches)
 	cfg.MaxRetries = getint(fileEnv, "MAX_RETRIES", DefaultMaxRetries)
 	cfg.MaxReviewRetries = getint(fileEnv, "MAX_REVIEW_RETRIES", DefaultMaxReviewRetries)
+	cfg.TicketSources = ticketSources(fileEnv)
+	cfg.GitHubIssuesRepos = getlist(fileEnv, "GITHUB_ISSUES_REPOS")
+	if cfg.GitHubTriggerLabel == "" {
+		cfg.GitHubTriggerLabel = cfg.TriggerLabel
+	}
 
 	pollSecs := getint(fileEnv, "POLL_INTERVAL", int(DefaultPollInterval/time.Second))
 	cfg.PollInterval = time.Duration(pollSecs) * time.Second
@@ -316,8 +328,12 @@ func Load(scriptDir string) (*Config, error) {
 // Linear comment (not a startup failure).
 func (c *Config) Validate() error {
 	var errs []string
+	sources := c.TicketSources
+	if len(sources) == 0 {
+		sources = []string{"linear"}
+	}
 
-	if c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.ActorAppConfigured() {
+	if usesSource(sources, "linear") && c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.ActorAppConfigured() {
 		errs = append(errs, "LINEAR_API_KEY (or LINEAR_OAUTH_TOKEN) is required — run ./noctra setup or set it in .env")
 	}
 
@@ -334,6 +350,22 @@ func (c *Config) Validate() error {
 		}
 	default:
 		errs = append(errs, fmt.Sprintf("TRIGGER_MODE must be \"state\" or \"label\", got %q", c.TriggerMode))
+	}
+
+	for _, src := range sources {
+		switch src {
+		case "linear", "github":
+		default:
+			errs = append(errs, fmt.Sprintf("TICKET_SOURCES entries must be \"linear\" or \"github\", got %q", src))
+		}
+	}
+	if usesSource(sources, "github") {
+		if len(c.GitHubIssuesRepos) == 0 {
+			errs = append(errs, "GITHUB_ISSUES_REPOS is required when TICKET_SOURCES includes github")
+		}
+		if c.GitHubTriggerLabel == "" {
+			errs = append(errs, "GITHUB_TRIGGER_LABEL or TRIGGER_LABEL is required when TICKET_SOURCES includes github")
+		}
 	}
 
 	switch c.GeminiMode {
@@ -376,6 +408,24 @@ func (c *Config) ActorAppConfigured() bool {
 
 func (c *Config) OAuthPartiallyConfigured() bool {
 	return (c.LinearOAuthClientID != "") != (c.LinearOAuthClientSecret != "")
+}
+
+// UsesTicketSource reports whether a named source is active.
+func (c *Config) UsesTicketSource(name string) bool {
+	sources := c.TicketSources
+	if len(sources) == 0 {
+		sources = []string{"linear"}
+	}
+	return usesSource(sources, name)
+}
+
+func usesSource(sources []string, name string) bool {
+	for _, src := range sources {
+		if src == name {
+			return true
+		}
+	}
+	return false
 }
 
 // AgentCLI returns the CLI binary the configured backend requires on PATH.
@@ -535,6 +585,28 @@ func getlist(fileEnv map[string]string, key string) []string {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func ticketSources(fileEnv map[string]string) []string {
+	v := getenv(fileEnv, "TICKET_SOURCES", "")
+	if v == "" {
+		v = getenv(fileEnv, "TICKET_SOURCE", DefaultTicketSources)
+	}
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" || seen[p] {
+			continue
+		}
+		out = append(out, p)
+		seen[p] = true
 	}
 	return out
 }

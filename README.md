@@ -433,6 +433,9 @@ noctra config set KEY VALUE     # same as KEY=VALUE
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `TICKET_SOURCES` | `linear` | Comma-separated ticket sources to poll: `linear`, `github`, or both |
+| `GITHUB_ISSUES_REPOS` | *(empty)* | Comma-separated `owner/name` repos scanned when `TICKET_SOURCES` includes `github` |
+| `GITHUB_TRIGGER_LABEL` | `TRIGGER_LABEL` | GitHub issue label that triggers dispatch; removed after PR creation |
 | `LINEAR_API_KEY` | *(required)* | Your Linear personal API key |
 | `LINEAR_TEAM_KEY` | `ENG` | Team identifier — the prefix before ticket numbers (e.g. `ENG` for `ENG-42`) |
 | `AGENT_BACKEND` | `claude` | Coding agent: `claude`, `codex`, or `copilot` |
