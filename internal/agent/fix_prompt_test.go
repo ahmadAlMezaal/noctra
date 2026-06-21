@@ -99,6 +99,29 @@ func TestBuildFixPrompt_HandlesMissingDescription(t *testing.T) {
 	}
 }
 
+func TestBuildFixPrompt_IncludesPriorReasoning(t *testing.T) {
+	out := BuildFixPrompt(FixPromptInput{
+		Identifier:     "ENG-7",
+		Title:          "Title",
+		PRNumber:       7,
+		PRURL:          "url",
+		PriorReasoning: "Already removed the dead branch; pushed back on the rename.",
+	})
+	if !strings.Contains(out, "previous iteration") {
+		t.Errorf("expected prior-iteration heading:\n%s", out)
+	}
+	if !strings.Contains(out, "pushed back on the rename") {
+		t.Errorf("expected prior reasoning content:\n%s", out)
+	}
+}
+
+func TestBuildFixPrompt_RequestsSummaryMarkers(t *testing.T) {
+	out := BuildFixPrompt(FixPromptInput{Identifier: "ENG-9", Title: "T", PRNumber: 9, PRURL: "url"})
+	if !strings.Contains(out, SummaryStartMarker) || !strings.Contains(out, SummaryEndMarker) {
+		t.Errorf("expected summary markers in fix prompt so ExtractSummary works:\n%s", out)
+	}
+}
+
 func TestSectionLabel(t *testing.T) {
 	cases := map[[2]string]string{
 		{"review", "CHANGES_REQUESTED"}: "Review (CHANGES_REQUESTED)",

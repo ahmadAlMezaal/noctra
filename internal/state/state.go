@@ -68,6 +68,10 @@ type PRState struct {
 
 	// MergedProcessed reports whether human post-merge edits for this PR have been processed.
 	MergedProcessed bool `json:"merged_processed,omitempty"`
+
+	// LastReasoning is the agent's summary from the most recent re-engagement,
+	// reused in the next fix prompt and the GitHub thread reply.
+	LastReasoning string `json:"last_reasoning,omitempty"`
 }
 
 // SweepState is the per-task-per-repo record for autonomous maintenance
@@ -177,10 +181,12 @@ func (s *Store) initSchema() error {
 			iterations INTEGER NOT NULL DEFAULT 0,
 			last_iterated_at TEXT,
 			last_pushed_sha TEXT NOT NULL DEFAULT '',
-			merged_processed INTEGER NOT NULL DEFAULT 0
+			merged_processed INTEGER NOT NULL DEFAULT 0,
+			last_reasoning TEXT NOT NULL DEFAULT ''
 		)`,
 		`ALTER TABLE pr_states ADD COLUMN last_pushed_sha TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE pr_states ADD COLUMN merged_processed INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE pr_states ADD COLUMN last_reasoning TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS repo_lessons (
 			repo TEXT PRIMARY KEY,
 			lessons TEXT NOT NULL DEFAULT '',
@@ -261,7 +267,7 @@ func (s *Store) Get(prURL string) PRState {
 func (s *Store) getPRLocked(prURL string) (PRState, error) {
 	var r PRState
 	var lastComment, lastReview, lastIterated sql.NullString
-	err := s.db.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed
+	err := s.db.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
 		FROM pr_states WHERE pr_url = ?`, prURL).Scan(
 		&r.TicketID,
 		&r.AgentBackend,
@@ -272,6 +278,7 @@ func (s *Store) getPRLocked(prURL string) (PRState, error) {
 		&lastIterated,
 		&r.LastPushedSHA,
 		&r.MergedProcessed,
+		&r.LastReasoning,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PRState{}, nil
@@ -305,7 +312,7 @@ func (s *Store) All() map[string]PRState {
 }
 
 func (s *Store) allLocked() (map[string]PRState, error) {
-	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed
+	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
 		FROM pr_states ORDER BY pr_url`)
 	if err != nil {
 		return nil, fmt.Errorf("list pr states: %w", err)
@@ -332,6 +339,7 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 			&lastIterated,
 			&r.LastPushedSHA,
 			&r.MergedProcessed,
+			&r.LastReasoning,
 		); err != nil {
 			return nil, fmt.Errorf("scan pr state: %w", err)
 		}
@@ -368,8 +376,8 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	}
 	fn(&r)
 	_, err = s.db.Exec(`INSERT INTO pr_states (
-			pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(pr_url) DO UPDATE SET
 			ticket_id = excluded.ticket_id,
 			agent_backend = excluded.agent_backend,
@@ -379,7 +387,8 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 			iterations = excluded.iterations,
 			last_iterated_at = excluded.last_iterated_at,
 			last_pushed_sha = excluded.last_pushed_sha,
-			merged_processed = excluded.merged_processed`,
+			merged_processed = excluded.merged_processed,
+			last_reasoning = excluded.last_reasoning`,
 		prURL,
 		r.TicketID,
 		r.AgentBackend,
@@ -390,6 +399,7 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 		formatTime(r.LastIteratedAt),
 		r.LastPushedSHA,
 		r.MergedProcessed,
+		r.LastReasoning,
 	)
 	if err != nil {
 		return fmt.Errorf("write pr state: %w", err)

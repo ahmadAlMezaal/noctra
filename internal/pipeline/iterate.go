@@ -299,15 +299,21 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 	}
 
+	var priorReasoning string
+	if p.store != nil {
+		priorReasoning = p.store.Get(ch.PR.URL).LastReasoning
+	}
+
 	prompt := agent.BuildFixPrompt(agent.FixPromptInput{
-		Identifier:  identifier,
-		Title:       title,
-		Description: description,
-		PRNumber:    ch.PR.Number,
-		PRURL:       ch.PR.URL,
-		Feedback:    items,
-		CI:          ciItems,
-		RepoLessons: repoLessons,
+		Identifier:     identifier,
+		Title:          title,
+		Description:    description,
+		PRNumber:       ch.PR.Number,
+		PRURL:          ch.PR.URL,
+		Feedback:       items,
+		CI:             ciItems,
+		RepoLessons:    repoLessons,
+		PriorReasoning: priorReasoning,
 	})
 
 	logFile := filepath.Join(p.cfg.LogDir, identifier+".log")
@@ -385,6 +391,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		return
 	}
 
+	summary := strings.TrimSpace(agent.ExtractSummary(output))
+
 	// Push whatever the iteration produced. Claude may leave changes
 	// uncommitted OR commit them itself — so stage + commit anything pending,
 	// then push whenever the branch is ahead of its remote. Gating on a dirty
@@ -426,18 +434,26 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		sha := gitHeadShort(ctx, wt.Path)
 		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
 
-		// Persist the full pushed HEAD commit SHA in state for lessons tracking
+		// Persist the pushed HEAD SHA + the agent's reasoning for the next iteration.
 		fullSHA := gitHead(ctx, wt.Path)
-		if fullSHA != "" {
+		if fullSHA != "" || summary != "" {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
-				r.LastPushedSHA = fullSHA
+				if fullSHA != "" {
+					r.LastPushedSHA = fullSHA
+				}
+				r.LastReasoning = summary
 			}); err != nil {
-				logger.Warn("could not persist LastPushedSHA in PR state", "err", err)
+				logger.Warn("could not persist PR state", "err", err)
 			}
 		}
 
-		// Reply to and resolve addressed review threads (best-effort).
-		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, fmt.Sprintf("Addressed in %s.", sha))
+		// Reply to and resolve addressed review threads, carrying the agent's
+		// reasoning so the reply isn't a bare "Addressed in <sha>" (best-effort).
+		reply := fmt.Sprintf("Addressed in %s.", sha)
+		if summary != "" {
+			reply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
+		}
+		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
@@ -445,9 +461,19 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
+		reply := "Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited."
+		if summary != "" {
+			reply = "Noctra reviewed this and made no code change:\n\n" + summary
+		}
 		// Reply + resolve so a no-diff review isn't silent on GitHub.
-		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL,
-			"Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited.")
+		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
+		if summary != "" {
+			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
+				r.LastReasoning = summary
+			}); err != nil {
+				logger.Warn("could not persist PR reasoning", "err", err)
+			}
+		}
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
 			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}

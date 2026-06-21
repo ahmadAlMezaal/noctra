@@ -33,6 +33,7 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 		r.LastCommentAt = commentTs
 		r.LastCISHA = "abc123"
 		r.Iterations = 1
+		r.LastReasoning = "Fixed the nil check; skipped the rename suggestion as out of scope."
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -54,6 +55,9 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 	}
 	if got.LastCISHA != "abc123" {
 		t.Errorf("LastCISHA: got %q", got.LastCISHA)
+	}
+	if got.LastReasoning != "Fixed the nil check; skipped the rename suggestion as out of scope." {
+		t.Errorf("LastReasoning: got %q", got.LastReasoning)
 	}
 }
 

@@ -495,6 +495,16 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
+	// Persist Gemini's verdict to the log so its quality is inspectable even on
+	// PASS, where the PR body only shows a collapsed summary. Written after the
+	// summary is extracted so it can't leak into the PR's "what was implemented".
+	if p.review.Enabled() && strings.TrimSpace(reviewBody) != "" {
+		if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			fmt.Fprintf(f, "\n--- Gemini review (%s via %s) ---\n%s\n", p.review.Model, p.review.Mode, reviewBody)
+			_ = f.Close()
+		}
+	}
+
 	reviewSection := ""
 	if p.review.Enabled() {
 		if reviewSkipped {
@@ -503,6 +513,9 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		} else if reviewPassed {
 			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
 				p.review.Model, p.review.Mode)
+			if body := strings.TrimSpace(reviewBody); body != "" {
+				reviewSection += fmt.Sprintf("\n\n<details>\n<summary>Gemini review</summary>\n\n```\n%s\n```\n\n</details>", body)
+			}
 		} else {
 			reviewSection = fmt.Sprintf(
 				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
