@@ -411,11 +411,17 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 	// changes, the staged set is empty and a plain `git commit` would fail with
 	// "nothing to commit" and bounce a valid implementation (ENG-182).
 	// In Conventional Commits repos, derive the commit type from the agent's
-	// release bump so subject + PR title drive release tooling. bump is reused
-	// for the release label below.
+	// release bump so subject + PR title drive release tooling. When no bump is
+	// available (e.g. AUTO_RELEASE_LABEL off), fall back to DefaultReleaseBump
+	// so a CC repo still gets a valid conventional type (else commitlint/CI
+	// rejects the title). bump is reused for the release label below.
 	bump := agent.ReleaseBump(output)
+	usesCC := repo.UsesConventionalCommits(resolved.Path)
+	if bump == "" && usesCC {
+		bump = p.cfg.DefaultReleaseBump
+	}
 	ccType, breaking := conventionalType(bump)
-	useCC := ccType != "" && repo.UsesConventionalCommits(resolved.Path)
+	useCC := ccType != "" && usesCC
 
 	prTitle := fmt.Sprintf("%s: %s", id, issue.Title)
 	commitSubject := fmt.Sprintf("feat: implement %s — %s", id, issue.Title)
