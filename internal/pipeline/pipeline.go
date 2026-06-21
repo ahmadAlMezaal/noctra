@@ -312,6 +312,12 @@ func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
+// dispatchCapReached reports whether today's dispatch count has hit the cap.
+// A max of 0 (or negative) means unlimited.
+func dispatchCapReached(max, count int) bool {
+	return max > 0 && count >= max
+}
+
 // rollDispatchWindow resets the daily dispatch counter at UTC midnight.
 // Caller must hold p.mu.
 func (p *Pipeline) rollDispatchWindow(now time.Time) {
@@ -333,7 +339,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	p.rollDispatchWindow(time.Now())
 	inFlight := len(p.active)
 	available := p.cfg.MaxConcurrent - inFlight
-	capped := p.totalDispatches >= p.cfg.MaxDispatches
+	capped := dispatchCapReached(p.cfg.MaxDispatches, p.totalDispatches)
 	notifyCap := capped && !p.dispatchCapped
 	if notifyCap {
 		p.dispatchCapped = true
@@ -386,7 +392,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		}
 
 		p.mu.Lock()
-		if p.totalDispatches >= p.cfg.MaxDispatches {
+		if dispatchCapReached(p.cfg.MaxDispatches, p.totalDispatches) {
 			p.mu.Unlock()
 			return
 		}
@@ -747,7 +753,11 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
-	fmt.Printf("   Max dispatches: %d per day (UTC)\n", p.cfg.MaxDispatches)
+	if p.cfg.MaxDispatches > 0 {
+		fmt.Printf("   Max dispatches: %d per day (UTC)\n", p.cfg.MaxDispatches)
+	} else {
+		fmt.Printf("   Max dispatches: unlimited\n")
+	}
 	if p.dispatchPaused() {
 		fmt.Printf("   Dispatch:       Paused by operator\n")
 	} else {

@@ -110,7 +110,7 @@ MAX_RETRIES=3
 AGENT_TIMEOUT_MINUTES=45
 ```
 
-`MAX_DISPATCHES` is a **per-UTC-day** cap: when hit, new dispatches pause and auto-resume at midnight (the process keeps running). It's a coarse activity cap — actual token/$ spend is bounded by the budget caps (`MAX_DAILY_TOKENS` / `MAX_DAILY_USD`).
+`MAX_DISPATCHES` is a **per-UTC-day** cap: when hit, new dispatches pause and auto-resume at midnight (the process keeps running); `0` = unlimited. It's a coarse activity cap — actual token/$ spend is bounded by the budget caps (`MAX_DAILY_TOKENS` / `MAX_DAILY_USD`).
 
 Quality controls:
 

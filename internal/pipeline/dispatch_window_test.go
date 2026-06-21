@@ -5,6 +5,27 @@ import (
 	"time"
 )
 
+// TestDispatchCapReached covers the cap predicate, including 0 = unlimited.
+func TestDispatchCapReached(t *testing.T) {
+	cases := []struct {
+		max, count int
+		want       bool
+	}{
+		{40, 39, false},
+		{40, 40, true},
+		{40, 41, true},
+		{0, 0, false},         // 0 = unlimited
+		{0, 1_000_000, false}, // 0 = unlimited, never caps
+		{-1, 5, false},        // negative = unlimited
+		{1, 1, true},
+	}
+	for _, c := range cases {
+		if got := dispatchCapReached(c.max, c.count); got != c.want {
+			t.Errorf("dispatchCapReached(%d, %d) = %v, want %v", c.max, c.count, got, c.want)
+		}
+	}
+}
+
 // TestRollDispatchWindow_ResetsAtUTCMidnight locks in the daily-cap semantics
 // (ENG-254): MAX_DISPATCHES counts per UTC day, so the counter and the
 // once-per-day cap alert reset when the day rolls over — and only then.

@@ -69,7 +69,11 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	b.WriteString("\n*Session:*\n")
 	fmt.Fprintf(&b, "✅ %d PRs created\n", succ)
 	fmt.Fprintf(&b, "❌ %d failed\n", fail)
-	fmt.Fprintf(&b, "📦 %d/%d dispatches today\n", dispatches, maxD)
+	if maxD > 0 {
+		fmt.Fprintf(&b, "📦 %d/%d dispatches today\n", dispatches, maxD)
+	} else {
+		fmt.Fprintf(&b, "📦 %d dispatches today (no cap)\n", dispatches)
+	}
 	fmt.Fprintf(&b, "⏱ Uptime: %s\n", uptime)
 
 	// Budget / usage stats (ENG-217).
