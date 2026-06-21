@@ -49,6 +49,9 @@ type FixPromptInput struct {
 	Feedback    []FeedbackItem
 	CI          []CIItem
 	RepoLessons string // per-repo lessons
+	// PriorReasoning is the agent's summary from the previous re-engagement on
+	// this PR, so it doesn't re-litigate feedback it already decided on.
+	PriorReasoning string
 }
 
 // BuildFixPrompt renders a fix prompt for Claude when reviewers (or bots in
@@ -102,6 +105,12 @@ func BuildFixPrompt(in FixPromptInput) string {
 			in.RepoLessons + "\n"
 	}
 
+	priorSection := ""
+	if r := strings.TrimSpace(in.PriorReasoning); r != "" {
+		priorSection = "\n\n## Your notes from the previous iteration on this PR\n" + r +
+			"\nDon't redo or re-argue anything already settled here unless the new feedback contradicts it.\n"
+	}
+
 	return fmt.Sprintf(`There is new activity on the PR you opened for this Linear ticket — review feedback and/or failing CI. Address it on the same branch; your changes will be pushed as a follow-up commit.
 
 ## Ticket: %s — %s
@@ -110,7 +119,7 @@ func BuildFixPrompt(in FixPromptInput) string {
 ## PR
 #%d — %s
 
-%s%s## Rules
+%s%s%s## Rules
 
 - Address ONLY the feedback and CI failures listed above. Do not refactor unrelated code or pick up new work.
 - If CI is failing, reproduce it locally (run the relevant tests / linter), fix the root cause, and re-run to confirm it passes.
@@ -121,8 +130,8 @@ func BuildFixPrompt(in FixPromptInput) string {
 
 ## When done
 
-Summarise what you addressed and how, and call out anything you deliberately skipped (with the reason).
-`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, lessonsSection, sections.String())
+Wrap a short summary between %s and %s. Say what you addressed and how, and call out anything you deliberately skipped or pushed back on (with the reason) — this is posted back on the PR for the reviewer.
+`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, lessonsSection, priorSection, sections.String(), SummaryStartMarker, SummaryEndMarker)
 }
 
 func sectionLabel(kind, state string) string {

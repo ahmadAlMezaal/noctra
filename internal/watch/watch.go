@@ -12,6 +12,7 @@ package watch
 import (
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -255,8 +256,20 @@ func failedChecks(checks []github.Check) []github.Check {
 // our golangci-lint config, and blindly applying its suggestion would have
 // rewritten valid v2 syntax to broken v1.
 func (w *Watcher) actionable(ev Event) bool {
+	if ev.Type == EventComment && isBotDirectedCommand(ev.Body) {
+		return false
+	}
 	if !ev.Author.IsBot() {
 		return true
 	}
 	return w.trusted[strings.ToLower(ev.Author.Login)]
+}
+
+// botCommandRe matches a comment whose whole body is a bot-directed command
+// ("@codex review", "@gemini", "/review") — meant for another tool, not Noctra.
+// A comment mixing a command with real feedback won't match and is still acted on.
+var botCommandRe = regexp.MustCompile(`(?i)^[@/][\w-]+(\s+(review|fix|fixup|please|now|again|go|run|retry|recheck))?$`)
+
+func isBotDirectedCommand(body string) bool {
+	return botCommandRe.MatchString(strings.TrimSpace(body))
 }

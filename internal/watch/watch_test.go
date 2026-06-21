@@ -45,6 +45,60 @@ func TestDiff_NewCommentByHumanIsActionable(t *testing.T) {
 	}
 }
 
+func TestIsBotDirectedCommand(t *testing.T) {
+	skip := []string{
+		"@codex review",
+		"@gemini",
+		"/review",
+		"  @codex review  ",
+		"@gemini-code-assist review",
+		"@codex please",
+		"/codex review",
+	}
+	for _, s := range skip {
+		if !isBotDirectedCommand(s) {
+			t.Errorf("expected %q to be a bot-directed command", s)
+		}
+	}
+	act := []string{
+		"Please fix the typo on line 12",
+		"@codex review and also handle the nil case",
+		"This @codex thing is wrong",
+		"/review the logic here is off",
+		"",
+	}
+	for _, s := range act {
+		if isBotDirectedCommand(s) {
+			t.Errorf("expected %q to NOT be a bot-directed command", s)
+		}
+	}
+}
+
+func TestDiff_BotDirectedHumanCommentIsSkipped(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
+	details := &github.Details{
+		State: "OPEN",
+		Comments: []github.Comment{{
+			ID:        "C1",
+			Author:    github.Actor{Login: "alice", Type: "User"},
+			Body:      "@codex review",
+			CreatedAt: time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if len(ch.Events) != 0 {
+		t.Fatalf("bot-directed command should not be actionable, got %d events", len(ch.Events))
+	}
+	if len(ch.Skipped) != 1 {
+		t.Fatalf("expected 1 skipped event, got %d", len(ch.Skipped))
+	}
+	if !ch.NewestComment.Equal(details.Comments[0].CreatedAt) {
+		t.Errorf("cursor should still advance past the skipped comment, got %v", ch.NewestComment)
+	}
+}
+
 func TestDiff_InlineReviewCommentByHumanIsActionable(t *testing.T) {
 	w := newTestWatcher(t, nil)
 	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
