@@ -75,6 +75,7 @@ Guidelines: none = docs/chore/internal-only, patch = bug fix, minor = new featur
 - Stay focused on this ticket only — do not modify unrelated code.
 - Follow existing project conventions and patterns exactly.
 - If you get stuck or need human input, say BLOCKED: <reason> and stop.
+- If the ticket is already satisfied and there is genuinely nothing to change, say NO_CHANGES: <reason> and stop — do not make trivial edits just to produce a diff.
 - Do NOT create PRs or push branches — Noctra handles that.
 
 ## When done:
@@ -102,6 +103,7 @@ Provide a brief summary of what was implemented and any important decisions made
 - Stay focused on this ticket only — do not modify unrelated code.
 - Follow existing project conventions and patterns exactly.
 - If you get stuck or need human input, say BLOCKED: <reason> and stop.
+- If the ticket is already satisfied and there is genuinely nothing to change, say NO_CHANGES: <reason> and stop — do not make trivial edits just to produce a diff.
 - Do NOT create PRs or push branches — Noctra handles that.
 
 ## When done:

@@ -69,6 +69,17 @@ func BlockedLine(output string) string {
 	return m
 }
 
+var noChangesRe = regexp.MustCompile(`(?im)^NO_CHANGES:\s*(.*)$`)
+
+// NoChangesLine returns the reason from the first "NO_CHANGES: …" line, or "".
+func NoChangesLine(output string) string {
+	m := noChangesRe.FindStringSubmatch(output)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
 // releaseRe matches the "RELEASE: <bump>" line the prompt asks the agent to
 // emit after its summary. Case-insensitive, anchored to start of line.
 var releaseRe = regexp.MustCompile(`(?im)^RELEASE:\s*(.+)$`)

@@ -11,6 +11,7 @@ import (
 type StateIDs struct {
 	Trigger  string
 	InReview string
+	Done     string
 }
 
 // WorkflowStateID is a Linear workflow state with the fields Noctra needs for
@@ -20,11 +21,10 @@ type WorkflowStateID struct {
 	Name string
 }
 
-// ResolveStateIDs looks up the IDs for the trigger and in-review state names
-// within the team identified by teamKey (e.g. "ENG"). When triggerName is
-// empty (label-based trigger mode), the trigger-state lookup is skipped —
-// only the in-review state is required.
-func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName string) (StateIDs, error) {
+// ResolveStateIDs resolves trigger, in-review, and done state IDs for a team.
+// triggerName empty (label mode) skips the trigger lookup; doneName is optional
+// (empty ids.Done if not found). Only in-review is required.
+func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName, doneName string) (StateIDs, error) {
 	states, err := c.TeamWorkflowStates(ctx, teamKey)
 	if err != nil {
 		return StateIDs{}, err
@@ -39,6 +39,9 @@ func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inRe
 			ids.Trigger = s.ID
 		case inReviewName:
 			ids.InReview = s.ID
+		}
+		if doneName != "" && s.Name == doneName {
+			ids.Done = s.ID
 		}
 	}
 	if triggerName != "" && ids.Trigger == "" {

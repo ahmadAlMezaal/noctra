@@ -593,6 +593,7 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 						"nodes": []map[string]any{
 							{"id": "s_next", "name": "Next"},
 							{"id": "s_review", "name": "In Review"},
+							{"id": "s_done", "name": "Done"},
 						},
 					},
 				}},
@@ -600,8 +601,8 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 		},
 	})
 
-	// With empty triggerName, only in-review is required.
-	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review")
+	// With empty triggerName, only in-review is required. Done resolves too.
+	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review", "Done")
 	if err != nil {
 		t.Fatalf("ResolveStateIDs: %v", err)
 	}
@@ -610,6 +611,9 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 	}
 	if ids.InReview != "s_review" {
 		t.Errorf("InReview: got %q, want %q", ids.InReview, "s_review")
+	}
+	if ids.Done != "s_done" {
+		t.Errorf("Done: got %q, want %q", ids.Done, "s_done")
 	}
 }
 

@@ -14,6 +14,7 @@ type LinearConfig struct {
 	TriggerState     string
 	TriggerLabel     string
 	InReviewState    string
+	DoneState        string
 	PlanConfirmLabel string
 }
 
@@ -43,7 +44,7 @@ func (s *LinearSource) Prepare(ctx context.Context) error {
 	if s.cfg.TriggerMode == "label" {
 		triggerStateName = ""
 	}
-	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState)
+	states, err := s.client.ResolveStateIDs(ctx, s.cfg.TeamKey, triggerStateName, s.cfg.InReviewState, s.cfg.DoneState)
 	if err != nil {
 		return fmt.Errorf("resolve linear states: %w", err)
 	}
@@ -143,6 +144,13 @@ func (s *LinearSource) MarkReady(ctx context.Context, ticket Ticket, info ReadyI
 		firstErr = err
 	}
 	return firstErr
+}
+
+func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
+	if s.states.Done == "" {
+		return fmt.Errorf("no Done state resolved (check DONE_STATE)")
+	}
+	return s.client.SetState(ctx, ticket.ID, s.states.Done)
 }
 
 func (s *LinearSource) Comment(ctx context.Context, ticket Ticket, body string) error {
