@@ -247,21 +247,28 @@ func adfToText(doc *jiraADFDocument) string {
 		return ""
 	}
 	var b strings.Builder
-	for i, node := range doc.Content {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
+	for _, node := range doc.Content {
 		adfNodeText(&b, node)
 	}
-	return b.String()
+	return strings.TrimSpace(b.String())
 }
 
 func adfNodeText(b *strings.Builder, node jiraADFContent) {
+	if node.Type == "hardBreak" {
+		b.WriteByte('\n')
+		return
+	}
 	if node.Text != "" {
 		b.WriteString(node.Text)
 	}
 	for _, child := range node.Content {
 		adfNodeText(b, child)
+	}
+	if node.Type == "paragraph" || node.Type == "heading" || node.Type == "listItem" || node.Type == "blockquote" || node.Type == "codeBlock" {
+		s := b.String()
+		if len(s) > 0 && s[len(s)-1] != '\n' {
+			b.WriteByte('\n')
+		}
 	}
 }
 
@@ -364,19 +371,32 @@ func (s *JiraSource) getComments(ctx context.Context, key string) ([]Comment, er
 
 func (s *JiraSource) addComment(ctx context.Context, key, text string) error {
 	// Jira Cloud API v3 expects ADF (Atlassian Document Format) for comments.
+	// Newlines are not allowed in ADF text nodes, so we split by newline and
+	// insert hardBreak nodes.
+	lines := strings.Split(text, "\n")
+	content := make([]any, 0, len(lines)*2)
+	for i, line := range lines {
+		if i > 0 {
+			content = append(content, map[string]any{
+				"type": "hardBreak",
+			})
+		}
+		if line != "" {
+			content = append(content, map[string]any{
+				"type": "text",
+				"text": line,
+			})
+		}
+	}
+
 	payload := map[string]any{
 		"body": map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
 				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": text,
-						},
-					},
+					"type":    "paragraph",
+					"content": content,
 				},
 			},
 		},

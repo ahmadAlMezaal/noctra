@@ -153,6 +153,60 @@ func TestJiraADFToTextNil(t *testing.T) {
 	}
 }
 
+func TestJiraADFToTextRich(t *testing.T) {
+	doc := &jiraADFDocument{
+		Type: "doc",
+		Content: []jiraADFContent{
+			{Type: "paragraph", Content: []jiraADFContent{
+				{Type: "text", Text: "Line 1"},
+				{Type: "hardBreak"},
+				{Type: "text", Text: "Line 2"},
+			}},
+			{Type: "bulletList", Content: []jiraADFContent{
+				{Type: "listItem", Content: []jiraADFContent{
+					{Type: "paragraph", Content: []jiraADFContent{
+						{Type: "text", Text: "Item 1"},
+					}},
+				}},
+				{Type: "listItem", Content: []jiraADFContent{
+					{Type: "paragraph", Content: []jiraADFContent{
+						{Type: "text", Text: "Item 2"},
+					}},
+				}},
+			}},
+		},
+	}
+	got := adfToText(doc)
+	want := "Line 1\nLine 2\nItem 1\nItem 2"
+	if got != want {
+		t.Fatalf("adfToText rich = %q; want %q", got, want)
+	}
+}
+
+func TestJiraADFToTextRepoDirectiveSeparateParagraphs(t *testing.T) {
+	// Repo: and Branch: in separate paragraphs must produce separate lines
+	// so ParseRepoDirective can find both.
+	doc := &jiraADFDocument{
+		Type: "doc",
+		Content: []jiraADFContent{
+			{Type: "paragraph", Content: []jiraADFContent{
+				{Type: "text", Text: "Repo: acme/api"},
+			}},
+			{Type: "paragraph", Content: []jiraADFContent{
+				{Type: "text", Text: "Branch: develop"},
+			}},
+		},
+	}
+	got := adfToText(doc)
+	if !strings.Contains(got, "Repo: acme/api") {
+		t.Fatalf("missing Repo directive in %q", got)
+	}
+	ref, branch := ParseRepoDirective(got)
+	if ref != "acme/api" || branch != "develop" {
+		t.Fatalf("ParseRepoDirective(%q) = %q, %q; want acme/api, develop", got, ref, branch)
+	}
+}
+
 func TestJiraBuildFetchJQLStatus(t *testing.T) {
 	src := NewJira(JiraConfig{
 		Project:       "PROJ",
