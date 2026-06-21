@@ -136,7 +136,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	backend := p.agent
 
-	if p.cfg.TelegramVerbose {
+	if p.cfg.VerboseNotifications {
 		p.notifier.Send(ctx, fmt.Sprintf("🧹 *Sweep: %s* on %s\n%s",
 			notify.EscapeMarkdown(job.Task.Name),
 			notify.EscapeMarkdown(job.RepoSlug),

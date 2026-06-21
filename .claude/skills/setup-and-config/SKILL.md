@@ -134,7 +134,7 @@ Telegram:
 TELEGRAM_ENABLED=false
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
-TELEGRAM_VERBOSE=false
+VERBOSE_NOTIFICATIONS=false   # TELEGRAM_VERBOSE honored as deprecated alias
 ```
 
 Container and cloud overrides:

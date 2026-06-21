@@ -205,7 +205,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// PR was created) takes priority so follow-up commits use the same backend.
 	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
 
-	// Heads-up Telegram (always — not gated by TELEGRAM_VERBOSE).
+	// Heads-up Telegram (always — not gated by VERBOSE_NOTIFICATIONS).
 	p.notifier.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
 
 	// On every failure path below we record the iteration before returning.

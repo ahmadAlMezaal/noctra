@@ -71,7 +71,7 @@ func (p *Pipeline) process(ctx context.Context, issue linear.Issue) {
 		return
 	}
 
-	if p.cfg.TelegramVerbose {
+	if p.cfg.VerboseNotifications {
 		p.notifier.Send(ctx, fmt.Sprintf("🎯 *%s* — %s\nNoctra picked it up — working on it.",
 			id, notify.EscapeMarkdown(issue.Title)))
 	}

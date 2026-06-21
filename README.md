@@ -339,7 +339,7 @@ Set `TELEGRAM_ENABLED=true` with a bot token + chat ID (the wizard walks you thr
 | `/kill ENG-42` | Stop a running ticket |
 | `/help` | List all commands |
 
-Only your configured chat can issue commands. `TELEGRAM_VERBOSE=true` also pings on every dispatch (otherwise: terminal events only).
+Only your configured chat can issue commands. `VERBOSE_NOTIFICATIONS=true` also pings on every dispatch — across all configured notifiers, not just Telegram — (otherwise: terminal events only). (`TELEGRAM_VERBOSE` is honored as a deprecated alias.)
 
 ### Slack & Discord
 
@@ -406,7 +406,7 @@ TRUSTED_REVIEWERS=               # CSV of bots/logins; empty = humans only
 - **Iteration cap.** After `MAX_PR_ITERATIONS` re-engagements on the same PR, Noctra stops and pings you (Telegram + Linear comment). Prevents flake-loops and stuck reviews from grinding through your API quota.
 - **Trusted-reviewer allowlist.** Humans are always trusted. Bots are only acted on if their login is in `TRUSTED_REVIEWERS`. Default is empty = humans only — bot reviews are still seen and logged, but Noctra won't act on them blindly. (The default exists because a bot reviewer once confidently misread a `golangci-lint` v2 config as v1; applying its "fix" would have broken CI.)
 - **Cursor persistence.** State in the SQLite DB at `~/.noctra/state.db` tracks how far the watcher has caught up (last comment/review timestamps + last CI commit SHA). Restarts don't re-react to historical comments or already-handled CI failures.
-- **Telegram heads-up** on each re-engage (always — not gated by `TELEGRAM_VERBOSE`).
+- **Telegram heads-up** on each re-engage (always — not gated by `VERBOSE_NOTIFICATIONS`).
 
 Disabled by default; set `AUTO_ITERATE_PRS=true` to opt in, or run the wizard.
 
