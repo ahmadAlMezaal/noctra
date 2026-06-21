@@ -218,6 +218,9 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
+	loopCtx, stopLoop := context.WithCancel(ctx)
+	defer stopLoop()
+
 	// Start the Telegram command listener alongside the poll loop if configured.
 	// The listener shares the WaitGroup so shutdown drains it like any other goroutine.
 	if p.cfg.TelegramEnabled && p.cfg.TelegramBotToken != "" && p.cfg.TelegramChatID != "" {
@@ -226,7 +229,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := listener.Run(ctx); err != nil {
+			if err := listener.Run(loopCtx); err != nil {
 				slog.Warn("telegram listener stopped", "err", err)
 			}
 		}()
@@ -244,21 +247,21 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	// for in-flight iterations the same way it waits for fresh dispatches.
 	if p.watcher != nil {
 		wg.Add(1)
-		go p.runWatcher(ctx, &wg)
+		go p.runWatcher(loopCtx, &wg)
 	}
 
 	// Sweep scheduler runs its own loop if enabled. Shares the WaitGroup
 	// so shutdown drains in-flight sweep tasks.
 	if p.sweeper != nil {
 		wg.Add(1)
-		go p.runSweepLoop(ctx, &wg)
+		go p.runSweepLoop(loopCtx, &wg)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("🌅 shutting down — waiting for active tasks")
-			wg.Wait()
+			drainAndStop(stopLoop, &wg)
 			p.summary(ctx)
 			return nil
 
@@ -270,14 +273,14 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 			if rlDetected {
 				slog.Info("🛑 rate limit detected — shutting down")
-				wg.Wait()
+				drainAndStop(stopLoop, &wg)
 				p.summary(ctx)
 				return nil
 			}
 			if atCap {
 				slog.Info("🛑 max dispatches reached — shutting down",
 					"limit", p.cfg.MaxDispatches)
-				wg.Wait()
+				drainAndStop(stopLoop, &wg)
 				p.summary(ctx)
 				return nil
 			}
@@ -300,9 +303,17 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
+			// ctx, not loopCtx: a self-shutdown lets in-flight dispatches drain;
+			// only the long-lived loops are cancelled.
 			p.pollOnce(ctx, &wg)
 		}
 	}
+}
+
+// drainAndStop cancels before waiting; reversing the order deadlocks.
+func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
+	stop()
+	wg.Wait()
 }
 
 func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
