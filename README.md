@@ -61,7 +61,7 @@ The fastest path — local, ~5 minutes:
 curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/noctra/main/scripts/install.sh | sh
 # (soon also available at: curl -fsSL https://getnoctra.dev/install.sh | sh)
 
-claude            # or: codex login / gh auth login — authenticate your agent once
+claude            # or: codex login / gh auth login / agy — authenticate your agent once
 gh auth login     # GitHub access for PRs (also authenticates Copilot backend)
 noctra setup  # interactive: backend, Linear key, repos → writes .env
 noctra        # start polling — or run it as a service (see below)
@@ -104,9 +104,10 @@ You only need the CLI for the backend you select with `AGENT_BACKEND` — `claud
 
 ```bash
 # Authenticate whichever agent backend you use (one-time, on the host):
-claude              # Claude Code  (subscription login, or set ANTHROPIC_API_KEY)
-codex login         # OpenAI Codex (subscription login, or set OPENAI_API_KEY)
-gh auth login       # authenticate gh (also authenticates Copilot CLI)
+claude              # Claude Code        (subscription login, or set ANTHROPIC_API_KEY)
+codex login         # OpenAI Codex       (subscription login, or set OPENAI_API_KEY)
+gh auth login       # GitHub Copilot     (authenticate gh — also authenticates the Copilot CLI)
+agy                 # Google Antigravity (run agy, then "Sign in with Google" for AI Pro — or a Gemini API key)
 ```
 
 Noctra never stores or manages agent credentials — it inherits whatever the selected CLI is already logged into.
