@@ -143,11 +143,7 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 		return Result{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body := strings.TrimSpace(string(raw))
-		if body == "" {
-			body = resp.Status
-		}
-		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API unavailable (%s): %s", resp.Status, body)},
+		return Result{Skipped: true, Passed: true, Body: fmt.Sprintf("Gemini API unavailable (%s): %s", resp.Status, apiErrorMessage(raw, resp.Status))},
 			fmt.Errorf("%w: gemini API returned %s", ErrUnavailable, resp.Status)
 	}
 
@@ -178,6 +174,36 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string) (Result, error) {
 
 	text := parsed.Candidates[0].Content.Parts[0].Text
 	return parseResult(text), nil
+}
+
+func apiErrorMessage(raw []byte, status string) string {
+	const maxLen = 300
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err == nil {
+		if msg := strings.TrimSpace(parsed.Error.Message); msg != "" {
+			if i := strings.IndexByte(msg, '\n'); i > 0 {
+				msg = strings.TrimSpace(msg[:i])
+			}
+			return truncateRunes(msg, maxLen)
+		}
+	}
+	body := strings.TrimSpace(string(raw))
+	if body == "" {
+		return status
+	}
+	return truncateRunes(body, maxLen)
+}
+
+func truncateRunes(s string, maxLen int) string {
+	r := []rune(s)
+	if len(r) <= maxLen {
+		return s
+	}
+	return string(r[:maxLen]) + "…"
 }
 
 func (g *Gate) reviewCLI(ctx context.Context, prompt string) (Result, error) {

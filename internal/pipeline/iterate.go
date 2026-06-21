@@ -322,6 +322,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	logger.Info("running agent", "backend", backend.Name(), "log", logFile)
 
+	headBefore := gitHead(ctx, wt.Path)
+
 	runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
@@ -425,17 +427,21 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		return
 	}
-	if ahead {
-		if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
-			logger.Error("git push failed", "err", err)
-			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
-			return
+	// Key "addressed" on HEAD moving, not branch-ahead: the agent may self-push.
+	headAfter := gitHead(ctx, wt.Path)
+	moved := headBefore != "" && headAfter != headBefore
+	if moved || ahead {
+		if ahead {
+			if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
+				logger.Error("git push failed", "err", err)
+				p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+				return
+			}
 		}
 		sha := gitHeadShort(ctx, wt.Path)
-		logger.Info("pushed follow-up commit", "sha", sha, "branch", wt.Branch)
+		logger.Info("follow-up commit", "sha", sha, "branch", wt.Branch, "pushed_by_agent", !ahead)
 
-		// Persist the pushed HEAD SHA + the agent's reasoning for the next iteration.
-		fullSHA := gitHead(ctx, wt.Path)
+		fullSHA := headAfter
 		if p.store != nil && (fullSHA != "" || summary != "") {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 				if fullSHA != "" {

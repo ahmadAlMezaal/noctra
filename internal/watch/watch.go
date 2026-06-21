@@ -256,6 +256,9 @@ func failedChecks(checks []github.Check) []github.Check {
 // our golangci-lint config, and blindly applying its suggestion would have
 // rewritten valid v2 syntax to broken v1.
 func (w *Watcher) actionable(ev Event) bool {
+	if github.IsNoctraReply(ev.Body) {
+		return false
+	}
 	if ev.Type == EventComment && isBotDirectedCommand(ev.Body) {
 		return false
 	}

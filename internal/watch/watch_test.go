@@ -74,6 +74,29 @@ func TestIsBotDirectedCommand(t *testing.T) {
 	}
 }
 
+func TestDiff_NoctraOwnReplyIsSkipped(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
+	details := &github.Details{
+		State: "OPEN",
+		ReviewComments: []github.ReviewComment{{
+			Author:    github.Actor{Login: "ahmadAlMezaal", Type: "User"},
+			Body:      "Noctra reviewed this and made no code change:\n\nlooks fine\n\n" + github.NoctraReplyMarker,
+			Path:      "main.go",
+			Line:      10,
+			CreatedAt: time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if len(ch.Events) != 0 {
+		t.Fatalf("Noctra's own marked reply must not be actionable, got %d events", len(ch.Events))
+	}
+	if !ch.NewestComment.Equal(details.ReviewComments[0].CreatedAt) {
+		t.Errorf("cursor should advance past the skipped reply, got %v", ch.NewestComment)
+	}
+}
+
 func TestDiff_BotDirectedHumanCommentIsSkipped(t *testing.T) {
 	w := newTestWatcher(t, nil)
 	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
