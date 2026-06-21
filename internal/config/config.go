@@ -111,8 +111,8 @@ const (
 	DefaultPlanConfirmLabel = "plan-first"
 
 	// Auto-merge (ENG-220) — disabled by default; opt in via .env.
-	DefaultDoneState      = "Done"
-	DefaultMergeMethod    = "squash"
+	DefaultDoneState         = "Done"
+	DefaultMergeMethod       = "squash"
 	DefaultMergePollInterval = 2 * time.Minute
 )
 
@@ -208,11 +208,11 @@ type Config struct {
 	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
 
 	// Auto-merge (ENG-220) — off by default; opt in via .env.
-	AutoMergeOnDone       bool          // opt-in flag to enable auto-merge when ticket moves to done
-	DoneState             string        // the state name that triggers merge (default "Done")
-	MergeMethod           string        // "squash" (default), "merge", or "rebase"
-	DeleteBranchAfterMerge bool        // whether to delete the branch after merge
-	MergePollInterval     time.Duration // interval to poll for done tickets (default 2m)
+	AutoMergeOnDone        bool          // opt-in flag to enable auto-merge when ticket moves to done
+	DoneState              string        // the state name that triggers merge (default "Done")
+	MergeMethod            string        // "squash" (default), "merge", or "rebase"
+	DeleteBranchAfterMerge bool          // whether to delete the branch after merge
+	MergePollInterval      time.Duration // interval to poll for done tickets (default 2m)
 
 	// Derived paths
 	ScriptDir    string

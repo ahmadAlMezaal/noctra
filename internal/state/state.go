@@ -344,7 +344,11 @@ func (s *Store) AllByTicketID(ticketID string) []string {
 		slog.Warn("state all by ticket failed", "ticket_id", ticketID, "err", err)
 		return nil
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close rows failed", "err", err)
+		}
+	}()
 
 	var out []string
 	for rows.Next() {
