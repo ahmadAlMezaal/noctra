@@ -35,6 +35,7 @@ jobs:
     outputs:
       next_version: ${{ steps.version.outputs.next_version }}
       no_release: ${{ steps.check-label.outputs.no_release }}
+      bump_type: ${{ steps.check-label.outputs.bump_type }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -155,9 +156,14 @@ jobs:
   # File a site-update ticket once the release is published. Called here (not via
   # an `on: release` trigger) because the release above is created with
   # GITHUB_TOKEN, which does not trigger other workflows.
+  #
+  # Patch releases are skipped: they're internal fixes that almost never change
+  # anything user-facing on getnoctra.dev, and a per-patch ticket just churns
+  # (the agent ends up self-BLOCKing it). Minor/major releases still file a
+  # ticket; manual tags via release.yml are unaffected (deliberate).
   sync-site:
     needs: tag-on-merge
-    if: needs.tag-on-merge.outputs.no_release != 'true'
+    if: needs.tag-on-merge.outputs.no_release != 'true' && needs.tag-on-merge.outputs.bump_type != 'patch'
     uses: ./.github/workflows/site-sync-on-release.yml
     with:
       tag: ${{ needs.tag-on-merge.outputs.next_version }}
