@@ -147,10 +147,23 @@ func (s *LinearSource) MarkReady(ctx context.Context, ticket Ticket, info ReadyI
 }
 
 func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
-	if s.states.Done == "" {
+	var firstErr error
+	// In label mode the trigger label — not the state — is what re-fetches a
+	// ticket, so it must be removed or the no-op loops back into dispatch.
+	if s.cfg.TriggerMode == "label" && s.triggerLabelID != "" {
+		if err := s.client.RemoveLabel(ctx, ticket.ID, s.triggerLabelID); err != nil {
+			firstErr = err
+		}
+	}
+	if s.states.Done != "" {
+		if err := s.client.SetState(ctx, ticket.ID, s.states.Done); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	} else if s.cfg.TriggerMode != "label" {
+		// State mode relies on the Done transition to leave the trigger column.
 		return fmt.Errorf("no Done state resolved (check DONE_STATE)")
 	}
-	return s.client.SetState(ctx, ticket.ID, s.states.Done)
+	return firstErr
 }
 
 func (s *LinearSource) Comment(ctx context.Context, ticket Ticket, body string) error {

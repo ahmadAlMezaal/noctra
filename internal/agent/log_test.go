@@ -52,6 +52,15 @@ func TestNoChangesLine_DetectsReasonAndTrims(t *testing.T) {
 	}
 }
 
+func TestNoChangesLine_UsesLastMatch(t *testing.T) {
+	// An echoed prompt instruction precedes the agent's real answer; the last
+	// match must win so the echo doesn't decide the outcome.
+	out := "say NO_CHANGES: <reason> and stop\n...work...\nNO_CHANGES: Already done\n"
+	if got := NoChangesLine(out); got != "Already done" {
+		t.Errorf("NoChangesLine: got %q, want last match %q", got, "Already done")
+	}
+}
+
 func TestExtractSummary_StripsDebugAndKeepsLastAttempt(t *testing.T) {
 	log := `--- Attempt 2024-01-01T00:00:00 ---
 First attempt that should be ignored.
