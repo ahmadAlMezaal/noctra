@@ -42,7 +42,7 @@ func UsesConventionalCommits(repoPath string) bool {
 // goreleaserUsesConventional reports whether a GoReleaser changelog is grouped
 // by conventional types. Both ^feat and ^fix are required so plain configs don't match.
 func goreleaserUsesConventional(repoPath string) bool {
-	for _, name := range []string{".goreleaser.yaml", ".goreleaser.yml"} {
+	for _, name := range []string{".goreleaser.yaml", ".goreleaser.yml", "goreleaser.yaml", "goreleaser.yml"} {
 		data, err := os.ReadFile(filepath.Join(repoPath, name))
 		if err != nil {
 			continue
