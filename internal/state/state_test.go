@@ -486,6 +486,51 @@ func TestSavePlan_UpsertOverwrites(t *testing.T) {
 	}
 }
 
+func TestLessons(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	// Unset should return empty string.
+	got, err := s.GetLessons("owner/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("expected empty lessons, got %q", got)
+	}
+
+	// Save and retrieve should work.
+	const lessons = "- Lesson 1: follow code conventions\n- Lesson 2: write tests"
+	if err := s.SaveLessons("owner/repo", lessons); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = s.GetLessons("owner/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != lessons {
+		t.Errorf("expected lessons %q, got %q", lessons, got)
+	}
+
+	// Upsert should overwrite.
+	const newLessons = "- Lesson 1 updated"
+	if err := s.SaveLessons("owner/repo", newLessons); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = s.GetLessons("owner/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != newLessons {
+		t.Errorf("expected lessons %q, got %q", newLessons, got)
+	}
+}
+
 func closeStore(t *testing.T, s *Store) {
 	t.Helper()
 	if err := s.Close(); err != nil {

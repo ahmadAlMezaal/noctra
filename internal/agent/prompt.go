@@ -19,6 +19,8 @@ type BuildPromptInput struct {
 	// AutoReleaseLabel enables the RELEASE: instruction in the prompt,
 	// asking the agent to suggest a semver bump level.
 	AutoReleaseLabel bool
+	// RepoLessons contains per-repo lessons and conventions from human post-merge edits.
+	RepoLessons string
 }
 
 // BuildPrompt returns the prompt sent to Claude for a ticket. Two flavors:
@@ -36,6 +38,12 @@ func BuildPrompt(in BuildPromptInput) string {
 			strings.Join(in.Comments, "\n\n")
 	}
 
+	lessonsSection := ""
+	if in.RepoLessons != "" {
+		lessonsSection = "\n\n## Repository Lessons & Conventions (from post-merge human edits to previous PRs):\n" +
+			in.RepoLessons
+	}
+
 	releaseInstruction := ""
 	if in.AutoReleaseLabel {
 		releaseInstruction = `
@@ -50,7 +58,7 @@ Guidelines: none = docs/chore/internal-only, patch = bug fix, minor = new featur
 		return fmt.Sprintf(`You are a lead agent implementing a ticket. You have a team of agents available.
 
 ## Ticket: %s — %s
-%s%s
+%s%s%s
 
 ## Your approach:
 1. First, read the codebase to understand the project structure, conventions, and testing patterns.
@@ -75,13 +83,13 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NOCTRA SUMMARY===
 <your summary here>
 ===END NOCTRA SUMMARY===
-%s`, in.Identifier, in.Title, desc, discussion, releaseInstruction)
+%s`, in.Identifier, in.Title, desc, discussion, lessonsSection, releaseInstruction)
 	}
 
 	return fmt.Sprintf(`You are implementing a ticket.
 
 ## Ticket: %s — %s
-%s%s
+%s%s%s
 
 ## Instructions:
 1. Read the codebase to understand the project structure and conventions.
@@ -102,5 +110,5 @@ Provide a brief summary of what was implemented and any important decisions made
 ===NOCTRA SUMMARY===
 <your summary here>
 ===END NOCTRA SUMMARY===
-%s`, in.Identifier, in.Title, desc, discussion, releaseInstruction)
+%s`, in.Identifier, in.Title, desc, discussion, lessonsSection, releaseInstruction)
 }

@@ -112,3 +112,19 @@ func TestSectionLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildFixPrompt_IncludesLessons(t *testing.T) {
+	out := BuildFixPrompt(FixPromptInput{
+		Identifier:  "ENG-42",
+		Title:       "Title",
+		PRNumber:    59,
+		PRURL:       "url",
+		RepoLessons: "- Lesson A\n- Lesson B",
+	})
+	if !strings.Contains(out, "## Repository Lessons & Conventions") {
+		t.Errorf("expected lessons heading in fix prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "- Lesson A") {
+		t.Errorf("expected lesson content in fix prompt:\n%s", out)
+	}
+}

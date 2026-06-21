@@ -139,6 +139,14 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 	logger.Info("worktree", "path", wt.Path, "branch", wt.Branch)
 
+	var repoLessons string
+	if p.store != nil {
+		repoSlug := repo.Slug(filepath.Base(resolved.Path))
+		if l, err := p.store.GetLessons(repoSlug); err == nil {
+			repoLessons = l
+		}
+	}
+
 	// ── Run Claude ───────────────────────────────────────────────────────────
 	promptInput := agent.BuildPromptInput{
 		Identifier:       id,
@@ -147,6 +155,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		Comments:         issue.ClarificationComments(),
 		UseTeams:         p.cfg.UseAgentTeams,
 		AutoReleaseLabel: p.cfg.AutoReleaseLabel,
+		RepoLessons:      repoLessons,
 	}
 	var prompt string
 	p.mu.Lock()
@@ -541,9 +550,13 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	// Persist the chosen backend so auto-iterate uses the same one for
 	// follow-up commits on this PR.
 	if p.store != nil {
+		headSHA := gitHead(ctx, wt.Path)
 		if err := p.store.Update(prURL, func(r *state.PRState) {
 			r.TicketID = id
 			r.AgentBackend = backend.Name()
+			if headSHA != "" {
+				r.LastPushedSHA = headSHA
+			}
 		}); err != nil {
 			logger.Warn("could not persist backend in PR state", "err", err)
 		}
@@ -728,6 +741,17 @@ func ghAddLabel(ctx context.Context, repoPath, prURL, label string) error {
 // gitHeadShort returns the abbreviated HEAD commit SHA, or "" on error.
 func gitHeadShort(ctx context.Context, workdir string) string {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+	cmd.Dir = workdir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// gitHead returns the full HEAD commit SHA, or "" on error.
+func gitHead(ctx context.Context, workdir string) string {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
 	cmd.Dir = workdir
 	out, err := cmd.Output()
 	if err != nil {
