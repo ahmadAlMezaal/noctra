@@ -343,6 +343,149 @@ func TestUpdate_ReturnsReadError(t *testing.T) {
 	}
 }
 
+// ── Plan state tests (ENG-221) ──────────────────────────────────────────────
+
+func TestGetPlan_UnknownReturnsZero(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	got := s.GetPlan("ENG-999")
+	if got != (PlanState{}) {
+		t.Errorf("expected zero PlanState, got %+v", got)
+	}
+}
+
+func TestSavePlan_PersistsAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	ps := PlanState{
+		IssueID:   "issue-uuid-123",
+		Plan:      "## Summary\nDo the thing.",
+		PlannedAt: now,
+	}
+	if err := s.SavePlan("ENG-42", ps); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen and verify.
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s2)
+	got := s2.GetPlan("ENG-42")
+	if got.IssueID != "issue-uuid-123" {
+		t.Errorf("IssueID: got %q, want %q", got.IssueID, "issue-uuid-123")
+	}
+	if got.Plan != "## Summary\nDo the thing." {
+		t.Errorf("Plan: got %q", got.Plan)
+	}
+	if !got.PlannedAt.Equal(now) {
+		t.Errorf("PlannedAt: got %v, want %v", got.PlannedAt, now)
+	}
+}
+
+func TestDeletePlan_RemovesRecord(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	if err := s.SavePlan("ENG-42", PlanState{Plan: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetPlan("ENG-42"); got.Plan == "" {
+		t.Fatal("expected plan to be saved")
+	}
+
+	if err := s.DeletePlan("ENG-42"); err != nil {
+		t.Fatalf("DeletePlan: %v", err)
+	}
+	if got := s.GetPlan("ENG-42"); got.Plan != "" {
+		t.Errorf("expected plan to be deleted, got %+v", got)
+	}
+}
+
+func TestDeletePlan_Idempotent(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	// Deleting a non-existent plan should not error.
+	if err := s.DeletePlan("ENG-999"); err != nil {
+		t.Fatalf("DeletePlan on non-existent: %v", err)
+	}
+}
+
+func TestAllPlans_ReturnsAllPending(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	if err := s.SavePlan("ENG-1", PlanState{Plan: "plan 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePlan("ENG-2", PlanState{Plan: "plan 2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := s.AllPlans()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 plans, got %d", len(got))
+	}
+	if got["ENG-1"].Plan != "plan 1" || got["ENG-2"].Plan != "plan 2" {
+		t.Errorf("unexpected plans: %+v", got)
+	}
+}
+
+func TestAllPlans_EmptyWhenNone(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	got := s.AllPlans()
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %+v", got)
+	}
+}
+
+func TestSavePlan_UpsertOverwrites(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	if err := s.SavePlan("ENG-42", PlanState{Plan: "old plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePlan("ENG-42", PlanState{Plan: "new plan"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := s.GetPlan("ENG-42")
+	if got.Plan != "new plan" {
+		t.Errorf("expected upsert to overwrite, got %q", got.Plan)
+	}
+}
+
 func closeStore(t *testing.T, s *Store) {
 	t.Helper()
 	if err := s.Close(); err != nil {

@@ -498,6 +498,30 @@ func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	return nil
 }
 
+// FetchIssueComments returns the most recent comments on an issue (up to 50).
+// Used by the plan-confirm flow (ENG-221) to check for approval comments
+// posted after the plan was submitted.
+func (c *Client) FetchIssueComments(ctx context.Context, issueID string) ([]Comment, error) {
+	query := `query($id: String!) {
+	  issue(id: $id) { comments(last: 50) { nodes { body user { name } } } }
+	}`
+
+	var resp struct {
+		Issue *struct {
+			Comments struct {
+				Nodes []Comment `json:"nodes"`
+			} `json:"comments"`
+		} `json:"issue"`
+	}
+	if err := c.Do(ctx, query, map[string]any{"id": issueID}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Issue == nil {
+		return nil, fmt.Errorf("issue %s not found", issueID)
+	}
+	return resp.Issue.Comments.Nodes, nil
+}
+
 // Ping verifies the API key works by fetching the authenticated viewer.
 // Returns the viewer's display name on success.
 func (c *Client) Ping(ctx context.Context) (string, error) {

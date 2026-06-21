@@ -56,6 +56,11 @@ type Pipeline struct {
 	// Sweep scheduler — nil when cfg.SweepEnabled is false.
 	sweeper *sweep.Scheduler
 
+	// Plan-confirm label ID — resolved at startup when plan-confirm is enabled
+	// and the label name resolves successfully. Empty if resolution fails
+	// (per-ticket label detection degrades to global-only mode).
+	planConfirmLabelID string
+
 	sessionStart time.Time
 
 	mu                sync.Mutex
@@ -63,6 +68,7 @@ type Pipeline struct {
 	cancels           map[string]context.CancelFunc // per-ticket cancel (for /kill)
 	killed            map[string]struct{}           // tickets killed via /kill
 	failedAttempts    map[string]int                // per-ticket retry counter
+	approvedPlans     map[string]string             // plan-confirm: approved plans keyed by identifier (ENG-221)
 	skipped           map[string]struct{}           // non-transient failures — never re-dispatched
 	totalDispatches   int
 	successCount      int
@@ -83,9 +89,9 @@ func New(cfg *config.Config) *Pipeline {
 	}
 
 	// Open the state store up front if any feature needs it: auto-iterate,
-	// sweep, or actor=app OAuth refresh persistence.
+	// sweep, plan-confirm, or actor=app OAuth refresh persistence.
 	var store *state.Store
-	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.ActorAppConfigured() {
+	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.PlanConfirm || cfg.PlanConfirmLabel != "" || cfg.ActorAppConfigured() {
 		s, err := state.OpenMigrating(cfg.StateDB, cfg.StateFile)
 		if err != nil {
 			slog.Warn("state store open failed", "path", cfg.StateDB, "legacy_path", cfg.StateFile, "err", err)
@@ -197,6 +203,22 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 
 	slog.Info("resolved Linear states", "trigger_mode", p.cfg.TriggerMode, "in_review", p.cfg.InReviewState)
+
+	// Resolve the plan-confirm label ID so per-ticket activation works even
+	// when the global PLAN_CONFIRM is off. Best-effort: a missing label just
+	// disables per-ticket activation (the global flag still works).
+	if p.cfg.PlanConfirmLabel != "" {
+		plCtx, plCancel := context.WithTimeout(ctx, 30*time.Second)
+		plID, err := p.linear.ResolveLabelID(plCtx, p.cfg.PlanConfirmLabel)
+		plCancel()
+		if err != nil {
+			slog.Warn("plan-confirm label not found — per-ticket label activation disabled",
+				"label", p.cfg.PlanConfirmLabel, "err", err)
+		} else {
+			p.planConfirmLabelID = plID
+			slog.Info("resolved plan-confirm label", "label", p.cfg.PlanConfirmLabel, "id", plID)
+		}
+	}
 
 	p.startupCleanup(ctx)
 	p.banner()
@@ -317,6 +339,11 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	if dispatched >= p.cfg.MaxDispatches {
 		return
 	}
+
+	// Check for approved plans before fetching new tickets so approved
+	// plans can be dispatched in the same cycle (ENG-221).
+	p.pollPlanApprovals(ctx, wg, &available)
+
 	if available <= 0 {
 		slog.Debug("at capacity", "active", inFlight, "max", p.cfg.MaxConcurrent)
 		return
@@ -373,6 +400,14 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		if _, skip := p.skipped[issue.Identifier]; skip {
 			p.mu.Unlock()
 			slog.Debug("skipping (non-transient failure)", "id", issue.Identifier)
+			continue
+		}
+		// Skip tickets that have a pending plan awaiting approval (ENG-221).
+		// They stay in the trigger state but should not be re-dispatched until
+		// the human approves or the plan is cleared.
+		if p.hasPendingPlan(issue.Identifier) {
+			p.mu.Unlock()
+			slog.Debug("skipping (plan awaiting approval)", "id", issue.Identifier)
 			continue
 		}
 		ticketCtx, ticketCancel := context.WithCancel(ctx)
@@ -648,7 +683,14 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Review:         %s\n", reviewMode)
 	fmt.Printf("   Auto-iterate:   %s\n", autoIterMode)
 	fmt.Printf("   Release label:  %s\n", autoReleaseMode)
+	planConfirmMode := "Disabled"
+	if p.cfg.PlanConfirm {
+		planConfirmMode = fmt.Sprintf("On (all tickets, label %q)", p.cfg.PlanConfirmLabel)
+	} else if p.planConfirmLabelID != "" {
+		planConfirmMode = fmt.Sprintf("Per-ticket (label %q)", p.cfg.PlanConfirmLabel)
+	}
 	fmt.Printf("   Sweep:          %s\n", sweepMode)
+	fmt.Printf("   Plan-confirm:   %s\n", planConfirmMode)
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)

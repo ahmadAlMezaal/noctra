@@ -71,6 +71,17 @@ type SweepState struct {
 	LastRunAt time.Time `json:"last_run_at,omitempty"`
 }
 
+// PlanState tracks a ticket that has been planned but not yet approved
+// (ENG-221). Keyed by the issue's Linear identifier (e.g. "ENG-42").
+type PlanState struct {
+	// IssueID is the Linear issue UUID (needed for approval-comment fetching).
+	IssueID string `json:"issue_id"`
+	// Plan is the implementation plan the agent produced.
+	Plan string `json:"plan"`
+	// PlannedAt is when the plan was posted.
+	PlannedAt time.Time `json:"planned_at"`
+}
+
 // OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236)
 // so a restart does not lose a refresh-token rotation.
 type OAuthState struct {
@@ -160,6 +171,12 @@ func (s *Store) initSchema() error {
 		`CREATE TABLE IF NOT EXISTS sweep_states (
 			key TEXT PRIMARY KEY,
 			last_run_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS plan_states (
+			identifier TEXT PRIMARY KEY,
+			issue_id TEXT NOT NULL DEFAULT '',
+			plan TEXT NOT NULL DEFAULT '',
+			planned_at TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS oauth_state (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -448,6 +465,95 @@ func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 		return fmt.Errorf("write sweep state: %w", err)
 	}
 	return nil
+}
+
+// GetPlan returns the plan state for a ticket, or a zero-value PlanState if
+// no plan has been recorded. (ENG-221)
+func (s *Store) GetPlan(identifier string) PlanState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var r PlanState
+	var plannedAt sql.NullString
+	err := s.db.QueryRow(`SELECT issue_id, plan, planned_at FROM plan_states WHERE identifier = ?`, identifier).
+		Scan(&r.IssueID, &r.Plan, &plannedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PlanState{}
+	}
+	if err != nil {
+		slog.Warn("state get plan failed", "identifier", identifier, "err", err)
+		return PlanState{}
+	}
+	if t, convErr := parseNullTime(plannedAt); convErr == nil {
+		r.PlannedAt = t
+	}
+	return r
+}
+
+// SavePlan persists a plan awaiting human approval. (ENG-221)
+func (s *Store) SavePlan(identifier string, ps PlanState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`INSERT INTO plan_states (identifier, issue_id, plan, planned_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(identifier) DO UPDATE SET
+			issue_id = excluded.issue_id,
+			plan = excluded.plan,
+			planned_at = excluded.planned_at`,
+		identifier,
+		ps.IssueID,
+		ps.Plan,
+		formatTime(ps.PlannedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("write plan state: %w", err)
+	}
+	return nil
+}
+
+// DeletePlan removes a plan record after approval or rejection. (ENG-221)
+func (s *Store) DeletePlan(identifier string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM plan_states WHERE identifier = ?`, identifier)
+	if err != nil {
+		return fmt.Errorf("delete plan state: %w", err)
+	}
+	return nil
+}
+
+// AllPlans returns every pending plan keyed by identifier. (ENG-221)
+func (s *Store) AllPlans() map[string]PlanState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT identifier, issue_id, plan, planned_at FROM plan_states`)
+	if err != nil {
+		slog.Warn("state all plans failed", "err", err)
+		return nil
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close plan state rows failed", "err", err)
+		}
+	}()
+	out := map[string]PlanState{}
+	for rows.Next() {
+		var id string
+		var r PlanState
+		var plannedAt sql.NullString
+		if err := rows.Scan(&id, &r.IssueID, &r.Plan, &plannedAt); err != nil {
+			slog.Warn("scan plan state failed", "err", err)
+			return nil
+		}
+		if t, convErr := parseNullTime(plannedAt); convErr == nil {
+			r.PlannedAt = t
+		}
+		out[id] = r
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("iterate plan states failed", "err", err)
+		return nil
+	}
+	return out
 }
 
 func (s *Store) migrateLegacyJSON(path string) error {

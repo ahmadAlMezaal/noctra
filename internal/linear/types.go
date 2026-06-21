@@ -129,7 +129,10 @@ var systemCommentMarkers = []string{
 	"This comment thread is synced",
 }
 
-func isSystemComment(body string) bool {
+// IsSystemComment reports whether a comment body was posted automatically by
+// Noctra (or the Linear↔GitHub sync) and should be excluded from human
+// clarifications.
+func IsSystemComment(body string) bool {
 	// Classify only by the first non-empty line. A human who quotes one of our
 	// notifications (a "> 🚧 **Noctra…" block) and then adds their own reply
 	// must still count as a clarification — so a leading ">" quote is never a
@@ -161,7 +164,7 @@ func (i Issue) ClarificationComments() []string {
 	var out []string
 	for _, c := range i.Comments.Nodes {
 		body := strings.TrimSpace(c.Body)
-		if body == "" || isSystemComment(body) {
+		if body == "" || IsSystemComment(body) {
 			continue
 		}
 		author := "Someone"
@@ -196,6 +199,34 @@ func (i Issue) AssigneeName() string {
 		return ""
 	}
 	return i.Assignee.Name
+}
+
+// PlanConfirmCommentPrefix identifies Noctra's plan-confirm comments so they
+// can be distinguished from other system comments by the approval scanner.
+const PlanConfirmCommentPrefix = "📋 **Noctra: Implementation plan**"
+
+// HasLabel reports whether the issue carries a label with the given name
+// (case-insensitive, trimmed).
+func (i Issue) HasLabel(name string) bool {
+	target := strings.ToLower(strings.TrimSpace(name))
+	for _, l := range i.Labels.Nodes {
+		if strings.ToLower(strings.TrimSpace(l.Name)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// IsApprovalComment reports whether a comment body constitutes human approval
+// of a pending plan. Recognized signals: "go", "lgtm", "approved", "approve",
+// "👍", or the standard GitHub/Slack emoji shortcodes for thumbs-up.
+func IsApprovalComment(body string) bool {
+	s := strings.ToLower(strings.TrimSpace(body))
+	switch s {
+	case "go", "lgtm", "approved", "approve", "👍", ":thumbsup:", ":+1:":
+		return true
+	}
+	return false
 }
 
 // BackendLabelPrefix is the label-name prefix that selects a per-ticket

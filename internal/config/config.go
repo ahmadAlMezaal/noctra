@@ -104,6 +104,9 @@ const (
 	// Sweep — autonomous maintenance (ENG-222) — disabled by default.
 	DefaultSweepInterval = 24 * time.Hour
 	DefaultSweepMaxTasks = 5
+
+	// Plan-confirm (ENG-221) — disabled by default; opt in via .env.
+	DefaultPlanConfirmLabel = "plan-first"
 )
 
 // Config is Noctra's resolved runtime configuration.
@@ -180,6 +183,13 @@ type Config struct {
 	SweepMaxTasks int           // max tasks per sweep run (default 5)
 	SweepTasks    []string      // enabled task names (nil = all registered tasks)
 	SweepRepos    []string      // explicit repos to sweep (owner/name or URL); nil = all cloned
+
+	// Plan-confirm (ENG-221) — off by default; opt in via .env or per-ticket
+	// with the "plan-first" label. When enabled, Noctra runs the agent in
+	// plan-only mode first, posts the plan as a Linear comment, and waits
+	// for human approval before implementing.
+	PlanConfirm      bool   // global opt-in for plan-confirm on all tickets
+	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
 
 	// Derived paths
 	ScriptDir    string
@@ -285,6 +295,10 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.SweepMaxTasks = getint(fileEnv, "SWEEP_MAX_TASKS", DefaultSweepMaxTasks)
 	cfg.SweepTasks = getlist(fileEnv, "SWEEP_TASKS")
 	cfg.SweepRepos = getlist(fileEnv, "SWEEP_REPOS")
+
+	// Plan-confirm (ENG-221)
+	cfg.PlanConfirm = getbool(fileEnv, "PLAN_CONFIRM", false)
+	cfg.PlanConfirmLabel = getenv(fileEnv, "PLAN_CONFIRM_LABEL", DefaultPlanConfirmLabel)
 
 	return cfg, nil
 }
