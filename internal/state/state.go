@@ -72,9 +72,12 @@ type SweepState struct {
 }
 
 // PlanState tracks a ticket that has been planned but not yet approved
-// (ENG-221). Keyed by the issue's Linear identifier (e.g. "ENG-42").
+// (ENG-221). Keyed by the source ticket identifier (e.g. "ENG-42").
 type PlanState struct {
-	// IssueID is the Linear issue UUID (needed for approval-comment fetching).
+	// Source is the ticket source name. Empty means "linear" for records
+	// written before multi-source support.
+	Source string `json:"source,omitempty"`
+	// IssueID is the source issue ID (needed for approval-comment fetching).
 	IssueID string `json:"issue_id"`
 	// Plan is the implementation plan the agent produced.
 	Plan string `json:"plan"`
@@ -174,10 +177,12 @@ func (s *Store) initSchema() error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS plan_states (
 			identifier TEXT PRIMARY KEY,
+			source TEXT NOT NULL DEFAULT 'linear',
 			issue_id TEXT NOT NULL DEFAULT '',
 			plan TEXT NOT NULL DEFAULT '',
 			planned_at TEXT
 		)`,
+		`ALTER TABLE plan_states ADD COLUMN source TEXT NOT NULL DEFAULT 'linear'`,
 		`CREATE TABLE IF NOT EXISTS oauth_state (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			access_token TEXT NOT NULL DEFAULT '',
@@ -216,6 +221,9 @@ func (s *Store) initSchema() error {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("init state schema: %w", err)
 		}
 	}
@@ -474,8 +482,8 @@ func (s *Store) GetPlan(identifier string) PlanState {
 	defer s.mu.Unlock()
 	var r PlanState
 	var plannedAt sql.NullString
-	err := s.db.QueryRow(`SELECT issue_id, plan, planned_at FROM plan_states WHERE identifier = ?`, identifier).
-		Scan(&r.IssueID, &r.Plan, &plannedAt)
+	err := s.db.QueryRow(`SELECT source, issue_id, plan, planned_at FROM plan_states WHERE identifier = ?`, identifier).
+		Scan(&r.Source, &r.IssueID, &r.Plan, &plannedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PlanState{}
 	}
@@ -493,13 +501,18 @@ func (s *Store) GetPlan(identifier string) PlanState {
 func (s *Store) SavePlan(identifier string, ps PlanState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`INSERT INTO plan_states (identifier, issue_id, plan, planned_at)
-		VALUES (?, ?, ?, ?)
+	if ps.Source == "" {
+		ps.Source = "linear"
+	}
+	_, err := s.db.Exec(`INSERT INTO plan_states (identifier, source, issue_id, plan, planned_at)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(identifier) DO UPDATE SET
+			source = excluded.source,
 			issue_id = excluded.issue_id,
 			plan = excluded.plan,
 			planned_at = excluded.planned_at`,
 		identifier,
+		ps.Source,
 		ps.IssueID,
 		ps.Plan,
 		formatTime(ps.PlannedAt),
@@ -525,7 +538,7 @@ func (s *Store) DeletePlan(identifier string) error {
 func (s *Store) AllPlans() map[string]PlanState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query(`SELECT identifier, issue_id, plan, planned_at FROM plan_states`)
+	rows, err := s.db.Query(`SELECT identifier, source, issue_id, plan, planned_at FROM plan_states`)
 	if err != nil {
 		slog.Warn("state all plans failed", "err", err)
 		return nil
@@ -540,7 +553,7 @@ func (s *Store) AllPlans() map[string]PlanState {
 		var id string
 		var r PlanState
 		var plannedAt sql.NullString
-		if err := rows.Scan(&id, &r.IssueID, &r.Plan, &plannedAt); err != nil {
+		if err := rows.Scan(&id, &r.Source, &r.IssueID, &r.Plan, &plannedAt); err != nil {
 			slog.Warn("scan plan state failed", "err", err)
 			return nil
 		}

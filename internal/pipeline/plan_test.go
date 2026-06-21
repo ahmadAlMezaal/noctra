@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/source"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
@@ -24,7 +24,7 @@ func TestNeedsPlanConfirm_GlobalEnabled(t *testing.T) {
 		cfg:   &config.Config{PlanConfirm: true, PlanConfirmLabel: "plan-first"},
 		store: testStore(t),
 	}
-	issue := linear.Issue{Identifier: "ENG-1", Labels: linear.LabelConnection{}}
+	issue := source.Ticket{Identifier: "ENG-1"}
 	if !p.needsPlanConfirm(issue) {
 		t.Error("expected needsPlanConfirm=true when PlanConfirm is globally enabled")
 	}
@@ -35,9 +35,9 @@ func TestNeedsPlanConfirm_LabelActivation(t *testing.T) {
 		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
 		store: testStore(t),
 	}
-	issue := linear.Issue{
+	issue := source.Ticket{
 		Identifier: "ENG-2",
-		Labels:     linear.LabelConnection{Nodes: []linear.Label{{Name: "plan-first"}}},
+		Labels:     []source.Label{{Name: "plan-first"}},
 	}
 	if !p.needsPlanConfirm(issue) {
 		t.Error("expected needsPlanConfirm=true when issue has plan-first label")
@@ -49,9 +49,9 @@ func TestNeedsPlanConfirm_NoActivation(t *testing.T) {
 		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: "plan-first"},
 		store: testStore(t),
 	}
-	issue := linear.Issue{
+	issue := source.Ticket{
 		Identifier: "ENG-3",
-		Labels:     linear.LabelConnection{Nodes: []linear.Label{{Name: "bug"}}},
+		Labels:     []source.Label{{Name: "bug"}},
 	}
 	if p.needsPlanConfirm(issue) {
 		t.Error("expected needsPlanConfirm=false when feature is off and label is absent")
@@ -63,7 +63,7 @@ func TestNeedsPlanConfirm_NilStore(t *testing.T) {
 		cfg:   &config.Config{PlanConfirm: true, PlanConfirmLabel: "plan-first"},
 		store: nil,
 	}
-	issue := linear.Issue{Identifier: "ENG-5"}
+	issue := source.Ticket{Identifier: "ENG-5"}
 	if p.needsPlanConfirm(issue) {
 		t.Error("expected needsPlanConfirm=false when store is nil, even with PlanConfirm enabled")
 	}
@@ -74,9 +74,9 @@ func TestNeedsPlanConfirm_EmptyLabel(t *testing.T) {
 		cfg:   &config.Config{PlanConfirm: false, PlanConfirmLabel: ""},
 		store: testStore(t),
 	}
-	issue := linear.Issue{
+	issue := source.Ticket{
 		Identifier: "ENG-4",
-		Labels:     linear.LabelConnection{Nodes: []linear.Label{{Name: "plan-first"}}},
+		Labels:     []source.Label{{Name: "plan-first"}},
 	}
 	if p.needsPlanConfirm(issue) {
 		t.Error("expected needsPlanConfirm=false when PlanConfirmLabel is empty")
@@ -95,8 +95,8 @@ func TestIsPlanComment(t *testing.T) {
 		body string
 		want bool
 	}{
-		{linear.PlanConfirmCommentPrefix + "\n\nSome plan here.", true},
-		{linear.PlanConfirmCommentPrefix, true},
+		{source.PlanConfirmCommentPrefix + "\n\nSome plan here.", true},
+		{source.PlanConfirmCommentPrefix, true},
 		{"Some random comment.", false},
 		{"📋 **Not Noctra**", false},
 		{"", false},

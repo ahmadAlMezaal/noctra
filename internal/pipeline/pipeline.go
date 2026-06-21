@@ -21,6 +21,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/review"
 	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
+	"github.com/ahmadAlMezaal/noctra/internal/source"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
@@ -36,6 +37,7 @@ var Version = ""
 type Pipeline struct {
 	cfg      *config.Config
 	linear   *linear.Client
+	sources  []source.TicketSource
 	resolver *repo.Resolver
 	notifier *notify.Multi
 	review   *review.Gate
@@ -100,9 +102,10 @@ func New(cfg *config.Config) *Pipeline {
 		}
 	}
 
+	linearClient := newLinearClient(cfg, store)
 	p := &Pipeline{
 		cfg:      cfg,
-		linear:   newLinearClient(cfg, store),
+		linear:   linearClient,
 		resolver: repo.FromConfig(cfg),
 		notifier: buildNotifier(cfg),
 		review:   review.NewWithMode(cfg.GeminiMode, cfg.GeminiAPIKey, cfg.GeminiModel),
@@ -119,6 +122,7 @@ func New(cfg *config.Config) *Pipeline {
 		sessionStart:   time.Now(),
 		store:          store,
 	}
+	p.sources = buildTicketSources(cfg, linearClient)
 
 	// Alert when the Linear app identity degrades to the personal API key.
 	p.linear.OnDegrade = func(cause error) {
@@ -175,48 +179,25 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		}
 	}
 
-	// In label mode the trigger-state ID isn't needed — pass "" so
-	// ResolveStateIDs skips its validation. The in-review state is
-	// still required for the post-PR transition.
-	triggerStateName := p.cfg.TriggerState
-	if p.cfg.TriggerMode == "label" {
-		triggerStateName = ""
-	}
-
-	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	states, err := p.linear.ResolveStateIDs(stateCtx, p.cfg.LinearTeamKey, triggerStateName, p.cfg.InReviewState)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("resolve linear states: %w", err)
-	}
-	p.states = states
-
-	if p.cfg.TriggerMode == "label" {
-		labelCtx, labelCancel := context.WithTimeout(ctx, 30*time.Second)
-		lid, err := p.linear.ResolveLabelID(labelCtx, p.cfg.TriggerLabel)
-		labelCancel()
+	for _, src := range p.sources {
+		sourceCtx, sourceCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := src.Prepare(sourceCtx)
+		sourceCancel()
 		if err != nil {
-			return fmt.Errorf("resolve trigger label: %w", err)
+			return fmt.Errorf("prepare %s source: %w", src.Name(), err)
 		}
-		p.labelID = lid
-		slog.Info("resolved Linear label", "label", p.cfg.TriggerLabel, "id", lid)
-	}
-
-	slog.Info("resolved Linear states", "trigger_mode", p.cfg.TriggerMode, "in_review", p.cfg.InReviewState)
-
-	// Resolve the plan-confirm label ID so per-ticket activation works even
-	// when the global PLAN_CONFIRM is off. Best-effort: a missing label just
-	// disables per-ticket activation (the global flag still works).
-	if p.cfg.PlanConfirmLabel != "" {
-		plCtx, plCancel := context.WithTimeout(ctx, 30*time.Second)
-		plID, err := p.linear.ResolveLabelID(plCtx, p.cfg.PlanConfirmLabel)
-		plCancel()
-		if err != nil {
-			slog.Warn("plan-confirm label not found — per-ticket label activation disabled",
-				"label", p.cfg.PlanConfirmLabel, "err", err)
-		} else {
-			p.planConfirmLabelID = plID
-			slog.Info("resolved plan-confirm label", "label", p.cfg.PlanConfirmLabel, "id", plID)
+		if ls, ok := src.(*source.LinearSource); ok {
+			p.states = ls.StateIDs()
+			p.labelID = ls.TriggerLabelID()
+			p.planConfirmLabelID = ls.PlanConfirmLabelID()
+			slog.Info("resolved Linear source", "trigger_mode", p.cfg.TriggerMode, "in_review", p.cfg.InReviewState)
+			if p.cfg.TriggerMode == "label" {
+				slog.Info("resolved Linear label", "label", p.cfg.TriggerLabel, "id", p.labelID)
+			}
+			if p.cfg.PlanConfirmLabel != "" && p.planConfirmLabelID == "" {
+				slog.Warn("plan-confirm label not found — per-ticket label activation disabled",
+					"label", p.cfg.PlanConfirmLabel)
+			}
 		}
 	}
 
@@ -350,15 +331,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 
 	fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	var (
-		issues []linear.Issue
-		err    error
-	)
-	if p.cfg.TriggerMode == "label" {
-		issues, err = p.linear.FetchLabeledIssues(fctx, p.cfg.TriggerLabel)
-	} else {
-		issues, err = p.linear.FetchTriggerIssues(fctx, p.cfg.TriggerState)
-	}
+	issues, err := p.fetchTickets(fctx)
 	cancel()
 	if err != nil {
 		slog.Warn("fetch tickets failed", "err", err)
@@ -421,12 +394,24 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		slog.Info("🎯 dispatching", "id", issue.Identifier, "title", issue.Title)
 
 		wg.Add(1)
-		go func(iss linear.Issue) {
+		go func(iss source.Ticket) {
 			defer wg.Done()
 			defer p.markDone(iss.Identifier)
 			p.process(ticketCtx, iss)
 		}(issue)
 	}
+}
+
+func (p *Pipeline) fetchTickets(ctx context.Context) ([]source.Ticket, error) {
+	var out []source.Ticket
+	for _, src := range p.sources {
+		tickets, err := src.Fetch(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", src.Name(), err)
+		}
+		out = append(out, tickets...)
+	}
+	return out, nil
 }
 
 func (p *Pipeline) markDone(id string) {
@@ -618,6 +603,33 @@ func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
 	return linear.New(cfg.LinearAPIKey)
 }
 
+func buildTicketSources(cfg *config.Config, linearClient *linear.Client) []source.TicketSource {
+	var sources []source.TicketSource
+	names := cfg.TicketSources
+	if len(names) == 0 {
+		names = []string{"linear"}
+	}
+	for _, name := range names {
+		switch name {
+		case "linear":
+			sources = append(sources, source.NewLinear(linearClient, source.LinearConfig{
+				TeamKey:          cfg.LinearTeamKey,
+				TriggerMode:      cfg.TriggerMode,
+				TriggerState:     cfg.TriggerState,
+				TriggerLabel:     cfg.TriggerLabel,
+				InReviewState:    cfg.InReviewState,
+				PlanConfirmLabel: cfg.PlanConfirmLabel,
+			}))
+		case "github":
+			sources = append(sources, source.NewGitHubIssues(source.GitHubIssuesConfig{
+				Repos:        cfg.GitHubIssuesRepos,
+				TriggerLabel: cfg.GitHubTriggerLabel,
+			}))
+		}
+	}
+	return sources
+}
+
 func (p *Pipeline) banner() {
 	reviewMode := "Disabled"
 	if p.review.Enabled() {
@@ -653,7 +665,7 @@ func (p *Pipeline) banner() {
 	// Repos are routed per-ticket from each Linear project's "Repo:" directive
 	// and cloned on demand, so there's no static list at startup — report the
 	// routing mode plus however many clones already exist on disk.
-	repoSummary := "Linear project Repo: directives"
+	repoSummary := "source Repo: directives"
 	if n := len(p.resolver.AllRepoPaths()); n > 0 {
 		repoSummary += fmt.Sprintf(" (%d cloned)", n)
 	}
@@ -664,6 +676,7 @@ func (p *Pipeline) banner() {
 	fmt.Println()
 	fmt.Println("🌙 Noctra (Go)")
 	fmt.Printf("   Repos:          %s\n", repoSummary)
+	fmt.Printf("   Sources:        %s\n", strings.Join(p.cfg.TicketSources, ", "))
 	fmt.Printf("   Worktrees:      %s\n", p.cfg.WorktreeBase)
 	fmt.Printf("   Team:           %s\n", p.cfg.LinearTeamKey)
 	linearIdentity := "personal API key"

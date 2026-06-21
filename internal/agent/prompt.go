@@ -47,7 +47,7 @@ Guidelines: none = docs/chore/internal-only, patch = bug fix, minor = new featur
 	}
 
 	if in.UseTeams {
-		return fmt.Sprintf(`You are a lead agent implementing a Linear ticket. You have a team of agents available.
+		return fmt.Sprintf(`You are a lead agent implementing a ticket. You have a team of agents available.
 
 ## Ticket: %s — %s
 %s%s
@@ -78,7 +78,7 @@ Provide a brief summary of what was implemented and any important decisions made
 %s`, in.Identifier, in.Title, desc, discussion, releaseInstruction)
 	}
 
-	return fmt.Sprintf(`You are implementing a Linear ticket.
+	return fmt.Sprintf(`You are implementing a ticket.
 
 ## Ticket: %s — %s
 %s%s
