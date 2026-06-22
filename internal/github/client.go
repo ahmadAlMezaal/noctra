@@ -451,6 +451,48 @@ func (c *Client) PostInlineComments(ctx context.Context, prURL, commitSHA string
 	return posted
 }
 
+// pullCommentReactionAPIPath builds the REST reactions path for an inline review comment.
+func pullCommentReactionAPIPath(prURL, commentID string) (string, error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", fmt.Errorf("parse PR URL %q: %w", prURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("unexpected PR URL shape: %q", prURL)
+	}
+	if strings.TrimSpace(commentID) == "" {
+		return "", fmt.Errorf("empty comment ID for %q", prURL)
+	}
+	return fmt.Sprintf("repos/%s/%s/pulls/comments/%s/reactions", parts[0], parts[1], commentID), nil
+}
+
+// AddEyesReaction posts a best-effort 👀 reaction on a comment to acknowledge
+// feedback. inline picks the API: REST reactions (numeric ID) vs the GraphQL
+// addReaction mutation, since conversation comments only give us a node ID.
+func (c *Client) AddEyesReaction(ctx context.Context, prURL, commentID string, inline bool) error {
+	if strings.TrimSpace(commentID) == "" {
+		return nil
+	}
+	var cmd *exec.Cmd
+	if inline {
+		apiPath, err := pullCommentReactionAPIPath(prURL, commentID)
+		if err != nil {
+			return err
+		}
+		cmd = exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath, "-f", "content=eyes")
+	} else {
+		const q = `mutation($id:ID!){addReaction(input:{subjectId:$id,content:EYES}){reaction{content}}}`
+		cmd = exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+q, "-f", "id="+commentID)
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if _, err := cmd.Output(); err != nil {
+		return fmt.Errorf("add eyes reaction: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // replyToThread posts a reply on a review comment thread via the REST API.
 func (c *Client) replyToThread(ctx context.Context, owner, repo string, prNumber int, commentID int64, body string) error {
 	apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments/%d/replies", owner, repo, prNumber, commentID)

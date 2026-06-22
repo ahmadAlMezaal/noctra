@@ -173,6 +173,31 @@ func TestReviewCommentsAPIPath(t *testing.T) {
 	}
 }
 
+func TestPullCommentReactionAPIPath(t *testing.T) {
+	cases := []struct {
+		url     string
+		id      string
+		want    string
+		wantErr bool
+	}{
+		{"https://github.com/me/auth/pull/12", "999", "repos/me/auth/pulls/comments/999/reactions", false},
+		{"https://github.com/me/auth/pull/12/files", "1", "repos/me/auth/pulls/comments/1/reactions", false},
+		{"https://github.com/me/auth/pull/12", "", "", true},
+		{"https://github.com/me/auth/issues/12", "5", "", true},
+		{"https://github.com/me", "5", "", true},
+	}
+	for _, c := range cases {
+		got, err := pullCommentReactionAPIPath(c.url, c.id)
+		if (err != nil) != c.wantErr {
+			t.Errorf("pullCommentReactionAPIPath(%q,%q): err=%v wantErr=%v", c.url, c.id, err, c.wantErr)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("pullCommentReactionAPIPath(%q,%q) = %q, want %q", c.url, c.id, got, c.want)
+		}
+	}
+}
+
 func TestParseActionsRunURL(t *testing.T) {
 	cases := []struct {
 		in               string

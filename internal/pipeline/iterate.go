@@ -204,6 +204,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	logger := slog.With("id", identifier, "pr", ch.PR.URL)
 	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
 
+	p.ackEngagement(ctx, ch) // 👀 ack before the agent's slow reply
+
 	// Select the backend for this iteration — persisted state (from when the
 	// PR was created) takes priority so follow-up commits use the same backend.
 	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
@@ -555,6 +557,18 @@ func (p *Pipeline) advanceCursor(ch watch.PRChanges) {
 		}
 	}); err != nil {
 		slog.Warn("pipeline: cursor advance failed", "url", ch.PR.URL, "err", err)
+	}
+}
+
+// ackEngagement posts a best-effort 👀 on each comment that triggered re-engagement.
+func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
+	for _, ev := range ch.Events {
+		if ev.Type != watch.EventComment || ev.CommentID == "" {
+			continue
+		}
+		if err := p.gh.AddEyesReaction(ctx, ch.PR.URL, ev.CommentID, ev.Path != ""); err != nil {
+			slog.Warn("ack reaction failed", "pr", ch.PR.URL, "err", err)
+		}
 	}
 }
 

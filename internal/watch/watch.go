@@ -13,6 +13,7 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type Event struct {
 	ReviewState string // populated when Type == EventReview
 	Path        string // file path, populated for inline review comments
 	Line        int    // line number, populated for inline review comments
+	CommentID   string // source comment ID, for reacting; empty for reviews
 }
 
 // CIFailure describes a head commit whose CI has completed with at least one
@@ -150,11 +152,12 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 			out.NewestComment = c.CreatedAt
 		}
 		ev := Event{
-			Type:   EventComment,
-			Author: c.Author,
-			Body:   c.Body,
-			URL:    c.URL,
-			At:     c.CreatedAt,
+			Type:      EventComment,
+			Author:    c.Author,
+			Body:      c.Body,
+			URL:       c.URL,
+			At:        c.CreatedAt,
+			CommentID: c.ID,
 		}
 		if w.actionable(ev) {
 			out.Events = append(out.Events, ev)
@@ -174,13 +177,14 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 			out.NewestComment = rc.CreatedAt
 		}
 		ev := Event{
-			Type:   EventComment,
-			Author: rc.Author,
-			Body:   rc.Body,
-			URL:    rc.URL,
-			At:     rc.CreatedAt,
-			Path:   rc.Path,
-			Line:   rc.Line,
+			Type:      EventComment,
+			Author:    rc.Author,
+			Body:      rc.Body,
+			URL:       rc.URL,
+			At:        rc.CreatedAt,
+			Path:      rc.Path,
+			Line:      rc.Line,
+			CommentID: strconv.FormatInt(rc.ID, 10),
 		}
 		if w.actionable(ev) {
 			out.Events = append(out.Events, ev)
