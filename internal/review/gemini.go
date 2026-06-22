@@ -157,7 +157,7 @@ func buildStructuredPrompt(ticketTitle, ticketDescription, diff string) string {
 Return a JSON review:
 - "verdict": "PASS" if it is good to merge (minor nits are fine), otherwise "FAIL".
 - "summary": a 1-3 sentence overall assessment.
-- "findings": specific issues, each anchored to a changed line. For each finding set "path" (the file path exactly as it appears in the diff), "line" (a line number that appears as an added/changed line in the diff), "severity" ("high"/"medium"/"low"), and "comment" (the problem and a suggested fix). Only include findings you can anchor to a changed line; put anything broader in the summary. Use an empty array if there are none.`,
+- "findings": specific issues, each anchored to a changed line. For each finding set "path" (the file path exactly as it appears in the diff), "line" (a line number that appears as an added/changed line in the diff), "severity" ("high"/"medium"/"low"), and "comment" (the problem and a suggested fix; wrap any code, suggested replacements, or HTML in a fenced Markdown code block — a triple-backtick fence — rather than inline code spans, so it renders correctly on GitHub instead of as raw markup). Only include findings you can anchor to a changed line; put anything broader in the summary. Use an empty array if there are none.`,
 		ticketTitle, ticketDescription, diff)
 }
 
