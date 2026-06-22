@@ -45,6 +45,48 @@ func TestDiff_NewCommentByHumanIsActionable(t *testing.T) {
 	}
 }
 
+func TestDiff_PopulatesCommentIDForReactions(t *testing.T) {
+	w := newTestWatcher(t, nil)
+	pr := github.PR{URL: "https://github.com/me/repo/pull/1", Number: 1}
+	details := &github.Details{
+		State: "OPEN",
+		Comments: []github.Comment{{
+			ID:        "IC_node123",
+			Author:    github.Actor{Login: "alice", Type: "User"},
+			Body:      "Please fix the typo",
+			CreatedAt: time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+		}},
+		ReviewComments: []github.ReviewComment{{
+			ID:        987654,
+			Author:    github.Actor{Login: "alice", Type: "User"},
+			Body:      "keep the mutex held here",
+			CreatedAt: time.Date(2026, 5, 30, 12, 1, 0, 0, time.UTC),
+			Path:      "internal/state/state.go",
+			Line:      122,
+		}},
+	}
+
+	ch := w.diff(pr, details, state.PRState{})
+	if len(ch.Events) != 2 {
+		t.Fatalf("expected 2 actionable events, got %d", len(ch.Events))
+	}
+
+	var conv, inline *Event
+	for i := range ch.Events {
+		if ch.Events[i].Path == "" {
+			conv = &ch.Events[i]
+		} else {
+			inline = &ch.Events[i]
+		}
+	}
+	if conv == nil || conv.CommentID != "IC_node123" {
+		t.Errorf("conversation comment: want CommentID=IC_node123 (node ID), got %+v", conv)
+	}
+	if inline == nil || inline.CommentID != "987654" {
+		t.Errorf("inline review comment: want CommentID=987654 (REST ID), got %+v", inline)
+	}
+}
+
 func TestIsBotDirectedCommand(t *testing.T) {
 	skip := []string{
 		"@codex review",
