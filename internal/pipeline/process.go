@@ -587,10 +587,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		headSHA := gitHead(ctx, wt.Path)
 		ics := make([]github.InlineComment, 0, len(reviewFindings))
 		for _, f := range reviewFindings {
-			body := strings.TrimSpace(f.Comment)
-			if f.Severity != "" {
-				body = fmt.Sprintf("**%s priority**\n\n%s", strings.ToUpper(f.Severity), body)
-			}
+			body := inlineCommentBody(f, p.review.Model, p.review.Mode)
 			ics = append(ics, github.InlineComment{Path: f.Path, Line: f.Line, Body: body})
 		}
 		posted := p.gh.PostInlineComments(ctx, prURL, headSHA, ics)
