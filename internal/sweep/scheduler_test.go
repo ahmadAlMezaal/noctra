@@ -169,6 +169,41 @@ func TestScheduler_PlanRespectsMaxTasks(t *testing.T) {
 	}
 }
 
+func TestScheduler_PlanSpreadsAcrossRepos(t *testing.T) {
+	reposBase := t.TempDir()
+	initTestRepo(t, reposBase, "repo-a")
+	initTestRepo(t, reposBase, "repo-b")
+	initTestRepo(t, reposBase, "repo-c")
+
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	// 3 repos, each offering 3 tasks, budget 4. Round-robin should hand the
+	// first 3 slots to one task each from a, b, c — not 3 tasks from repo-a.
+	tasks := []Task{
+		testTask("t1", time.Hour),
+		testTask("t2", time.Hour),
+		testTask("t3", time.Hour),
+	}
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 4, nil, nil)
+
+	jobs := s.Plan(context.Background())
+	if len(jobs) != 4 {
+		t.Fatalf("expected 4 jobs, got %d", len(jobs))
+	}
+	repos := map[string]int{}
+	for _, j := range jobs {
+		repos[j.RepoSlug]++
+	}
+	if len(repos) != 3 {
+		t.Errorf("expected jobs across all 3 repos, got %v", repos)
+	}
+	for slug, n := range repos {
+		if n > 2 {
+			t.Errorf("repo %s got %d jobs; round-robin should cap the spread", slug, n)
+		}
+	}
+}
+
 func TestScheduler_PlanRespectsCooldown(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "my-repo")

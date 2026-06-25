@@ -132,7 +132,13 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		return nil
 	}
 
-	var jobs []Job
+	type repoQueue struct {
+		path       string
+		slug       string
+		mainBranch string
+		eligible   []Task
+	}
+	var queues []repoQueue
 	for _, rp := range repoPaths {
 		if ctx.Err() != nil {
 			break
@@ -141,12 +147,8 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		if slug == "" {
 			continue
 		}
-		mainBranch := repo.DefaultBranchOf(ctx, rp)
-
+		var eligible []Task
 		for _, task := range s.tasks {
-			if len(jobs) >= s.maxTasks {
-				break
-			}
 			key := state.SweepKey(slug, task.Name)
 			ss := s.store.GetSweep(key)
 			if !ss.LastRunAt.IsZero() && s.now().Sub(ss.LastRunAt) < task.Cooldown {
@@ -156,14 +158,43 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 					"cooldown_remaining", task.Cooldown-s.now().Sub(ss.LastRunAt))
 				continue
 			}
+			eligible = append(eligible, task)
+		}
+		if len(eligible) == 0 {
+			continue
+		}
+		queues = append(queues, repoQueue{
+			path:       rp,
+			slug:       slug,
+			mainBranch: repo.DefaultBranchOf(ctx, rp),
+			eligible:   eligible,
+		})
+	}
+
+	// Round-robin one task per repo per pass, so the maxTasks budget spreads
+	// across repos instead of one repo's task list monopolising it.
+	var jobs []Job
+	for len(jobs) < s.maxTasks {
+		progressed := false
+		for i := range queues {
+			if len(jobs) >= s.maxTasks {
+				break
+			}
+			q := &queues[i]
+			if len(q.eligible) == 0 {
+				continue
+			}
+			task := q.eligible[0]
+			q.eligible = q.eligible[1:]
 			jobs = append(jobs, Job{
 				Task:       task,
-				RepoPath:   rp,
-				RepoSlug:   slug,
-				MainBranch: mainBranch,
+				RepoPath:   q.path,
+				RepoSlug:   q.slug,
+				MainBranch: q.mainBranch,
 			})
+			progressed = true
 		}
-		if len(jobs) >= s.maxTasks {
+		if !progressed {
 			break
 		}
 	}
