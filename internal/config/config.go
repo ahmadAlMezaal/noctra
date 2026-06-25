@@ -218,6 +218,11 @@ type Config struct {
 	PlanConfirm      bool   // global opt-in for plan-confirm on all tickets
 	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
 
+	// Dashboard (ENG-274) — off by default. When DASHBOARD_ADDR is set,
+	// serves a read-only snapshot UI on that address.
+	DashboardAddr  string // listen address (e.g. ":8080"); empty = dashboard disabled
+	DashboardToken string // required Bearer token for all dashboard requests
+
 	// Derived paths
 	ScriptDir    string
 	EnvFile      string
@@ -343,6 +348,10 @@ func Load(scriptDir string) (*Config, error) {
 	// Plan-confirm (ENG-221)
 	cfg.PlanConfirm = getbool(fileEnv, "PLAN_CONFIRM", false)
 	cfg.PlanConfirmLabel = getenv(fileEnv, "PLAN_CONFIRM_LABEL", DefaultPlanConfirmLabel)
+
+	// Dashboard (ENG-274)
+	cfg.DashboardAddr = getenv(fileEnv, "DASHBOARD_ADDR", "")
+	cfg.DashboardToken = getenv(fileEnv, "DASHBOARD_TOKEN", "")
 
 	return cfg, nil
 }

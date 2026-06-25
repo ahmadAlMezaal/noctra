@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/ahmadAlMezaal/noctra/internal/dashboard"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
@@ -63,6 +66,9 @@ type Pipeline struct {
 	// and the label name resolves successfully. Empty if resolution fails
 	// (per-ticket label detection degrades to global-only mode).
 	planConfirmLabelID string
+
+	// Dashboard server — nil when cfg.DashboardAddr is empty.
+	dash *dashboard.Server
 
 	sessionStart time.Time
 
@@ -169,7 +175,29 @@ func New(cfg *config.Config) *Pipeline {
 		}
 	}
 
+	// Dashboard — constructed eagerly so banner() can inspect it, but
+	// ListenAndServe is deferred to Run (which validates the token).
+	if cfg.DashboardAddr != "" {
+		addr := normalizeDashboardAddr(cfg.DashboardAddr)
+		p.dash = dashboard.New(addr, cfg.DashboardToken, func() any {
+			return p.Snapshot()
+		})
+	}
+
 	return p
+}
+
+// normalizeDashboardAddr binds to localhost when the user supplies only a port
+// (e.g. ":8080") so the dashboard is not accidentally exposed on all interfaces.
+func normalizeDashboardAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }
 
 // Run blocks until ctx is canceled or a rate-limit is detected
@@ -205,6 +233,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		}
 	}
 
+	// Fail fast: dashboard address set but no token.
+	if p.cfg.DashboardAddr != "" && p.cfg.DashboardToken == "" {
+		return fmt.Errorf("DASHBOARD_ADDR is set but DASHBOARD_TOKEN is empty — refusing to start an unauthenticated dashboard")
+	}
+
 	p.startupCleanup(ctx)
 	p.banner()
 	if p.cfg.TriggerMode == "label" {
@@ -238,6 +271,23 @@ func (p *Pipeline) Run(ctx context.Context) error {
 			}
 		}()
 		slog.Info("telegram command listener started")
+	}
+
+	// Start the dashboard server if configured. Shares the WaitGroup so
+	// shutdown drains it alongside the poll loop and other goroutines.
+	if p.dash != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.dash.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Warn("dashboard server stopped", "err", err)
+			}
+		}()
+		// Shut the server down when the loop context is cancelled.
+		go func() {
+			<-loopCtx.Done()
+			_ = p.dash.Shutdown(context.Background())
+		}()
 	}
 
 	ticker := time.NewTicker(p.cfg.PollInterval)
@@ -797,6 +847,18 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Rate limit:     %s\n", rlMode)
 
 	fmt.Printf("   Notifications:  %s\n", notifyMode)
+
+	if p.dash != nil {
+		addr := normalizeDashboardAddr(p.cfg.DashboardAddr)
+		fmt.Printf("   Dashboard:      http://%s/\n", addr)
+		host, _, _ := net.SplitHostPort(addr)
+		if host == "0.0.0.0" {
+			fmt.Printf("   ⚠️  Dashboard bound to 0.0.0.0 — accessible from any network interface\n")
+		}
+	} else {
+		fmt.Printf("   Dashboard:      Disabled\n")
+	}
+
 	fmt.Println()
 	fmt.Println("Waiting for tickets... (Ctrl+C to stop)")
 	fmt.Println()

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noctra Dashboard</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 64rem; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+  h2 { font-size: 1.1rem; color: var(--muted); margin-bottom: 0.5rem; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; }
+  .badge { display: inline-block; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 1rem; font-weight: 600; }
+  .badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  ul { list-style: none; }
+  li { padding: 0.25rem 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.875rem; }
+  .empty { color: var(--muted); font-style: italic; font-size: 0.875rem; }
+  .retries { color: var(--muted); font-size: 0.75rem; margin-left: 0.25rem; }
+  .stat-row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.875rem; }
+  .stat-label { color: var(--muted); }
+  #error { display: none; background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid var(--red); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<h1>Noctra Dashboard</h1>
+<div id="error"></div>
+<div class="grid">
+  <div class="card">
+    <h2>Active Runs</h2>
+    <ul id="active"></ul>
+  </div>
+  <div class="card">
+    <h2>Queue (failed attempts)</h2>
+    <ul id="queued"></ul>
+  </div>
+  <div class="card">
+    <h2>Skipped</h2>
+    <ul id="skipped"></ul>
+  </div>
+  <div class="card">
+    <h2>Budget</h2>
+    <div id="budget"></div>
+  </div>
+</div>
+<script>
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get("token") || "";
+
+  function formatTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
+    if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "K";
+    return String(n);
+  }
+
+  function esc(s) {
+    var d = document.createElement("span");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderList(el, items, emptyMsg) {
+    if (!items || items.length === 0) {
+      el.innerHTML = '<li class="empty">' + esc(emptyMsg) + "</li>";
+      return;
+    }
+    el.innerHTML = items.map(function(id) { return "<li>" + esc(id) + "</li>"; }).join("");
+  }
+
+  function renderQueued(el, queued) {
+    var keys = Object.keys(queued || {});
+    if (keys.length === 0) {
+      el.innerHTML = '<li class="empty">No queued tickets</li>';
+      return;
+    }
+    el.innerHTML = keys.map(function(id) {
+      return "<li>" + esc(id) + '<span class="retries">(' + queued[id] + " retries)</span></li>";
+    }).join("");
+  }
+
+  function renderBudget(el, b, paused) {
+    var rows = "";
+    if (paused) {
+      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-yellow">Paused</span></div>';
+    } else {
+      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-green">Running</span></div>';
+    }
+    rows += '<div class="stat-row"><span class="stat-label">Session tokens</span><span>' + formatTokens(b.SessionTokens || 0) + "</span></div>";
+    if (b.SessionCostUSD) {
+      rows += '<div class="stat-row"><span class="stat-label">Session cost</span><span>$' + b.SessionCostUSD.toFixed(2) + "</span></div>";
+    }
+    rows += '<div class="stat-row"><span class="stat-label">Daily tokens</span><span>' + formatTokens(b.DailyTokens || 0);
+    if (b.MaxDailyTokens > 0) rows += " / " + formatTokens(b.MaxDailyTokens);
+    rows += "</span></div>";
+    if (b.MaxDailyUSD > 0) {
+      rows += '<div class="stat-row"><span class="stat-label">Daily cost</span><span>$' + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2) + "</span></div>";
+    }
+    if (b.Paused && b.PauseReason) {
+      rows += '<div class="stat-row"><span class="stat-label">Pause reason</span><span>' + esc(b.PauseReason) + "</span></div>";
+    }
+    el.innerHTML = rows;
+  }
+
+  function load() {
+    var errEl = document.getElementById("error");
+    fetch("/api/snapshot", { headers: { "Authorization": "Bearer " + token } })
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(d) {
+        errEl.style.display = "none";
+        renderList(document.getElementById("active"), d.active, "No active runs");
+        renderQueued(document.getElementById("queued"), d.queued);
+        renderList(document.getElementById("skipped"), d.skipped, "No skipped tickets");
+        renderBudget(document.getElementById("budget"), d.budget, d.paused);
+      })
+      .catch(function(e) {
+        errEl.textContent = "Failed to load snapshot: " + e.message;
+        errEl.style.display = "block";
+      });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
