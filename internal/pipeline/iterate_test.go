@@ -4,9 +4,51 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
+
+func TestHasConversationComment(t *testing.T) {
+	cases := []struct {
+		name   string
+		events []watch.Event
+		want   bool
+	}{
+		{"conversation comment", []watch.Event{{Type: watch.EventComment}}, true},
+		{"inline review comment has a path", []watch.Event{{Type: watch.EventComment, Path: "main.go"}}, false},
+		{"review summary is not a comment", []watch.Event{{Type: watch.EventReview}}, false},
+		{"mixed picks up the conversation comment", []watch.Event{{Type: watch.EventReview}, {Type: watch.EventComment, Path: "a.go"}, {Type: watch.EventComment}}, true},
+		{"none", nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := hasConversationComment(watch.PRChanges{Events: c.events}); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestConversationCommentAuthors(t *testing.T) {
+	ch := watch.PRChanges{Events: []watch.Event{
+		{Type: watch.EventComment, Author: github.Actor{Login: "alice"}},
+		{Type: watch.EventComment, Path: "main.go", Author: github.Actor{Login: "bot"}}, // inline → excluded
+		{Type: watch.EventReview, Author: github.Actor{Login: "gemini"}},                // review → excluded
+		{Type: watch.EventComment, Author: github.Actor{Login: "alice"}},                // dupe → collapsed
+		{Type: watch.EventComment, Author: github.Actor{Login: "bob"}},
+	}}
+	got := conversationCommentAuthors(ch)
+	want := []string{"@alice", "@bob"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("authors[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
 
 func TestCountEvents_MixedTypes(t *testing.T) {
 	events := []watch.Event{
