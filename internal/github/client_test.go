@@ -295,49 +295,49 @@ func TestParsePRURL(t *testing.T) {
 	}
 }
 
-func TestDecodeBotAuthorLogins(t *testing.T) {
+func TestDecodeAuthorPage(t *testing.T) {
 	data := []byte(`{
   "data": {
     "repository": {
       "pullRequest": {
-        "comments": {"nodes": [
-          {"author": {"login": "vercel", "__typename": "Bot"}},
-          {"author": {"login": "ahmadAlMezaal", "__typename": "User"}}
-        ]},
-        "reviews": {"nodes": [
-          {"author": {"login": "Gemini-Code-Assist", "__typename": "Bot"}},
-          {"author": {"login": "alice", "__typename": "User"}}
-        ]}
+        "comments": {
+          "pageInfo": {"hasNextPage": true, "endCursor": "CUR2"},
+          "nodes": [
+            {"author": {"login": "vercel", "__typename": "Bot"}},
+            {"author": {"login": "ahmadAlMezaal", "__typename": "User"}}
+          ]
+        }
       }
     }
   }
 }`)
-	bots, err := decodeBotAuthorLogins(data)
+	nodes, hasNext, end, err := decodeAuthorPage(data, "comments")
 	if err != nil {
-		t.Fatalf("decodeBotAuthorLogins: %v", err)
+		t.Fatalf("decodeAuthorPage: %v", err)
 	}
-	if !bots["vercel"] {
-		t.Error("vercel should be detected as a bot")
+	if !hasNext || end != "CUR2" {
+		t.Errorf("paging: hasNext=%v end=%q, want true/CUR2", hasNext, end)
 	}
-	if !bots["gemini-code-assist"] {
-		t.Error("gemini-code-assist should be detected as a bot (lowercased)")
+	if len(nodes) != 2 {
+		t.Fatalf("got %d nodes, want 2", len(nodes))
 	}
-	if bots["ahmadalmezaal"] || bots["alice"] {
-		t.Error("human authors must not be marked as bots")
+	if nodes[0].Login != "vercel" || nodes[0].Typename != "Bot" {
+		t.Errorf("node[0] = %+v", nodes[0])
 	}
-	if len(bots) != 2 {
-		t.Errorf("got %d bots, want 2", len(bots))
+	if nodes[1].Typename != "User" {
+		t.Errorf("node[1] should be a User, got %+v", nodes[1])
 	}
 }
 
-func TestDecodeBotAuthorLogins_Empty(t *testing.T) {
-	data := []byte(`{"data":{"repository":{"pullRequest":{"comments":{"nodes":[]},"reviews":{"nodes":[]}}}}}`)
-	bots, err := decodeBotAuthorLogins(data)
+func TestDecodeAuthorPage_LastPageWrongField(t *testing.T) {
+	// No next page, and querying a field absent from the response yields nothing.
+	data := []byte(`{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}`)
+	nodes, hasNext, _, err := decodeAuthorPage(data, "comments")
 	if err != nil {
-		t.Fatalf("decodeBotAuthorLogins: %v", err)
+		t.Fatalf("decodeAuthorPage: %v", err)
 	}
-	if len(bots) != 0 {
-		t.Errorf("got %d bots, want 0", len(bots))
+	if hasNext || len(nodes) != 0 {
+		t.Errorf("got hasNext=%v nodes=%d, want false/0", hasNext, len(nodes))
 	}
 }
 

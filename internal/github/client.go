@@ -146,66 +146,91 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 }
 
 func (c *Client) botAuthorLogins(ctx context.Context, owner, repo string, number int) (map[string]bool, error) {
-	const query = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      comments(first: 100) { nodes { author { login __typename } } }
-      reviews(first: 100) { nodes { author { login __typename } } }
-    }
-  }
-}`
-	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
-		"-f", "query="+query,
-		"-f", "owner="+owner,
-		"-f", "repo="+repo,
-		"-F", fmt.Sprintf("number=%d", number),
-	)
-	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh api graphql: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	bots := map[string]bool{}
+	for _, field := range []string{"comments", "reviews"} {
+		if err := c.collectBotAuthors(ctx, owner, repo, number, field, bots); err != nil {
+			return nil, err
+		}
 	}
-	return decodeBotAuthorLogins(stdout)
+	return bots, nil
 }
 
-func decodeBotAuthorLogins(data []byte) (map[string]bool, error) {
-	type authorNode struct {
-		Author struct {
-			Login    string `json:"login"`
-			Typename string `json:"__typename"`
-		} `json:"author"`
+func (c *Client) collectBotAuthors(ctx context.Context, owner, repo string, number int, field string, bots map[string]bool) error {
+	query := fmt.Sprintf(`query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      %s(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { author { login __typename } }
+      }
+    }
+  }
+}`, field)
+
+	cursor := ""
+	for {
+		args := []string{"api", "graphql",
+			"-f", "query=" + query,
+			"-f", "owner=" + owner,
+			"-f", "repo=" + repo,
+			"-F", fmt.Sprintf("number=%d", number),
+		}
+		if cursor != "" {
+			args = append(args, "-f", "cursor="+cursor)
+		}
+		var stderr strings.Builder
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		cmd.Stderr = &stderr
+		stdout, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("gh api graphql: %w (%s)", err, strings.TrimSpace(stderr.String()))
+		}
+		nodes, hasNext, endCursor, err := decodeAuthorPage(stdout, field)
+		if err != nil {
+			return err
+		}
+		for _, a := range nodes {
+			if a.Typename == "Bot" && a.Login != "" {
+				bots[strings.ToLower(a.Login)] = true
+			}
+		}
+		if !hasNext {
+			return nil
+		}
+		cursor = endCursor
+	}
+}
+
+type authorTypename struct {
+	Login    string `json:"login"`
+	Typename string `json:"__typename"`
+}
+
+func decodeAuthorPage(data []byte, field string) (nodes []authorTypename, hasNext bool, endCursor string, err error) {
+	type connection struct {
+		PageInfo struct {
+			HasNextPage bool   `json:"hasNextPage"`
+			EndCursor   string `json:"endCursor"`
+		} `json:"pageInfo"`
+		Nodes []struct {
+			Author authorTypename `json:"author"`
+		} `json:"nodes"`
 	}
 	var resp struct {
 		Data struct {
 			Repository struct {
-				PullRequest struct {
-					Comments struct {
-						Nodes []authorNode `json:"nodes"`
-					} `json:"comments"`
-					Reviews struct {
-						Nodes []authorNode `json:"nodes"`
-					} `json:"reviews"`
-				} `json:"pullRequest"`
+				PullRequest map[string]connection `json:"pullRequest"`
 			} `json:"repository"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("decode author types: %w", err)
+		return nil, false, "", fmt.Errorf("decode author page: %w", err)
 	}
-	bots := map[string]bool{}
-	mark := func(n authorNode) {
-		if n.Author.Typename == "Bot" && n.Author.Login != "" {
-			bots[strings.ToLower(n.Author.Login)] = true
-		}
+	conn := resp.Data.Repository.PullRequest[field]
+	for _, n := range conn.Nodes {
+		nodes = append(nodes, n.Author)
 	}
-	for _, n := range resp.Data.Repository.PullRequest.Comments.Nodes {
-		mark(n)
-	}
-	for _, n := range resp.Data.Repository.PullRequest.Reviews.Nodes {
-		mark(n)
-	}
-	return bots, nil
+	return nodes, conn.PageInfo.HasNextPage, conn.PageInfo.EndCursor, nil
 }
 
 // listReviewComments fetches the inline review-thread comments for a PR via
