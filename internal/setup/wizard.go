@@ -171,6 +171,9 @@ func Run(scriptDir string) error {
 
 	sweepEnabled, sweepTasks, sweepSchedule, sweepRepos, sweepMaxTasks := w.collectSweep(existingEnv)
 
+	// ── Optional: Dashboard ───────────────────────────────────────────────────
+	dashboardAddr, dashboardToken := w.collectDashboard(existingEnv)
+
 	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
 	geminiMode := existingEnv["GEMINI_MODE"]
@@ -347,6 +350,12 @@ func Run(scriptDir string) error {
 		}
 		fmt.Printf("  SWEEP_MAX_TASKS       = %d\n", sweepMaxTasks)
 	}
+	if dashboardAddr != "" {
+		fmt.Printf("  DASHBOARD_ADDR        = %s\n", dashboardAddr)
+		fmt.Printf("  DASHBOARD_TOKEN       = %s\n", mask(dashboardToken))
+	} else {
+		fmt.Printf("  DASHBOARD_ADDR        = (disabled)\n")
+	}
 	fmt.Printf("  TELEGRAM_ENABLED      = %s\n", tgEnabled)
 	if tgEnabled == "true" {
 		fmt.Printf("  TELEGRAM_BOT_TOKEN    = %s\n", mask(tgToken))
@@ -406,6 +415,8 @@ func Run(scriptDir string) error {
 		sweepSchedule:     sweepSchedule,
 		sweepRepos:        sweepRepos,
 		sweepMaxTasks:     strconv.Itoa(sweepMaxTasks),
+		dashboardAddr:     dashboardAddr,
+		dashboardToken:    dashboardToken,
 	}
 
 	// Merge into existing .env when the file already exists — this preserves
@@ -803,6 +814,32 @@ func (w *wizard) collectSweep(existing map[string]string) (enabled, tasks, sched
 	return enabled, tasks, schedule, repos, maxTasks
 }
 
+func (w *wizard) collectDashboard(existing map[string]string) (addr, token string) {
+	wasEnabled := existing["DASHBOARD_ADDR"] != ""
+	prompt := "Enable the read-only web dashboard?"
+	if wasEnabled {
+		prompt = "The web dashboard is currently enabled. Keep it?"
+	}
+	if !w.confirm(prompt) {
+		return "", ""
+	}
+
+	fmt.Println("The dashboard serves a snapshot of active runs, queue, and budget.")
+	fmt.Println("Bind to 127.0.0.1:<port> for local-only access, or 0.0.0.0:<port> to")
+	fmt.Println("expose it on the network (a warning is shown at startup).")
+	addr = w.askEx("Listen address (e.g. :8080)", askOpts{
+		existing: existing["DASHBOARD_ADDR"],
+		required: true,
+	})
+	token = w.askEx("Dashboard auth token", askOpts{
+		existing: existing["DASHBOARD_TOKEN"],
+		secret:   true,
+		required: true,
+	})
+
+	return addr, token
+}
+
 // ── Helpers (file I/O, validators, formatting) ──────────────────────────────
 
 func pingLinear(apiKey string) (string, error) {
@@ -893,6 +930,7 @@ type envValues struct {
 	autoIterate, maxIter, prPoll, trusted        string
 	sweepEnabled, sweepTasks, sweepSchedule      string
 	sweepRepos, sweepMaxTasks                    string
+	dashboardAddr, dashboardToken                string
 }
 
 // toMap returns the wizard-managed keys as a flat map suitable for
@@ -930,6 +968,8 @@ func (v envValues) toMap() map[string]string {
 		"SWEEP_REPOS":           v.sweepRepos,
 		"SWEEP_SCHEDULE":        v.sweepSchedule,
 		"SWEEP_MAX_TASKS":       v.sweepMaxTasks,
+		"DASHBOARD_ADDR":        v.dashboardAddr,
+		"DASHBOARD_TOKEN":       v.dashboardToken,
 	}
 
 	// Trigger-mode-dependent keys.
@@ -1063,6 +1103,13 @@ SWEEP_REPOS="%s"
 SWEEP_SCHEDULE="%s"
 SWEEP_INTERVAL="86400"
 SWEEP_MAX_TASKS="%s"
+
+# Read-only web dashboard (ENG-274). Off by default. Set DASHBOARD_ADDR to
+# a listen address (e.g. ":8080") to enable. DASHBOARD_TOKEN is required —
+# every request must carry it as Authorization: Bearer <token>.
+# Bind to 127.0.0.1 for local-only access; 0.0.0.0 triggers a startup warning.
+DASHBOARD_ADDR="%s"
+DASHBOARD_TOKEN="%s"
 `,
 		time.Now().Format(time.RFC3339),
 		v.linearKey, v.team, oauthLines, triggerLines, v.review,
@@ -1076,6 +1123,7 @@ SWEEP_MAX_TASKS="%s"
 		v.geminiMode, v.geminiKey,
 		v.autoIterate, v.maxIter, v.prPoll, v.trusted,
 		v.sweepEnabled, v.sweepTasks, v.sweepRepos, v.sweepSchedule, v.sweepMaxTasks,
+		v.dashboardAddr, v.dashboardToken,
 	)
 	return os.WriteFile(path, []byte(body), 0o600)
 }
