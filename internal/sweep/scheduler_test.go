@@ -169,6 +169,36 @@ func TestScheduler_PlanRespectsMaxTasks(t *testing.T) {
 	}
 }
 
+func TestRoundRobin(t *testing.T) {
+	eq := func(got, want []int) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	groups := [][]int{{1, 2, 3}, {4, 5}, {6}}
+	if got := roundRobin(groups, 4); !eq(got, []int{1, 4, 6, 2}) {
+		t.Errorf("limited spread: got %v, want [1 4 6 2]", got)
+	}
+	// Limit beyond the total drains every group, still interleaved.
+	if got := roundRobin([][]int{{1, 2}, {3}}, 10); !eq(got, []int{1, 3, 2}) {
+		t.Errorf("drain: got %v, want [1 3 2]", got)
+	}
+	if got := roundRobin(groups, 0); got != nil {
+		t.Errorf("zero limit: got %v, want nil", got)
+	}
+	// Inputs must not be mutated.
+	if len(groups[0]) != 3 {
+		t.Errorf("roundRobin mutated its input: %v", groups)
+	}
+}
+
 func TestScheduler_PlanSpreadsAcrossRepos(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "repo-a")

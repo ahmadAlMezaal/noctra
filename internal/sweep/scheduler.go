@@ -132,13 +132,7 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		return nil
 	}
 
-	type repoQueue struct {
-		path       string
-		slug       string
-		mainBranch string
-		eligible   []Task
-	}
-	var queues []repoQueue
+	var groups [][]Job
 	for _, rp := range repoPaths {
 		if ctx.Err() != nil {
 			break
@@ -163,48 +157,48 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		if len(eligible) == 0 {
 			continue
 		}
-		queues = append(queues, repoQueue{
-			path:       rp,
-			slug:       slug,
-			mainBranch: repo.DefaultBranchOf(ctx, rp),
-			eligible:   eligible,
-		})
+		mainBranch := repo.DefaultBranchOf(ctx, rp)
+		repoJobs := make([]Job, len(eligible))
+		for i, task := range eligible {
+			repoJobs[i] = Job{Task: task, RepoPath: rp, RepoSlug: slug, MainBranch: mainBranch}
+		}
+		groups = append(groups, repoJobs)
 	}
 
-	// Round-robin one task per repo per pass, so the maxTasks budget spreads
-	// across repos instead of one repo's task list monopolising it.
-	var jobs []Job
-	for len(jobs) < s.maxTasks {
-		progressed := false
-		for i := range queues {
-			if len(jobs) >= s.maxTasks {
-				break
-			}
-			q := &queues[i]
-			if len(q.eligible) == 0 {
-				continue
-			}
-			task := q.eligible[0]
-			q.eligible = q.eligible[1:]
-			jobs = append(jobs, Job{
-				Task:       task,
-				RepoPath:   q.path,
-				RepoSlug:   q.slug,
-				MainBranch: q.mainBranch,
-			})
-			progressed = true
-		}
-		if !progressed {
-			break
-		}
-	}
-
+	jobs := roundRobin(groups, s.maxTasks)
 	slog.Info("sweep plan",
 		"repos", len(repoPaths),
 		"tasks", len(s.tasks),
 		"eligible", len(jobs),
 		"max", s.maxTasks)
 	return jobs
+}
+
+// roundRobin interleaves items across groups — one per group per pass — and
+// returns at most limit items, so the budget spreads across groups instead of
+// being exhausted by the first. Order within each group is preserved; inputs
+// are not mutated.
+func roundRobin[T any](groups [][]T, limit int) []T {
+	if limit <= 0 {
+		return nil
+	}
+	var out []T
+	for pass := 0; len(out) < limit; pass++ {
+		progressed := false
+		for _, g := range groups {
+			if len(out) >= limit {
+				break
+			}
+			if pass < len(g) {
+				out = append(out, g[pass])
+				progressed = true
+			}
+		}
+		if !progressed {
+			break
+		}
+	}
+	return out
 }
 
 // RecordRun persists that a task just ran on a repo.
