@@ -296,8 +296,6 @@ func TestParsePRURL(t *testing.T) {
 }
 
 func TestDecodeBotAuthorLogins(t *testing.T) {
-	// gh's GraphQL Bot actor reports the bare app slug ("vercel"), not the
-	// REST "vercel[bot]" login — the set must key off whatever GraphQL returns.
 	data := []byte(`{
   "data": {
     "repository": {

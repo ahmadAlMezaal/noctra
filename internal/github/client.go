@@ -126,11 +126,6 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 		d.ReviewComments = rc
 	}
 
-	// `gh pr view --json` never populates author.type, so every conversation
-	// comment and review looks like a human to the trusted-reviewer filter —
-	// bots (vercel, codex, etc.) would slip through as actionable. Resolve each
-	// author's __typename via GraphQL and stamp it back on. Best-effort: on
-	// failure we leave types empty (the prior treat-as-human behaviour).
 	if owner, repo, number, err := parsePRURL(prURL); err != nil {
 		slog.Warn("github: parse PR URL for author types failed", "url", prURL, "err", err)
 	} else if bots, err := c.botAuthorLogins(ctx, owner, repo, number); err != nil {
@@ -150,10 +145,6 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	return &d, nil
 }
 
-// botAuthorLogins returns the set of lowercased comment/review author logins on
-// a PR that are GitHub Apps/Bots. `gh pr view --json` omits author type, so this
-// is how the watcher tells bots from humans. Keyed by login because a login maps
-// to exactly one actor within a PR, letting us join against the gh-pr-view data.
 func (c *Client) botAuthorLogins(ctx context.Context, owner, repo string, number int) (map[string]bool, error) {
 	const query = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -178,8 +169,6 @@ func (c *Client) botAuthorLogins(ctx context.Context, owner, repo string, number
 	return decodeBotAuthorLogins(stdout)
 }
 
-// decodeBotAuthorLogins parses the author-typename GraphQL response into a set
-// of lowercased logins whose __typename is "Bot".
 func decodeBotAuthorLogins(data []byte) (map[string]bool, error) {
 	type authorNode struct {
 		Author struct {
