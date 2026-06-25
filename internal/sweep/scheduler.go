@@ -34,6 +34,7 @@ type Scheduler struct {
 	now           func() time.Time
 	lastRef       time.Time
 	nextScheduled time.Time
+	repoRotation  int
 }
 
 func NewScheduler(store *state.Store, resolver RepoResolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule, sweepRepos []string) *Scheduler {
@@ -163,6 +164,12 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 			repoJobs[i] = Job{Task: task, RepoPath: rp, RepoSlug: slug, MainBranch: mainBranch}
 		}
 		groups = append(groups, repoJobs)
+	}
+
+	if n := len(groups); n > 0 {
+		off := s.repoRotation % n
+		groups = append(groups[off:], groups[:off]...)
+		s.repoRotation++
 	}
 
 	jobs := roundRobin(groups, s.maxTasks)

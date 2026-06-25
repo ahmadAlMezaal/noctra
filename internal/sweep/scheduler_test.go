@@ -199,6 +199,34 @@ func TestRoundRobin(t *testing.T) {
 	}
 }
 
+func TestScheduler_PlanRotatesLeadRepoAcrossCycles(t *testing.T) {
+	reposBase := t.TempDir()
+	initTestRepo(t, reposBase, "repo-a")
+	initTestRepo(t, reposBase, "repo-b")
+	initTestRepo(t, reposBase, "repo-c")
+
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+	tasks := []Task{testTask("t1", time.Hour), testTask("t2", time.Hour)}
+
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 1, nil, nil)
+
+	var leads []string
+	for i := 0; i < 3; i++ {
+		jobs := s.Plan(context.Background())
+		if len(jobs) != 1 {
+			t.Fatalf("cycle %d: expected 1 job, got %d", i, len(jobs))
+		}
+		leads = append(leads, jobs[0].RepoSlug)
+	}
+	seen := map[string]bool{}
+	for _, l := range leads {
+		seen[l] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("lead repo should rotate across 3 cycles, got %v", leads)
+	}
+}
+
 func TestScheduler_PlanSpreadsAcrossRepos(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "repo-a")
