@@ -34,6 +34,7 @@ type Scheduler struct {
 	now           func() time.Time
 	lastRef       time.Time
 	nextScheduled time.Time
+	repoRotation  int
 }
 
 func NewScheduler(store *state.Store, resolver RepoResolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule, sweepRepos []string) *Scheduler {
@@ -132,7 +133,7 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		return nil
 	}
 
-	var jobs []Job
+	var groups [][]Job
 	for _, rp := range repoPaths {
 		if ctx.Err() != nil {
 			break
@@ -141,12 +142,8 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		if slug == "" {
 			continue
 		}
-		mainBranch := repo.DefaultBranchOf(ctx, rp)
-
+		var eligible []Task
 		for _, task := range s.tasks {
-			if len(jobs) >= s.maxTasks {
-				break
-			}
 			key := state.SweepKey(slug, task.Name)
 			ss := s.store.GetSweep(key)
 			if !ss.LastRunAt.IsZero() && s.now().Sub(ss.LastRunAt) < task.Cooldown {
@@ -156,24 +153,59 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 					"cooldown_remaining", task.Cooldown-s.now().Sub(ss.LastRunAt))
 				continue
 			}
-			jobs = append(jobs, Job{
-				Task:       task,
-				RepoPath:   rp,
-				RepoSlug:   slug,
-				MainBranch: mainBranch,
-			})
+			eligible = append(eligible, task)
 		}
-		if len(jobs) >= s.maxTasks {
-			break
+		if len(eligible) == 0 {
+			continue
 		}
+		mainBranch := repo.DefaultBranchOf(ctx, rp)
+		repoJobs := make([]Job, len(eligible))
+		for i, task := range eligible {
+			repoJobs[i] = Job{Task: task, RepoPath: rp, RepoSlug: slug, MainBranch: mainBranch}
+		}
+		groups = append(groups, repoJobs)
 	}
 
+	if n := len(groups); n > 0 {
+		off := s.repoRotation % n
+		groups = append(groups[off:], groups[:off]...)
+		s.repoRotation++
+	}
+
+	jobs := roundRobin(groups, s.maxTasks)
 	slog.Info("sweep plan",
 		"repos", len(repoPaths),
 		"tasks", len(s.tasks),
 		"eligible", len(jobs),
 		"max", s.maxTasks)
 	return jobs
+}
+
+// roundRobin interleaves items across groups — one per group per pass — and
+// returns at most limit items, so the budget spreads across groups instead of
+// being exhausted by the first. Order within each group is preserved; inputs
+// are not mutated.
+func roundRobin[T any](groups [][]T, limit int) []T {
+	if limit <= 0 {
+		return nil
+	}
+	var out []T
+	for pass := 0; len(out) < limit; pass++ {
+		progressed := false
+		for _, g := range groups {
+			if len(out) >= limit {
+				break
+			}
+			if pass < len(g) {
+				out = append(out, g[pass])
+				progressed = true
+			}
+		}
+		if !progressed {
+			break
+		}
+	}
+	return out
 }
 
 // RecordRun persists that a task just ran on a repo.
