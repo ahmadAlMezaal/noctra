@@ -131,6 +131,7 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 // processSweepTask is one sweep task's full lifecycle: create worktree →
 // run agent with task-specific prompt → check output → commit/push → PR.
 func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifier string) {
+	startedAt := time.Now()
 	logger := slog.With("sweep_task", job.Task.Name, "repo", job.RepoSlug, "id", identifier)
 	logger.Info("starting sweep task", "description", job.Task.Description)
 
@@ -193,6 +194,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	// Record usage.
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	p.recordUsage(usage, "sweep", identifier, "", backend)
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
 		logger.Info("usage recorded", "tokens", usage.TotalTokens, "cost_usd", usage.CostUSD)
 	}
@@ -217,6 +219,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, Repo: job.RepoSlug,
+			AgentBackend: backend.Name(), RunType: "sweep",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		return
 	}
 
@@ -226,6 +233,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, Repo: job.RepoSlug,
+			AgentBackend: backend.Name(), RunType: "sweep",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "blocked",
+		})
 		return
 	}
 
@@ -245,6 +257,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, Repo: job.RepoSlug,
+			AgentBackend: backend.Name(), RunType: "sweep",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "no_change",
+		})
 		return
 	}
 
@@ -350,6 +367,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 				// Record usage from the fix pass.
 				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
+				p.recordUsage(fixUsage, "sweep", identifier, "", backend)
 				if reason := p.budget.ExceededReason(); reason != "" {
 					p.flagBudgetExceeded(reason)
 					p.notifier.Send(ctx, fmt.Sprintf(
@@ -442,6 +460,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	logger.Info("✅ sweep PR created", "url", prURL)
 	p.bumpSuccess()
+	p.recordRun(state.RunHistory{
+		Identifier: identifier, PRURL: prURL, Repo: job.RepoSlug,
+		AgentBackend: backend.Name(), RunType: "sweep",
+		StartedAt: startedAt, FinishedAt: time.Now(), Status: "pr_opened",
+	})
 	p.notifier.Send(ctx, fmt.Sprintf("✅ *Sweep: %s* on %s\nPR: %s",
 		notify.EscapeMarkdown(job.Task.Name),
 		notify.EscapeMarkdown(job.RepoSlug),

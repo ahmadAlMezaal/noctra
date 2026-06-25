@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
@@ -51,6 +52,7 @@ func (p *Pipeline) resolveBackend(issue source.Ticket) agent.Backend {
 // moves the ticket back to the trigger state where the source supports that.
 func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	id := issue.Identifier
+	startedAt := time.Now()
 	logger := slog.With("id", id)
 	logger.Info("starting", "title", issue.Title)
 
@@ -209,6 +211,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 			p.cfg.AgentTimeout, p.cfg.TriggerState))
 		p.notifier.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
 			id, notify.EscapeMarkdown(issue.Title), p.cfg.AgentTimeout, notify.EscapeMarkdown(p.cfg.TriggerState)))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -218,6 +225,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	// ── Record usage (ENG-217) ───────────────────────────────────────────────
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	p.recordUsage(usage, "ticket", id, "", backend)
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
 		logger.Info("usage recorded",
 			"tokens", usage.TotalTokens, "cost_usd", usage.CostUSD)
@@ -255,6 +263,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		p.notifier.Send(ctx, fmt.Sprintf(
 			"🛑 *Usage limit detected*\nNoctra %s after %d dispatches.\n✅ %d PRs created | ❌ %d failed",
 			action, t, s, f))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -269,6 +282,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
 		p.notifier.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
 			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -279,6 +297,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		p.resolveNoChanges(ctx, issue, fmt.Sprintf(
 			"✅ **Noctra: nothing to do**\n\n> %s\n\nNo changes were needed, so this ticket was closed automatically.", nc))
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — nothing to do\n%s", id, notify.EscapeMarkdown(nc)))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "no_change",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -294,6 +317,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 			"🚧 **Noctra needs your input** (attempt %d/%d)\n\nThe agent got blocked on this ticket:\n\n> %s\n\nClarify in the ticket comments, then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
 			attempts, p.cfg.MaxRetries, blocked, p.cfg.TriggerState, p.cfg.MaxRetries))
 		p.notifier.Send(ctx, fmt.Sprintf("⚠️ *%s* — Blocked\n%s", id, notify.EscapeMarkdown(blocked)))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "blocked",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -325,6 +353,11 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 			"💭 **Noctra: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project points at the wrong repo.\n\nAdd more detail (or check the project's `Repo:` directive), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
 			attempts, p.cfg.MaxRetries, p.cfg.TriggerState, p.cfg.MaxRetries))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "no_change",
+		})
 		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
@@ -416,6 +449,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 				// Record usage from the fix pass.
 				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
+				p.recordUsage(fixUsage, "ticket", id, "", backend)
 				if reason := p.budget.ExceededReason(); reason != "" {
 					p.flagBudgetExceeded(reason)
 					p.notifier.Send(ctx, fmt.Sprintf(
@@ -595,6 +629,12 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 
 	p.bumpSuccess()
+	p.recordRun(state.RunHistory{
+		Identifier: id, TicketID: id, PRURL: prURL,
+		Repo:         filepath.Base(resolved.Path),
+		AgentBackend: backend.Name(), RunType: "ticket",
+		StartedAt: startedAt, FinishedAt: time.Now(), Status: "pr_opened",
+	})
 	p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
 		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(backend.Label()), prURL))
 
@@ -852,4 +892,36 @@ func appendCoAuthorTrailer(msg, coAuthor string) string {
 		return msg
 	}
 	return strings.TrimRight(msg, " \t\n\r") + "\n\nCo-authored-by: " + coAuthor
+}
+
+// recordUsage persists a usage_events row beside the in-memory budget counter.
+// Best-effort: a failed insert is logged and never blocks the run.
+func (p *Pipeline) recordUsage(usage agent.Usage, source, ticketID, prURL string, backend agent.Backend) {
+	if p.store == nil {
+		return
+	}
+	if err := p.store.RecordUsage(state.UsageEvent{
+		OccurredAt:   time.Now(),
+		Source:       source,
+		TicketID:     ticketID,
+		PRURL:        prURL,
+		AgentBackend: backend.Name(),
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.TotalTokens,
+		CostUSD:      usage.CostUSD,
+	}); err != nil {
+		slog.Warn("record usage event failed", "source", source, "ticket_id", ticketID, "err", err)
+	}
+}
+
+// recordRun persists a run_history row at a lifecycle's terminal point.
+// Best-effort: a failed insert is logged and never blocks the run.
+func (p *Pipeline) recordRun(rec state.RunHistory) {
+	if p.store == nil {
+		return
+	}
+	if err := p.store.InsertRunHistory(rec); err != nil {
+		slog.Warn("record run history failed", "id", rec.Identifier, "status", rec.Status, "err", err)
+	}
 }

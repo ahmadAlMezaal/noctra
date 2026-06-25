@@ -95,6 +95,36 @@ type PlanState struct {
 	PlannedAt time.Time `json:"planned_at"`
 }
 
+// RunHistory records the outcome of a single Noctra run (ticket, sweep, or
+// iterate). Written at each lifecycle's terminal point so the dashboard's
+// "what happened overnight" panel survives restarts.
+type RunHistory struct {
+	Identifier   string
+	TicketID     string
+	PRURL        string
+	Repo         string
+	AgentBackend string
+	RunType      string // "ticket" | "sweep" | "iterate"
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	Status       string // "pr_opened" | "blocked" | "failed" | "no_change"
+	Iterations   int
+}
+
+// UsageEvent records token consumption from a single agent invocation.
+// Written beside every budget.Record call so cost data survives restarts.
+type UsageEvent struct {
+	OccurredAt   time.Time
+	Source       string // "ticket" | "iterate" | "sweep" | "plan"
+	TicketID     string
+	PRURL        string
+	AgentBackend string
+	InputTokens  int64
+	OutputTokens int64
+	TotalTokens  int64
+	CostUSD      float64
+}
+
 // OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236)
 // so a restart does not lose a refresh-token rotation.
 type OAuthState struct {
@@ -600,6 +630,96 @@ func (s *Store) AllPlans() map[string]PlanState {
 		return nil
 	}
 	return out
+}
+
+// InsertRunHistory persists a run-history record. Best-effort: a failed
+// insert is logged and never blocks the run.
+func (s *Store) InsertRunHistory(rec RunHistory) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`INSERT INTO run_history (
+			identifier, ticket_id, pr_url, repo, agent_backend,
+			run_type, started_at, finished_at, status, iterations
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Identifier,
+		rec.TicketID,
+		rec.PRURL,
+		rec.Repo,
+		rec.AgentBackend,
+		rec.RunType,
+		formatTime(rec.StartedAt),
+		formatTime(rec.FinishedAt),
+		rec.Status,
+		rec.Iterations,
+	)
+	if err != nil {
+		return fmt.Errorf("insert run history: %w", err)
+	}
+	return nil
+}
+
+// ListRunHistory returns the most recent n run-history records, newest first.
+func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT identifier, ticket_id, pr_url, repo, agent_backend,
+		run_type, started_at, finished_at, status, iterations
+		FROM run_history ORDER BY started_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list run history: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close run_history rows failed", "err", err)
+		}
+	}()
+	var out []RunHistory
+	for rows.Next() {
+		var r RunHistory
+		var startedAt, finishedAt sql.NullString
+		if err := rows.Scan(
+			&r.Identifier, &r.TicketID, &r.PRURL, &r.Repo, &r.AgentBackend,
+			&r.RunType, &startedAt, &finishedAt, &r.Status, &r.Iterations,
+		); err != nil {
+			return nil, fmt.Errorf("scan run history: %w", err)
+		}
+		if t, convErr := parseNullTime(startedAt); convErr == nil {
+			r.StartedAt = t
+		}
+		if t, convErr := parseNullTime(finishedAt); convErr == nil {
+			r.FinishedAt = t
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate run history: %w", err)
+	}
+	return out, nil
+}
+
+// RecordUsage persists a usage-event row. Best-effort: a failed insert is
+// logged and never blocks the run.
+func (s *Store) RecordUsage(ev UsageEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`INSERT INTO usage_events (
+			occurred_at, source, ticket_id, pr_url, agent_backend,
+			input_tokens, output_tokens, total_tokens, cost_usd
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		formatTime(ev.OccurredAt),
+		ev.Source,
+		ev.TicketID,
+		ev.PRURL,
+		ev.AgentBackend,
+		ev.InputTokens,
+		ev.OutputTokens,
+		ev.TotalTokens,
+		ev.CostUSD,
+	)
+	if err != nil {
+		return fmt.Errorf("record usage event: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) migrateLegacyJSON(path string) error {

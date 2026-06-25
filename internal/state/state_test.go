@@ -535,6 +535,240 @@ func TestLessons(t *testing.T) {
 	}
 }
 
+// ── Run history + usage event tests (ENG-280) ──────────────────────────────
+
+func TestInsertAndListRunHistory(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	recs := []RunHistory{
+		{
+			Identifier: "ENG-1", TicketID: "ENG-1",
+			PRURL: "https://github.com/o/r/pull/1", Repo: "my-repo",
+			AgentBackend: "claude", RunType: "ticket",
+			StartedAt: now.Add(-3 * time.Minute), FinishedAt: now.Add(-2 * time.Minute),
+			Status: "pr_opened",
+		},
+		{
+			Identifier: "ENG-2", TicketID: "ENG-2", Repo: "my-repo",
+			AgentBackend: "codex", RunType: "ticket",
+			StartedAt: now.Add(-1 * time.Minute), FinishedAt: now,
+			Status: "failed",
+		},
+		{
+			Identifier: "SWEEP-my-repo-lint", Repo: "my-repo",
+			AgentBackend: "claude", RunType: "sweep",
+			StartedAt: now, FinishedAt: now.Add(time.Minute),
+			Status: "no_change",
+		},
+	}
+
+	for _, r := range recs {
+		if err := s.InsertRunHistory(r); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	// All — newest first.
+	got, err := s.ListRunHistory(10)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len: got %d, want 3", len(got))
+	}
+	if got[0].Identifier != "SWEEP-my-repo-lint" {
+		t.Errorf("newest first: got %s", got[0].Identifier)
+	}
+	if got[1].Identifier != "ENG-2" {
+		t.Errorf("second: got %s", got[1].Identifier)
+	}
+	if got[2].Identifier != "ENG-1" {
+		t.Errorf("third: got %s", got[2].Identifier)
+	}
+
+	// Fields on the first record.
+	if got[0].RunType != "sweep" {
+		t.Errorf("run_type: got %q", got[0].RunType)
+	}
+	if got[0].Status != "no_change" {
+		t.Errorf("status: got %q", got[0].Status)
+	}
+	if got[2].PRURL != "https://github.com/o/r/pull/1" {
+		t.Errorf("pr_url: got %q", got[2].PRURL)
+	}
+	if got[2].Status != "pr_opened" {
+		t.Errorf("status: got %q", got[2].Status)
+	}
+
+	// Bounded read.
+	got2, err := s.ListRunHistory(2)
+	if err != nil {
+		t.Fatalf("list(2): %v", err)
+	}
+	if len(got2) != 2 {
+		t.Fatalf("len: got %d, want 2", len(got2))
+	}
+	if got2[0].Identifier != "SWEEP-my-repo-lint" {
+		t.Errorf("bounded: got %s", got2[0].Identifier)
+	}
+}
+
+func TestListRunHistory_Empty(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	got, err := s.ListRunHistory(10)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty, got %d", len(got))
+	}
+}
+
+func TestRunHistory_TimestampRoundTrip(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	rec := RunHistory{
+		Identifier: "ENG-99", TicketID: "ENG-99", Repo: "test-repo",
+		AgentBackend: "claude", RunType: "ticket",
+		StartedAt: now, FinishedAt: now.Add(5 * time.Minute),
+		Status: "pr_opened",
+	}
+	if err := s.InsertRunHistory(rec); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListRunHistory(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len: got %d, want 1", len(got))
+	}
+	if got[0].StartedAt.Sub(now).Abs() > time.Second {
+		t.Errorf("started_at drift: got %v, want ~%v", got[0].StartedAt, now)
+	}
+	if got[0].FinishedAt.Sub(now.Add(5*time.Minute)).Abs() > time.Second {
+		t.Errorf("finished_at drift: got %v, want ~%v", got[0].FinishedAt, now.Add(5*time.Minute))
+	}
+}
+
+func TestRecordUsage(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	if err := s.RecordUsage(UsageEvent{
+		OccurredAt: now, Source: "ticket", TicketID: "ENG-42",
+		PRURL: "https://github.com/o/r/pull/7", AgentBackend: "claude",
+		InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500, CostUSD: 0.03,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RecordUsage(UsageEvent{
+		OccurredAt: now.Add(time.Minute), Source: "iterate", TicketID: "ENG-42",
+		PRURL: "https://github.com/o/r/pull/7", AgentBackend: "claude",
+		InputTokens: 2000, OutputTokens: 1000, TotalTokens: 3000, CostUSD: 0.06,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify rows directly (no public read API for usage_events yet — P4).
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_events`).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count: got %d, want 2", count)
+	}
+
+	var source, ticketID string
+	var inputTokens, totalTokens int64
+	var costUSD float64
+	err = s.db.QueryRow(`SELECT source, ticket_id, input_tokens, total_tokens, cost_usd
+		FROM usage_events ORDER BY id LIMIT 1`).Scan(
+		&source, &ticketID, &inputTokens, &totalTokens, &costUSD,
+	)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if source != "ticket" {
+		t.Errorf("source: got %q", source)
+	}
+	if ticketID != "ENG-42" {
+		t.Errorf("ticket_id: got %q", ticketID)
+	}
+	if inputTokens != 1000 {
+		t.Errorf("input_tokens: got %d", inputTokens)
+	}
+	if totalTokens != 1500 {
+		t.Errorf("total_tokens: got %d", totalTokens)
+	}
+	if costUSD != 0.03 {
+		t.Errorf("cost_usd: got %f", costUSD)
+	}
+}
+
+func TestInsertRunHistory_SurvivesReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := s.InsertRunHistory(RunHistory{
+		Identifier: "ENG-7", TicketID: "ENG-7", Repo: "repo",
+		AgentBackend: "claude", RunType: "ticket",
+		StartedAt: now, FinishedAt: now.Add(time.Minute),
+		Status: "pr_opened", Iterations: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s2)
+
+	got, err := s2.ListRunHistory(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1, got %d", len(got))
+	}
+	if got[0].Identifier != "ENG-7" || got[0].Status != "pr_opened" {
+		t.Errorf("record did not survive reopen: %+v", got[0])
+	}
+}
+
 func closeStore(t *testing.T, s *Store) {
 	t.Helper()
 	if err := s.Close(); err != nil {
