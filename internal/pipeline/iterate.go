@@ -575,10 +575,15 @@ func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 }
 
 func (p *Pipeline) replyToConversation(ctx context.Context, ch watch.PRChanges, reply string, logger *slog.Logger) {
+	authors := conversationCommentAuthors(ch)
 	if !hasConversationComment(ch) {
 		return
 	}
-	if err := p.gh.PostComment(ctx, ch.PR.URL, reply); err != nil {
+	body := reply
+	if len(authors) > 0 {
+		body = strings.Join(authors, " ") + "\n\n" + reply
+	}
+	if err := p.gh.PostComment(ctx, ch.PR.URL, body); err != nil {
 		logger.Warn("post conversation reply failed", "err", err)
 	}
 }
@@ -590,6 +595,22 @@ func hasConversationComment(ch watch.PRChanges) bool {
 		}
 	}
 	return false
+}
+
+func conversationCommentAuthors(ch watch.PRChanges) []string {
+	seen := map[string]bool{}
+	var mentions []string
+	for _, ev := range ch.Events {
+		if ev.Type != watch.EventComment || ev.Path != "" || ev.Author.Login == "" {
+			continue
+		}
+		if seen[ev.Author.Login] {
+			continue
+		}
+		seen[ev.Author.Login] = true
+		mentions = append(mentions, "@"+ev.Author.Login)
+	}
+	return mentions
 }
 
 // engagementSummary is a short human description of why Noctra is
