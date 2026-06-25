@@ -113,6 +113,8 @@ const (
 
 	// Plan-confirm (ENG-221) — disabled by default; opt in via .env.
 	DefaultPlanConfirmLabel = "plan-first"
+
+	SuggestedTrustedReviewer = "chatgpt-codex-connector"
 )
 
 // Config is Noctra's resolved runtime configuration.

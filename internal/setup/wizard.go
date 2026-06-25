@@ -752,8 +752,11 @@ func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate str
 		existing["PR_POLL_INTERVAL"], int(config.DefaultPRPollInterval/time.Second), 30)
 
 	fmt.Println("Trusted reviewers (comma-separated GitHub logins).")
-	fmt.Println("Leave blank to act on humans only — bots get logged but skipped.")
-	trusted = w.askEx("Trusted reviewers", askOpts{existing: existing["TRUSTED_REVIEWERS"]})
+	fmt.Println("Defaults to the Codex reviewer; clear it to act on humans only.")
+	trusted = w.askEx("Trusted reviewers", askOpts{
+		existing: existing["TRUSTED_REVIEWERS"],
+		fallback: config.SuggestedTrustedReviewer,
+	})
 
 	return autoIterate, maxIter, prPoll, trusted
 }
