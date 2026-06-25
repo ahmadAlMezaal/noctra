@@ -295,6 +295,52 @@ func TestParsePRURL(t *testing.T) {
 	}
 }
 
+func TestDecodeAuthorPage(t *testing.T) {
+	data := []byte(`{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "comments": {
+          "pageInfo": {"hasNextPage": true, "endCursor": "CUR2"},
+          "nodes": [
+            {"author": {"login": "vercel", "__typename": "Bot"}},
+            {"author": {"login": "ahmadAlMezaal", "__typename": "User"}}
+          ]
+        }
+      }
+    }
+  }
+}`)
+	nodes, hasNext, end, err := decodeAuthorPage(data, "comments")
+	if err != nil {
+		t.Fatalf("decodeAuthorPage: %v", err)
+	}
+	if !hasNext || end != "CUR2" {
+		t.Errorf("paging: hasNext=%v end=%q, want true/CUR2", hasNext, end)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("got %d nodes, want 2", len(nodes))
+	}
+	if nodes[0].Login != "vercel" || nodes[0].Typename != "Bot" {
+		t.Errorf("node[0] = %+v", nodes[0])
+	}
+	if nodes[1].Typename != "User" {
+		t.Errorf("node[1] should be a User, got %+v", nodes[1])
+	}
+}
+
+func TestDecodeAuthorPage_LastPageWrongField(t *testing.T) {
+	// No next page, and querying a field absent from the response yields nothing.
+	data := []byte(`{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}`)
+	nodes, hasNext, _, err := decodeAuthorPage(data, "comments")
+	if err != nil {
+		t.Fatalf("decodeAuthorPage: %v", err)
+	}
+	if hasNext || len(nodes) != 0 {
+		t.Errorf("got hasNext=%v nodes=%d, want false/0", hasNext, len(nodes))
+	}
+}
+
 func TestDecodeReviewThreads(t *testing.T) {
 	data := []byte(`{
   "data": {

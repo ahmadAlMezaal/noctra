@@ -125,7 +125,112 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	} else {
 		d.ReviewComments = rc
 	}
+
+	if owner, repo, number, err := parsePRURL(prURL); err != nil {
+		slog.Warn("github: parse PR URL for author types failed", "url", prURL, "err", err)
+	} else if bots, err := c.botAuthorLogins(ctx, owner, repo, number); err != nil {
+		slog.Warn("github: resolve author bot types failed", "url", prURL, "err", err)
+	} else {
+		for i := range d.Comments {
+			if bots[strings.ToLower(d.Comments[i].Author.Login)] {
+				d.Comments[i].Author.Type = "Bot"
+			}
+		}
+		for i := range d.Reviews {
+			if bots[strings.ToLower(d.Reviews[i].Author.Login)] {
+				d.Reviews[i].Author.Type = "Bot"
+			}
+		}
+	}
 	return &d, nil
+}
+
+func (c *Client) botAuthorLogins(ctx context.Context, owner, repo string, number int) (map[string]bool, error) {
+	bots := map[string]bool{}
+	for _, field := range []string{"comments", "reviews"} {
+		if err := c.collectBotAuthors(ctx, owner, repo, number, field, bots); err != nil {
+			return nil, err
+		}
+	}
+	return bots, nil
+}
+
+func (c *Client) collectBotAuthors(ctx context.Context, owner, repo string, number int, field string, bots map[string]bool) error {
+	query := fmt.Sprintf(`query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      %s(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { author { login __typename } }
+      }
+    }
+  }
+}`, field)
+
+	cursor := ""
+	for {
+		args := []string{"api", "graphql",
+			"-f", "query=" + query,
+			"-f", "owner=" + owner,
+			"-f", "repo=" + repo,
+			"-F", fmt.Sprintf("number=%d", number),
+		}
+		if cursor != "" {
+			args = append(args, "-f", "cursor="+cursor)
+		}
+		var stderr strings.Builder
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		cmd.Stderr = &stderr
+		stdout, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("gh api graphql: %w (%s)", err, strings.TrimSpace(stderr.String()))
+		}
+		nodes, hasNext, endCursor, err := decodeAuthorPage(stdout, field)
+		if err != nil {
+			return err
+		}
+		for _, a := range nodes {
+			if a.Typename == "Bot" && a.Login != "" {
+				bots[strings.ToLower(a.Login)] = true
+			}
+		}
+		if !hasNext {
+			return nil
+		}
+		cursor = endCursor
+	}
+}
+
+type authorTypename struct {
+	Login    string `json:"login"`
+	Typename string `json:"__typename"`
+}
+
+func decodeAuthorPage(data []byte, field string) (nodes []authorTypename, hasNext bool, endCursor string, err error) {
+	type connection struct {
+		PageInfo struct {
+			HasNextPage bool   `json:"hasNextPage"`
+			EndCursor   string `json:"endCursor"`
+		} `json:"pageInfo"`
+		Nodes []struct {
+			Author authorTypename `json:"author"`
+		} `json:"nodes"`
+	}
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest map[string]connection `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, false, "", fmt.Errorf("decode author page: %w", err)
+	}
+	conn := resp.Data.Repository.PullRequest[field]
+	for _, n := range conn.Nodes {
+		nodes = append(nodes, n.Author)
+	}
+	return nodes, conn.PageInfo.HasNextPage, conn.PageInfo.EndCursor, nil
 }
 
 // listReviewComments fetches the inline review-thread comments for a PR via
