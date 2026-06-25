@@ -462,6 +462,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			reply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
 		}
 		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
+		p.replyToConversation(ctx, ch, reply, logger)
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
@@ -475,6 +476,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		// Reply + resolve so a no-diff review isn't silent on GitHub.
 		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
+		p.replyToConversation(ctx, ch, reply, logger)
 		if p.store != nil && summary != "" {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 				r.LastReasoning = summary
@@ -570,6 +572,24 @@ func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 			slog.Warn("ack reaction failed", "pr", ch.PR.URL, "err", err)
 		}
 	}
+}
+
+func (p *Pipeline) replyToConversation(ctx context.Context, ch watch.PRChanges, reply string, logger *slog.Logger) {
+	if !hasConversationComment(ch) {
+		return
+	}
+	if err := p.gh.PostComment(ctx, ch.PR.URL, reply); err != nil {
+		logger.Warn("post conversation reply failed", "err", err)
+	}
+}
+
+func hasConversationComment(ch watch.PRChanges) bool {
+	for _, ev := range ch.Events {
+		if ev.Type == watch.EventComment && ev.Path == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // engagementSummary is a short human description of why Noctra is

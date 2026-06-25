@@ -393,6 +393,19 @@ type reviewThread struct {
 	FirstCommentDatabaseID int64  // REST API ID of the first comment (used to reply)
 }
 
+// PostComment posts a top-level conversation comment on a PR, carrying
+// NoctraReplyMarker so the watcher skips Noctra's own reply.
+func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
+	body += "\n\n" + NoctraReplyMarker
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prURL, "--body", body)
+	cmd.Stderr = &stderr
+	if _, err := cmd.Output(); err != nil {
+		return fmt.Errorf("gh pr comment %s: %w (%s)", prURL, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // ReplyAndResolveThreads replies to and resolves all unresolved review threads
 // on a PR with the given note. Best-effort: failures are logged, never returned.
 func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, replyBody string) {
