@@ -295,6 +295,54 @@ func TestParsePRURL(t *testing.T) {
 	}
 }
 
+func TestDecodeBotAuthorLogins(t *testing.T) {
+	// gh's GraphQL Bot actor reports the bare app slug ("vercel"), not the
+	// REST "vercel[bot]" login — the set must key off whatever GraphQL returns.
+	data := []byte(`{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "comments": {"nodes": [
+          {"author": {"login": "vercel", "__typename": "Bot"}},
+          {"author": {"login": "ahmadAlMezaal", "__typename": "User"}}
+        ]},
+        "reviews": {"nodes": [
+          {"author": {"login": "Gemini-Code-Assist", "__typename": "Bot"}},
+          {"author": {"login": "alice", "__typename": "User"}}
+        ]}
+      }
+    }
+  }
+}`)
+	bots, err := decodeBotAuthorLogins(data)
+	if err != nil {
+		t.Fatalf("decodeBotAuthorLogins: %v", err)
+	}
+	if !bots["vercel"] {
+		t.Error("vercel should be detected as a bot")
+	}
+	if !bots["gemini-code-assist"] {
+		t.Error("gemini-code-assist should be detected as a bot (lowercased)")
+	}
+	if bots["ahmadalmezaal"] || bots["alice"] {
+		t.Error("human authors must not be marked as bots")
+	}
+	if len(bots) != 2 {
+		t.Errorf("got %d bots, want 2", len(bots))
+	}
+}
+
+func TestDecodeBotAuthorLogins_Empty(t *testing.T) {
+	data := []byte(`{"data":{"repository":{"pullRequest":{"comments":{"nodes":[]},"reviews":{"nodes":[]}}}}}`)
+	bots, err := decodeBotAuthorLogins(data)
+	if err != nil {
+		t.Fatalf("decodeBotAuthorLogins: %v", err)
+	}
+	if len(bots) != 0 {
+		t.Errorf("got %d bots, want 0", len(bots))
+	}
+}
+
 func TestDecodeReviewThreads(t *testing.T) {
 	data := []byte(`{
   "data": {
