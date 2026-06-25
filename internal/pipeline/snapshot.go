@@ -6,11 +6,11 @@ import "github.com/ahmadAlMezaal/noctra/internal/budget"
 // JSON serialization. Collected under a single p.mu lock so the fields are
 // consistent with each other.
 type DashboardSnapshot struct {
-	Active  []string         `json:"active"`
-	Queued  map[string]int   `json:"queued"`
-	Skipped []string         `json:"skipped"`
-	Paused  bool             `json:"paused"`
-	Budget  budget.Stats     `json:"budget"`
+	Active  []string       `json:"active"`
+	Queued  map[string]int `json:"queued"`
+	Skipped []string       `json:"skipped"`
+	Paused  bool           `json:"paused"`
+	Budget  budget.Stats   `json:"budget"`
 }
 
 // Snapshot takes p.mu once and returns a consistent snapshot of the
