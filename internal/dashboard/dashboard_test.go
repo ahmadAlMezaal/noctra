@@ -1,10 +1,14 @@
 package dashboard
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +137,103 @@ func TestSnapshot_MethodNotAllowed(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestEvents_InitialSnapshotFrame(t *testing.T) {
+	s := newTestServer("tok")
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/events?token=tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("content-type = %q", ct)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	var frame strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			t.Fatal(err)
+		}
+		if line == "\n" || err == io.EOF {
+			break
+		}
+		frame.WriteString(line)
+	}
+	got := frame.String()
+	if !strings.Contains(got, "event: snapshot\n") {
+		t.Fatalf("missing snapshot event: %q", got)
+	}
+	if !strings.Contains(got, `"active":["ENG-1"]`) {
+		t.Fatalf("missing initial snapshot data: %q", got)
+	}
+}
+
+func TestEvents_AuthRequired(t *testing.T) {
+	s := newTestServer("tok")
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestLogsFollow_InitialTailFrameAndAuth(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ENG-9.log"), []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(":0", "tok", func() any { return nil }, Providers{LogDir: dir})
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/logs/ENG-9?follow=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", resp.StatusCode)
+	}
+
+	resp, err = http.Get(ts.URL + "/api/logs/ENG-9?follow=1&token=tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	reader := bufio.NewReader(resp.Body)
+	var frame strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			t.Fatal(err)
+		}
+		if line == "\n" || err == io.EOF {
+			break
+		}
+		frame.WriteString(line)
+	}
+	got := frame.String()
+	if !strings.Contains(got, "event: log\n") || !strings.Contains(got, `line two\n`) {
+		t.Fatalf("unexpected log frame: %q", got)
 	}
 }
 

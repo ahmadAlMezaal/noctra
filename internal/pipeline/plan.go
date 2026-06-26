@@ -112,6 +112,7 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		p.cancels[identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()
+		p.publishDashboardChange()
 
 		// Remove the plan-confirm label if it's a per-ticket label.
 		if issue.HasLabel(p.cfg.PlanConfirmLabel) {
