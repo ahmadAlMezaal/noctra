@@ -519,11 +519,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			}
 		}
 
-		// Reply to the review threads with the agent's reasoning, but don't
-		// resolve them: this iteration may have addressed only some findings
-		// (it bundles review feedback + CI), and we can't tell which per thread,
-		// so resolving would silently close untouched findings. Leave them open
-		// for a human to verify and close.
+		// Reply but don't resolve: we can't tell which threads this iteration
+		// actually addressed, so resolving would silently close untouched findings.
 		reply := fmt.Sprintf("Addressed in %s.", sha)
 		if summary != "" {
 			reply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
@@ -541,8 +538,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		if summary != "" {
 			reply = "Noctra reviewed this and made no code change:\n\n" + summary
 		}
-		// Reply (don't resolve) so a no-diff review isn't silent on GitHub but
-		// the unaddressed findings stay open for a human.
+		// Reply but don't resolve — nothing changed, so the findings stay open.
 		p.gh.ReplyToThreads(ctx, ch.PR.URL, reply, false)
 		p.replyToConversation(ctx, ch, reply, logger)
 		if p.store != nil && summary != "" {

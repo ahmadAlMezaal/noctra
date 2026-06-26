@@ -406,12 +406,9 @@ func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	return nil
 }
 
-// ReplyToThreads posts the given note to every unresolved review thread on a
-// PR. It only marks a thread resolved when resolve is true — callers pass false
-// when the iteration can't prove each thread's finding was addressed, so a
-// genuinely-unaddressed finding (e.g. a review comment the fix commit didn't
-// touch) stays open for a human rather than being silently closed.
-// Best-effort: failures are logged, never returned.
+// ReplyToThreads posts the note to every unresolved review thread on a PR, and
+// resolves them only when resolve is true. Best-effort: failures are logged,
+// never returned.
 func (c *Client) ReplyToThreads(ctx context.Context, prURL, replyBody string, resolve bool) {
 	owner, repo, number, err := parsePRURL(prURL)
 	if err != nil {

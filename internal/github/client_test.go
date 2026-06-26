@@ -433,9 +433,9 @@ func TestDecodeReviewThreads_NoComments(t *testing.T) {
 	}
 }
 
-// fakeGHThreadCalls installs a fake `gh` on PATH that records each invocation
-// (delimited by @@@, since GraphQL queries contain newlines) and returns one
-// unresolved review thread. The returned func parses the recorded calls.
+// fakeGHThreadCalls installs a fake `gh` that records each invocation (@@@-
+// delimited, since GraphQL queries contain newlines) and returns one unresolved
+// thread. The returned func parses the recorded calls.
 func fakeGHThreadCalls(t *testing.T) func() []string {
 	t.Helper()
 	dir := t.TempDir()
