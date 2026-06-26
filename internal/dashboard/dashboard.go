@@ -238,13 +238,13 @@ func (s *Server) handlePRs(w http.ResponseWriter, _ *http.Request, store *state.
 }
 
 type sweepEntry struct {
-	Repo            string  `json:"repo"`
-	Task            string  `json:"task"`
-	Description     string  `json:"description"`
-	CooldownH       float64 `json:"cooldown_h"`
-	LastRunAt       string  `json:"last_run_at,omitempty"`
-	CooldownLeftH   float64 `json:"cooldown_left_h"`
-	Eligible        bool    `json:"eligible"`
+	Repo          string  `json:"repo"`
+	Task          string  `json:"task"`
+	Description   string  `json:"description"`
+	CooldownH     float64 `json:"cooldown_h"`
+	LastRunAt     string  `json:"last_run_at,omitempty"`
+	CooldownLeftH float64 `json:"cooldown_left_h"`
+	Eligible      bool    `json:"eligible"`
 }
 
 func (s *Server) handleSweeps(w http.ResponseWriter, _ *http.Request, store *state.Store, tasks []sweep.Task) {
@@ -296,18 +296,13 @@ func (s *Server) handleSweeps(w http.ResponseWriter, _ *http.Request, store *sta
 		}
 		entries = append(entries, e)
 	}
-	// Also include tasks for repos that haven't run yet (no state).
-	// We only show tasks with recorded state — tasks that have never run
-	// on any repo have no sweep_states row, so they won't appear here.
-	// That's fine: the panel shows "what happened" rather than "what could
-	// happen on every possible repo".
 	writeJSON(w, entries)
 }
 
 type costBucket struct {
-	Date       string  `json:"date"`
-	CostUSD    float64 `json:"cost_usd"`
-	TotalTokens int64  `json:"total_tokens"`
+	Date        string  `json:"date"`
+	CostUSD     float64 `json:"cost_usd"`
+	TotalTokens int64   `json:"total_tokens"`
 }
 
 type costResponse struct {

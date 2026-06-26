@@ -167,7 +167,7 @@ func authedGet(t *testing.T, ts *httptest.Server, path, token string) *http.Resp
 
 func TestHistory_ReturnsRuns(t *testing.T) {
 	srv, store := newTestServerWithStore(t, "tok")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -175,7 +175,7 @@ func TestHistory_ReturnsRuns(t *testing.T) {
 	if err := store.InsertRunHistory(state.RunHistory{
 		Identifier: "ENG-1", TicketID: "ENG-1", Repo: "my-repo",
 		RunType: "ticket", Status: "pr_opened",
-		PRURL:    "https://github.com/o/r/pull/1",
+		PRURL:     "https://github.com/o/r/pull/1",
 		StartedAt: now.Add(-5 * time.Minute), FinishedAt: now,
 	}); err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestHistory_NilStore(t *testing.T) {
 
 func TestPRs_ReturnsTrackedPRs(t *testing.T) {
 	srv, store := newTestServerWithStore(t, "tok")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -275,7 +275,7 @@ func TestPRs_ReturnsTrackedPRs(t *testing.T) {
 
 func TestSweeps_ReturnsSweepState(t *testing.T) {
 	srv, store := newTestServerWithStore(t, "tok")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -312,7 +312,7 @@ func TestSweeps_ReturnsSweepState(t *testing.T) {
 
 func TestCost_ReturnsBuckets(t *testing.T) {
 	srv, store := newTestServerWithStore(t, "tok")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -351,7 +351,7 @@ func TestCost_ReturnsBuckets(t *testing.T) {
 
 func TestHistory_MethodNotAllowed(t *testing.T) {
 	srv, store := newTestServerWithStore(t, "tok")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

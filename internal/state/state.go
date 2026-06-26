@@ -697,9 +697,7 @@ func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
 	return out, nil
 }
 
-// ListUsageEvents returns usage events that occurred at or after since,
-// ordered by occurred_at ascending. When since is zero, all events are
-// returned.
+// ListUsageEvents returns usage events at or after since (all if zero).
 func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
