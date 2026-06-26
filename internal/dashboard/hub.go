@@ -7,14 +7,13 @@ import (
 
 const defaultMaxSubscribers = 64
 
-// Hub fans live dashboard invalidation events out to SSE subscribers.
+// Hub fans out invalidation events to SSE subscribers.
 type Hub struct {
 	mu          sync.Mutex
 	max         int
 	subscribers map[chan struct{}]struct{}
 }
 
-// NewHub creates a bounded in-process fan-out hub.
 func NewHub(maxSubscribers int) *Hub {
 	if maxSubscribers <= 0 {
 		maxSubscribers = defaultMaxSubscribers
@@ -25,7 +24,6 @@ func NewHub(maxSubscribers int) *Hub {
 	}
 }
 
-// Subscribe registers a subscriber until ctx is cancelled or unsubscribe is called.
 func (h *Hub) Subscribe(ctx context.Context) (<-chan struct{}, func(), bool) {
 	if h == nil {
 		ch := make(chan struct{})
@@ -65,7 +63,7 @@ func (h *Hub) Subscribe(ctx context.Context) (<-chan struct{}, func(), bool) {
 	return ch, unsubscribe, true
 }
 
-// Publish notifies current subscribers without blocking slow clients.
+// Publish notifies subscribers without blocking slow clients.
 func (h *Hub) Publish() {
 	if h == nil {
 		return

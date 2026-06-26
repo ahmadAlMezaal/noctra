@@ -2,22 +2,18 @@ package pipeline
 
 import "github.com/ahmadAlMezaal/noctra/internal/budget"
 
-// ActiveEntry is one in-flight run in the dashboard snapshot.
 type ActiveEntry struct {
 	Identifier string `json:"identifier"`
 	Repo       string `json:"repo,omitempty"`
 }
 
-// QueuedEntry is one queued-for-retry run in the dashboard snapshot.
 type QueuedEntry struct {
 	Identifier string `json:"identifier"`
 	Repo       string `json:"repo,omitempty"`
 	Retries    int    `json:"retries"`
 }
 
-// DashboardSnapshot is a point-in-time view of the pipeline state, safe for
-// JSON serialization. Collected under a single p.mu lock so the fields are
-// consistent with each other.
+// DashboardSnapshot is collected under a single p.mu lock for consistency.
 type DashboardSnapshot struct {
 	Active  []ActiveEntry `json:"active"`
 	Queued  []QueuedEntry `json:"queued"`
@@ -26,8 +22,6 @@ type DashboardSnapshot struct {
 	Budget  budget.Stats  `json:"budget"`
 }
 
-// Snapshot takes p.mu once and returns a consistent snapshot of the
-// pipeline's runtime state for the dashboard.
 func (p *Pipeline) Snapshot() DashboardSnapshot {
 	p.mu.Lock()
 	active := make([]ActiveEntry, 0, len(p.active))

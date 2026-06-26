@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,9 +24,9 @@ type testSnapshot struct {
 }
 
 func newTestServer(token string) *Server {
-	return New(":0", token, func() any {
+	return New(":0", token, "", func() any {
 		return testSnapshot{Active: []string{"ENG-1"}, OK: true}
-	}, Providers{})
+	}, Providers{}, nil, nil)
 }
 
 func TestAuth_BearerToken(t *testing.T) {
@@ -198,7 +200,7 @@ func TestLogsFollow_InitialTailFrameAndAuth(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "ENG-9.log"), []byte("line one\nline two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := New(":0", "tok", func() any { return nil }, Providers{LogDir: dir})
+	s := New(":0", "tok", "", func() any { return nil }, Providers{LogDir: dir}, nil, nil)
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
@@ -245,13 +247,13 @@ func newTestServerWithStore(t *testing.T, token string) (*Server, *state.Store) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(":0", token, func() any { return nil }, Providers{
+	srv := New(":0", token, "", func() any { return nil }, Providers{
 		Store:           store,
 		MaxPRIterations: 3,
 		SweepTasks: []sweep.Task{
 			{Name: "lint-cleanup", Description: "Fix lint warnings", Cooldown: 7 * 24 * time.Hour},
 		},
-	})
+	}, nil, nil)
 	return srv, store
 }
 
@@ -259,6 +261,24 @@ func authedGet(t *testing.T, ts *httptest.Server, path, token string) *http.Resp
 	t.Helper()
 	req, _ := http.NewRequest("GET", ts.URL+path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func authedPost(t *testing.T, ts *httptest.Server, path, token string, body string) *http.Response {
+	t.Helper()
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = strings.NewReader(body)
+	}
+	req, _ := http.NewRequest("POST", ts.URL+path, bodyReader)
+	req.Header.Set("Authorization", "Bearer "+token)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +330,7 @@ func TestHistory_ReturnsRuns(t *testing.T) {
 }
 
 func TestHistory_NilStore(t *testing.T) {
-	srv := New(":0", "tok", func() any { return nil }, Providers{})
+	srv := New(":0", "tok", "", func() any { return nil }, Providers{}, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -437,7 +457,6 @@ func TestCost_ReturnsBuckets(t *testing.T) {
 	if len(cr.Buckets) == 0 {
 		t.Fatal("expected non-empty buckets")
 	}
-	// At least one bucket should have cost > 0
 	found := false
 	for _, b := range cr.Buckets {
 		if b.CostUSD > 0 {
@@ -481,5 +500,169 @@ func TestLinearURL(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("linearURL(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// ── Admin auth / control endpoint tests (ENG-276) ───────────────────────────
+
+// stubControls implements Controls for testing.
+type stubControls struct {
+	killErr     error
+	requeueErr  error
+	retryErr    error
+	pauseCalled bool
+	resumeCall  bool
+}
+
+func (s *stubControls) KillRun(id string) error      { return s.killErr }
+func (s *stubControls) PauseDispatch() bool          { s.pauseCalled = true; return false }
+func (s *stubControls) ResumeDispatch() bool         { s.resumeCall = true; return true }
+func (s *stubControls) ClearSkipped(id string) error { return s.retryErr }
+func (s *stubControls) RequeueTicket(_ context.Context, id, ctx, src string) error {
+	return s.requeueErr
+}
+
+func TestAdminGating_KillEndpoint(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Admin token → 200
+	resp := authedPost(t, ts, "/api/kill/ENG-1", "admin-tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("admin token: expected 200, got %d", resp.StatusCode)
+	}
+
+	// Read token → 403
+	resp = authedPost(t, ts, "/api/kill/ENG-1", "read-tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("read token: expected 403, got %d", resp.StatusCode)
+	}
+
+	// No token → 401
+	req, _ := http.NewRequest("POST", ts.URL+"/api/kill/ENG-1", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("no token: expected 401, got %d", resp.StatusCode)
+	}
+
+	// Wrong token → 401
+	resp = authedPost(t, ts, "/api/kill/ENG-1", "wrong", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong token: expected 401, got %d", resp.StatusCode)
+	}
+
+	// GET → 405
+	resp = authedGet(t, ts, "/api/kill/ENG-1", "admin-tok")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET: expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestAdminGating_NoAdminToken(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := authedPost(t, ts, "/api/kill/ENG-1", "read-tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 when admin token unset, got %d", resp.StatusCode)
+	}
+}
+
+func TestAdminGating_PauseResume(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := authedPost(t, ts, "/api/pause", "admin-tok", "")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("pause: expected 200, got %d", resp.StatusCode)
+	}
+
+	resp2 := authedPost(t, ts, "/api/resume", "admin-tok", "")
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Errorf("resume: expected 200, got %d", resp2.StatusCode)
+	}
+}
+
+func TestAdminGating_RetryEndpoint(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := authedPost(t, ts, "/api/retry/ENG-1", "admin-tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// With error
+	ctrl.retryErr = fmt.Errorf("not in skipped set")
+	resp = authedPost(t, ts, "/api/retry/ENG-2", "admin-tok", "")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 (error in body), got %d", resp.StatusCode)
+	}
+	var body map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] == "" {
+		t.Error("expected error in response body")
+	}
+}
+
+func TestAdminGating_RequeueWithContext(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := authedPost(t, ts, "/api/requeue/ENG-1", "admin-tok", `{"context":"use Auth0"}`)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestAdminStatus_Endpoint(t *testing.T) {
+	// Admin configured
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+
+	resp := authedGet(t, ts, "/api/admin-status", "read-tok")
+	defer resp.Body.Close()
+	var status map[string]bool
+	_ = json.NewDecoder(resp.Body).Decode(&status)
+	if !status["admin_enabled"] {
+		t.Error("expected admin_enabled=true")
+	}
+	ts.Close()
+
+	// Admin not configured
+	srv2 := New(":0", "read-tok", "", func() any { return nil }, Providers{}, nil, nil)
+	ts2 := httptest.NewServer(srv2.Handler())
+	defer ts2.Close()
+
+	resp2 := authedGet(t, ts2, "/api/admin-status", "read-tok")
+	defer resp2.Body.Close()
+	var status2 map[string]bool
+	_ = json.NewDecoder(resp2.Body).Decode(&status2)
+	if status2["admin_enabled"] {
+		t.Error("expected admin_enabled=false")
 	}
 }
