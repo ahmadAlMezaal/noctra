@@ -72,6 +72,10 @@ type PRState struct {
 	// LastReasoning is the agent's summary from the most recent re-engagement,
 	// reused in the next fix prompt and the GitHub thread reply.
 	LastReasoning string `json:"last_reasoning,omitempty"`
+
+	// LastCIRunURL is the URL of the most recent failing CI check run,
+	// surfaced in the dashboard so operators can deep-link to CI failures.
+	LastCIRunURL string `json:"last_ci_run_url,omitempty"`
 }
 
 // SweepState is the per-task-per-repo record for autonomous maintenance
@@ -212,11 +216,13 @@ func (s *Store) initSchema() error {
 			last_iterated_at TEXT,
 			last_pushed_sha TEXT NOT NULL DEFAULT '',
 			merged_processed INTEGER NOT NULL DEFAULT 0,
-			last_reasoning TEXT NOT NULL DEFAULT ''
+			last_reasoning TEXT NOT NULL DEFAULT '',
+			last_ci_run_url TEXT NOT NULL DEFAULT ''
 		)`,
 		`ALTER TABLE pr_states ADD COLUMN last_pushed_sha TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE pr_states ADD COLUMN merged_processed INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pr_states ADD COLUMN last_reasoning TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pr_states ADD COLUMN last_ci_run_url TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS repo_lessons (
 			repo TEXT PRIMARY KEY,
 			lessons TEXT NOT NULL DEFAULT '',
@@ -297,7 +303,7 @@ func (s *Store) Get(prURL string) PRState {
 func (s *Store) getPRLocked(prURL string) (PRState, error) {
 	var r PRState
 	var lastComment, lastReview, lastIterated sql.NullString
-	err := s.db.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
+	err := s.db.QueryRow(`SELECT ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning, last_ci_run_url
 		FROM pr_states WHERE pr_url = ?`, prURL).Scan(
 		&r.TicketID,
 		&r.AgentBackend,
@@ -309,6 +315,7 @@ func (s *Store) getPRLocked(prURL string) (PRState, error) {
 		&r.LastPushedSHA,
 		&r.MergedProcessed,
 		&r.LastReasoning,
+		&r.LastCIRunURL,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PRState{}, nil
@@ -342,7 +349,7 @@ func (s *Store) All() map[string]PRState {
 }
 
 func (s *Store) allLocked() (map[string]PRState, error) {
-	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
+	rows, err := s.db.Query(`SELECT pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning, last_ci_run_url
 		FROM pr_states ORDER BY pr_url`)
 	if err != nil {
 		return nil, fmt.Errorf("list pr states: %w", err)
@@ -370,6 +377,7 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 			&r.LastPushedSHA,
 			&r.MergedProcessed,
 			&r.LastReasoning,
+			&r.LastCIRunURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan pr state: %w", err)
 		}
@@ -406,8 +414,8 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	}
 	fn(&r)
 	_, err = s.db.Exec(`INSERT INTO pr_states (
-			pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			pr_url, ticket_id, agent_backend, last_comment_at, last_review_at, last_ci_sha, iterations, last_iterated_at, last_pushed_sha, merged_processed, last_reasoning, last_ci_run_url
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(pr_url) DO UPDATE SET
 			ticket_id = excluded.ticket_id,
 			agent_backend = excluded.agent_backend,
@@ -418,7 +426,8 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 			last_iterated_at = excluded.last_iterated_at,
 			last_pushed_sha = excluded.last_pushed_sha,
 			merged_processed = excluded.merged_processed,
-			last_reasoning = excluded.last_reasoning`,
+			last_reasoning = excluded.last_reasoning,
+			last_ci_run_url = excluded.last_ci_run_url`,
 		prURL,
 		r.TicketID,
 		r.AgentBackend,
@@ -430,6 +439,7 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 		r.LastPushedSHA,
 		r.MergedProcessed,
 		r.LastReasoning,
+		r.LastCIRunURL,
 	)
 	if err != nil {
 		return fmt.Errorf("write pr state: %w", err)

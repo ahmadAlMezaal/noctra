@@ -2,12 +2,25 @@ package pipeline
 
 import "github.com/ahmadAlMezaal/noctra/internal/budget"
 
+// ActiveEntry is one in-flight run in the dashboard snapshot.
+type ActiveEntry struct {
+	Identifier string `json:"identifier"`
+	Repo       string `json:"repo,omitempty"`
+}
+
+// QueuedEntry is one queued-for-retry run in the dashboard snapshot.
+type QueuedEntry struct {
+	Identifier string `json:"identifier"`
+	Repo       string `json:"repo,omitempty"`
+	Retries    int    `json:"retries"`
+}
+
 // DashboardSnapshot is a point-in-time view of the pipeline state, safe for
 // JSON serialization. Collected under a single p.mu lock so the fields are
 // consistent with each other.
 type DashboardSnapshot struct {
-	Active  []string       `json:"active"`
-	Queued  map[string]int `json:"queued"`
+	Active  []ActiveEntry  `json:"active"`
+	Queued  []QueuedEntry  `json:"queued"`
 	Skipped []string       `json:"skipped"`
 	Paused  bool           `json:"paused"`
 	Budget  budget.Stats   `json:"budget"`
@@ -17,11 +30,14 @@ type DashboardSnapshot struct {
 // pipeline's runtime state for the dashboard.
 func (p *Pipeline) Snapshot() DashboardSnapshot {
 	p.mu.Lock()
-	active := make([]string, 0, len(p.active))
+	active := make([]ActiveEntry, 0, len(p.active))
 	for id := range p.active {
-		active = append(active, id)
+		active = append(active, ActiveEntry{
+			Identifier: id,
+			Repo:       p.activeRepos[id],
+		})
 	}
-	queued := make(map[string]int, len(p.failedAttempts))
+	queued := make([]QueuedEntry, 0, len(p.failedAttempts))
 	for id, n := range p.failedAttempts {
 		if _, running := p.active[id]; running {
 			continue
@@ -29,7 +45,11 @@ func (p *Pipeline) Snapshot() DashboardSnapshot {
 		if _, skip := p.skipped[id]; skip {
 			continue
 		}
-		queued[id] = n
+		queued = append(queued, QueuedEntry{
+			Identifier: id,
+			Repo:       p.activeRepos[id],
+			Retries:    n,
+		})
 	}
 	skipped := make([]string, 0, len(p.skipped))
 	for id := range p.skipped {

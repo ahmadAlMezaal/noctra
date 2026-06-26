@@ -5,56 +5,333 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Noctra Dashboard</title>
 <style>
-  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+  /* ── Fonts ──────────────────────────────────────────────────────────── */
+  @font-face {
+    font-family: 'Space Grotesk';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url(fonts/space-grotesk-latin.woff2) format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url(fonts/jetbrains-mono-latin.woff2) format('woff2');
+  }
+
+  /* ── Design tokens ─────────────────────────────────────────────────── */
+  :root {
+    --ink: #0B0E16;
+    --panel: #141A28;
+    --edge: #232C3D;
+    --moon: #E9EDF6;
+    --dim: #828BA3;
+    --glow: #8FB4FF;
+    --lamp: #F4B860;
+    --ok: #6EE7A8;
+    --warn: #F4B860;
+    --bad: #FB7185;
+    --font-display: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+
+  /* ── Reset & base ──────────────────────────────────────────────────── */
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
-  h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-  h2 { font-size: 1.1rem; color: var(--muted); margin-bottom: 0.5rem; font-weight: 500; }
-  h3 { font-size: 0.95rem; color: var(--accent); margin: 0.75rem 0 0.25rem; font-weight: 500; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  body {
+    font-family: var(--font-body);
+    background: var(--ink);
+    color: var(--moon);
+    padding: 1.25rem;
+    max-width: 80rem;
+    margin: 0 auto;
+    line-height: 1.5;
+    font-size: 0.875rem;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--edge);
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: var(--moon);
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+  .brand-moon { font-size: 1.1rem; }
+  .topbar-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .topbar-tag {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.25rem;
+    background: rgba(143, 180, 255, 0.08);
+    color: var(--dim);
+    border: 1px solid var(--edge);
+  }
+
+  /* ── Grid layout ───────────────────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 0.875rem;
+    margin-bottom: 0.875rem;
+  }
   .wide { grid-column: 1 / -1; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; }
-  .badge { display: inline-block; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 1rem; font-weight: 600; }
-  .badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
-  .badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
-  .badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
-  .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
-  .badge-muted { background: rgba(139,148,158,0.15); color: var(--muted); }
+
+  /* ── Cards ─────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 0.625rem;
+    padding: 1rem;
+  }
+  h2 {
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.625rem;
+  }
+  h3 {
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    color: var(--glow);
+    margin: 0.75rem 0 0.25rem;
+    font-weight: 600;
+  }
+
+  /* ── Badges ────────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 1rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-ok   { background: rgba(110, 231, 168, 0.12); color: var(--ok); }
+  .badge-bad  { background: rgba(251, 113, 133, 0.12); color: var(--bad); }
+  .badge-warn { background: rgba(244, 184, 96, 0.12); color: var(--warn); }
+  .badge-glow { background: rgba(143, 180, 255, 0.12); color: var(--glow); }
+  .badge-dim  { background: rgba(130, 139, 163, 0.12); color: var(--dim); }
+
+  /* ── Lists ─────────────────────────────────────────────────────────── */
   ul { list-style: none; }
-  li { padding: 0.25rem 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.875rem; }
-  .empty { color: var(--muted); font-style: italic; font-size: 0.875rem; }
-  .retries { color: var(--muted); font-size: 0.75rem; margin-left: 0.25rem; }
-  .stat-row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.875rem; }
-  .stat-label { color: var(--muted); }
-  #error { display: none; background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid var(--red); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.875rem; }
-  a { color: var(--accent); text-decoration: none; }
+  li {
+    padding: 0.3rem 0;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--moon);
+    border-bottom: 1px solid rgba(35, 44, 61, 0.5);
+  }
+  li:last-child { border-bottom: none; }
+  .empty {
+    color: var(--dim);
+    font-family: var(--font-body);
+    font-style: normal;
+    font-size: 0.8125rem;
+  }
+  .retries {
+    color: var(--dim);
+    font-size: 0.6875rem;
+    margin-left: 0.25rem;
+  }
+  .repo-header {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--glow);
+    padding: 0.5rem 0 0.2rem;
+    margin-top: 0.25rem;
+    border-bottom: 1px solid var(--edge);
+    letter-spacing: 0.02em;
+  }
+  .repo-header:first-child { margin-top: 0; }
+
+  /* ── Stat rows ─────────────────────────────────────────────────────── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.3rem 0;
+    font-size: 0.8125rem;
+    border-bottom: 1px solid rgba(35, 44, 61, 0.3);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: var(--dim); }
+  .stat-value { font-family: var(--font-mono); }
+
+  /* ── Error banner ──────────────────────────────────────────────────── */
+  #error {
+    display: none;
+    background: rgba(251, 113, 133, 0.1);
+    color: var(--bad);
+    border: 1px solid rgba(251, 113, 133, 0.3);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.8125rem;
+  }
+
+  /* ── Links ─────────────────────────────────────────────────────────── */
+  a { color: var(--glow); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  a:focus-visible {
+    outline: 2px solid var(--glow);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* ── Tables ────────────────────────────────────────────────────────── */
   table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-  td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th {
+    text-align: left;
+    font-family: var(--font-display);
+    color: var(--dim);
+    font-weight: 600;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--edge);
+  }
+  td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid rgba(35, 44, 61, 0.4);
+    vertical-align: top;
+  }
   tr:last-child td { border-bottom: none; }
-  .mono { font-family: "SFMono-Regular", Consolas, monospace; }
-  .truncate { max-width: 18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sparkline-wrap { display: flex; align-items: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
-  .tab-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-  .tab { padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8125rem; cursor: pointer; background: transparent; color: var(--muted); border: 1px solid var(--border); }
-  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-  .repo-group { margin-bottom: 0.5rem; }
+  .mono { font-family: var(--font-mono); }
+  .truncate {
+    max-width: 16rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  /* ── Sparkline ─────────────────────────────────────────────────────── */
+  .sparkline-wrap {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .sparkline-wrap svg { max-width: 100%; height: auto; }
+
+  /* ── Tabs ───────────────────────────────────────────────────────────── */
+  .tab-bar { display: flex; gap: 0.375rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+  .tab {
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    cursor: pointer;
+    background: transparent;
+    color: var(--dim);
+    border: 1px solid var(--edge);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .tab:hover { border-color: var(--glow); color: var(--moon); }
+  .tab:focus-visible {
+    outline: 2px solid var(--glow);
+    outline-offset: 2px;
+  }
+  .tab.active {
+    background: var(--glow);
+    color: var(--ink);
+    border-color: var(--glow);
+    font-weight: 600;
+  }
+
+  /* ── Lamp glow (active runs only) ──────────────────────────────────── */
+  .lamp-item {
+    position: relative;
+    padding-left: 1rem;
+  }
+  .lamp-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lamp);
+    box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5);
+    animation: lamp-pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes lamp-pulse {
+    0%, 100% { box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5); }
+    50%      { box-shadow: 0 0 10px 4px rgba(244, 184, 96, 0.7); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lamp-item::before {
+      animation: none;
+      box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5);
+    }
+    .tab { transition: none; }
+  }
+
+  /* ── Responsive (mobile-first at ~360px) ───────────────────────────── */
+  @media (max-width: 40rem) {
+    body { padding: 0.75rem; }
+    .grid { grid-template-columns: 1fr; }
+    .topbar { gap: 0.5rem; }
+    .topbar-meta { margin-left: 0; width: 100%; }
+    table { font-size: 0.75rem; }
+    th, td { padding: 0.3rem 0.25rem; }
+    .truncate { max-width: 10rem; }
+  }
 </style>
 </head>
 <body>
-<h1>Noctra Dashboard</h1>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="brand"><span class="brand-moon">&#127769;</span> Noctra</div>
+  <div class="topbar-meta">
+    <span class="topbar-tag" id="dispatch-status">--</span>
+    <span class="topbar-tag" id="budget-tag">--</span>
+  </div>
+</div>
+
 <div id="error"></div>
 
 <!-- Row 1: Live snapshot cards -->
 <div class="grid">
   <div class="card">
     <h2>Active Runs</h2>
-    <ul id="active"></ul>
+    <div id="active"></div>
   </div>
   <div class="card">
-    <h2>Queue (failed attempts)</h2>
-    <ul id="queued"></ul>
+    <h2>Queue</h2>
+    <div id="queued"></div>
   </div>
   <div class="card">
     <h2>Skipped</h2>
@@ -125,18 +402,17 @@
   }
 
   function statusBadge(status) {
-    var cls = "badge-muted";
-    if (status === "pr_opened") cls = "badge-green";
-    else if (status === "failed") cls = "badge-red";
-    else if (status === "blocked") cls = "badge-yellow";
-    else if (status === "no_change") cls = "badge-muted";
+    var cls = "badge-dim";
+    if (status === "pr_opened") cls = "badge-ok";
+    else if (status === "failed") cls = "badge-bad";
+    else if (status === "blocked") cls = "badge-warn";
     return '<span class="badge ' + cls + '">' + esc(status) + "</span>";
   }
 
   function typeBadge(runType) {
-    var cls = "badge-blue";
-    if (runType === "sweep") cls = "badge-muted";
-    else if (runType === "iterate") cls = "badge-yellow";
+    var cls = "badge-glow";
+    if (runType === "sweep") cls = "badge-dim";
+    else if (runType === "iterate") cls = "badge-warn";
     return '<span class="badge ' + cls + '">' + esc(runType) + "</span>";
   }
 
@@ -152,43 +428,91 @@
            d.toLocaleTimeString(undefined, {hour:"2-digit",minute:"2-digit"});
   }
 
-  // ── Snapshot (live state) ───────────────────────────────────────────────
+  // ── Snapshot (live state) ──────────────────────────────────────────
 
-  function renderList(el, items, emptyMsg) {
+  function groupByRepo(entries, repoKey) {
+    var groups = {};
+    var order = [];
+    for (var i = 0; i < entries.length; i++) {
+      var r = entries[i][repoKey] || "(unknown)";
+      if (!groups[r]) { groups[r] = []; order.push(r); }
+      groups[r].push(entries[i]);
+    }
+    return { groups: groups, order: order };
+  }
+
+  function renderActive(el, items) {
     if (!items || items.length === 0) {
-      el.innerHTML = '<li class="empty">' + esc(emptyMsg) + "</li>";
+      el.innerHTML = '<p class="empty">No active runs. Waiting for tickets.</p>';
+      return;
+    }
+    var g = groupByRepo(items, "repo");
+    var html = "";
+    if (g.order.length === 1 && g.order[0] === "(unknown)") {
+      html = "<ul>" + items.map(function(e) {
+        return '<li class="lamp-item">' + esc(e.identifier) + "</li>";
+      }).join("") + "</ul>";
+    } else {
+      for (var i = 0; i < g.order.length; i++) {
+        var repo = g.order[i];
+        html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
+        html += g.groups[repo].map(function(e) {
+          return '<li class="lamp-item">' + esc(e.identifier) + "</li>";
+        }).join("");
+        html += "</ul>";
+      }
+    }
+    el.innerHTML = html;
+  }
+
+  function renderQueued(el, items) {
+    if (!items || items.length === 0) {
+      el.innerHTML = '<p class="empty">No queued tickets.</p>';
+      return;
+    }
+    var g = groupByRepo(items, "repo");
+    var html = "";
+    if (g.order.length === 1 && g.order[0] === "(unknown)") {
+      html = "<ul>" + items.map(function(e) {
+        return "<li>" + esc(e.identifier) + '<span class="retries">(' + e.retries + " retries)</span></li>";
+      }).join("") + "</ul>";
+    } else {
+      for (var i = 0; i < g.order.length; i++) {
+        var repo = g.order[i];
+        html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
+        html += g.groups[repo].map(function(e) {
+          return "<li>" + esc(e.identifier) + '<span class="retries">(' + e.retries + " retries)</span></li>";
+        }).join("");
+        html += "</ul>";
+      }
+    }
+    el.innerHTML = html;
+  }
+
+  function renderSkipped(el, items) {
+    if (!items || items.length === 0) {
+      el.innerHTML = '<li class="empty">No skipped tickets.</li>';
       return;
     }
     el.innerHTML = items.map(function(id) { return "<li>" + esc(id) + "</li>"; }).join("");
   }
 
-  function renderQueued(el, queued) {
-    var keys = Object.keys(queued || {});
-    if (keys.length === 0) {
-      el.innerHTML = '<li class="empty">No queued tickets</li>';
-      return;
-    }
-    el.innerHTML = keys.map(function(id) {
-      return "<li>" + esc(id) + '<span class="retries">(' + queued[id] + " retries)</span></li>";
-    }).join("");
-  }
-
   function renderBudget(el, b, paused) {
     var rows = "";
     if (paused) {
-      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-yellow">Paused</span></div>';
+      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-warn">Paused</span></div>';
     } else {
-      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-green">Running</span></div>';
+      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-ok">Running</span></div>';
     }
-    rows += '<div class="stat-row"><span class="stat-label">Session tokens</span><span>' + formatTokens(b.SessionTokens || 0) + "</span></div>";
+    rows += '<div class="stat-row"><span class="stat-label">Session tokens</span><span class="stat-value">' + formatTokens(b.SessionTokens || 0) + "</span></div>";
     if (b.SessionCostUSD) {
-      rows += '<div class="stat-row"><span class="stat-label">Session cost</span><span>$' + b.SessionCostUSD.toFixed(2) + "</span></div>";
+      rows += '<div class="stat-row"><span class="stat-label">Session cost</span><span class="stat-value">$' + b.SessionCostUSD.toFixed(2) + "</span></div>";
     }
-    rows += '<div class="stat-row"><span class="stat-label">Daily tokens</span><span>' + formatTokens(b.DailyTokens || 0);
+    rows += '<div class="stat-row"><span class="stat-label">Daily tokens</span><span class="stat-value">' + formatTokens(b.DailyTokens || 0);
     if (b.MaxDailyTokens > 0) rows += " / " + formatTokens(b.MaxDailyTokens);
     rows += "</span></div>";
     if (b.MaxDailyUSD > 0) {
-      rows += '<div class="stat-row"><span class="stat-label">Daily cost</span><span>$' + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2) + "</span></div>";
+      rows += '<div class="stat-row"><span class="stat-label">Daily cost</span><span class="stat-value">$' + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2) + "</span></div>";
     }
     if (b.Paused && b.PauseReason) {
       rows += '<div class="stat-row"><span class="stat-label">Pause reason</span><span>' + esc(b.PauseReason) + "</span></div>";
@@ -196,13 +520,33 @@
     if (b.PausedUntil && b.PausedUntil !== "0001-01-01T00:00:00Z") {
       var until = new Date(b.PausedUntil);
       if (until > new Date()) {
-        rows += '<div class="stat-row"><span class="stat-label">Resumes</span><span>' + shortTime(b.PausedUntil) + "</span></div>";
+        rows += '<div class="stat-row"><span class="stat-label">Resumes</span><span class="stat-value">' + shortTime(b.PausedUntil) + "</span></div>";
       }
     }
     el.innerHTML = rows;
   }
 
-  // ── Cost sparkline ──────────────────────────────────────────────────────
+  function updateTopbar(snap) {
+    var dEl = document.getElementById("dispatch-status");
+    var bEl = document.getElementById("budget-tag");
+    if (snap.paused) {
+      dEl.textContent = "Paused";
+      dEl.style.color = "var(--warn)";
+    } else {
+      dEl.textContent = "Running";
+      dEl.style.color = "var(--ok)";
+    }
+    var b = snap.budget || {};
+    if (b.MaxDailyUSD > 0) {
+      bEl.textContent = "$" + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2);
+    } else if (b.SessionCostUSD > 0) {
+      bEl.textContent = "$" + b.SessionCostUSD.toFixed(2);
+    } else {
+      bEl.textContent = formatTokens(b.SessionTokens || 0) + " tokens";
+    }
+  }
+
+  // ── Cost sparkline ────────────────────────────────────────────────
 
   function renderSparkline(values, width, height) {
     if (!values || values.length === 0) return "";
@@ -214,14 +558,14 @@
       var y = (height - (v / max) * (height - 4) - 2).toFixed(1);
       return x + "," + y;
     });
-    return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '">' +
-      '<polyline fill="none" stroke="' + "var(--accent)" + '" stroke-width="1.5" points="' + points.join(" ") + '"/>' +
+    return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" style="max-width:100%;height:auto" role="img" aria-label="Cost sparkline">' +
+      '<polyline fill="none" stroke="var(--glow)" stroke-width="1.5" points="' + points.join(" ") + '"/>' +
       "</svg>";
   }
 
   function renderCost(el, data) {
     if (!data || !data.buckets || data.buckets.length === 0) {
-      el.innerHTML = '<span class="empty">No usage data</span>';
+      el.innerHTML = '<span class="empty">No usage data yet.</span>';
       return;
     }
     var buckets = data.buckets;
@@ -237,13 +581,13 @@
         todayTokens = buckets[i].total_tokens;
       }
     }
-    var html = '<div class="stat-row"><span class="stat-label">Today</span><span>$' + todayCost.toFixed(2) + " / " + formatTokens(todayTokens) + " tokens</span></div>";
-    html += '<div class="stat-row"><span class="stat-label">30-day total</span><span>$' + totalCost.toFixed(2) + " / " + formatTokens(totalTokens) + " tokens</span></div>";
+    var html = '<div class="stat-row"><span class="stat-label">Today</span><span class="stat-value">$' + todayCost.toFixed(2) + " / " + formatTokens(todayTokens) + " tokens</span></div>";
+    html += '<div class="stat-row"><span class="stat-label">30-day total</span><span class="stat-value">$' + totalCost.toFixed(2) + " / " + formatTokens(totalTokens) + " tokens</span></div>";
     html += '<div class="sparkline-wrap">' + renderSparkline(costs, 500, 40) + "</div>";
     el.innerHTML = html;
   }
 
-  // ── Run history (grouped by repo with tab switching) ────────────────────
+  // ── Run history (grouped by repo with tab switching) ──────────────
 
   var historyData = [];
 
@@ -251,10 +595,9 @@
     historyData = data || [];
     if (historyData.length === 0) {
       tabsEl.innerHTML = "";
-      el.innerHTML = '<span class="empty">No run history</span>';
+      el.innerHTML = '<span class="empty">No run history yet. Runs will appear here after completion.</span>';
       return;
     }
-    // Group by repo
     var repos = {};
     var repoOrder = [];
     for (var i = 0; i < historyData.length; i++) {
@@ -263,14 +606,12 @@
       repos[r].push(historyData[i]);
     }
 
-    // Tabs
-    var tabHtml = '<span class="tab active" data-repo="__all__">All</span>';
+    var tabHtml = '<button class="tab active" data-repo="__all__">All</button>';
     for (var j = 0; j < repoOrder.length; j++) {
-      tabHtml += '<span class="tab" data-repo="' + esc(repoOrder[j]) + '">' + esc(repoOrder[j]) + "</span>";
+      tabHtml += '<button class="tab" data-repo="' + esc(repoOrder[j]) + '">' + esc(repoOrder[j]) + "</button>";
     }
     tabsEl.innerHTML = tabHtml;
 
-    // Tab click
     tabsEl.querySelectorAll(".tab").forEach(function(tab) {
       tab.addEventListener("click", function() {
         tabsEl.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
@@ -285,67 +626,75 @@
 
   function renderHistoryTable(el, runs) {
     if (runs.length === 0) {
-      el.innerHTML = '<span class="empty">No runs</span>';
+      el.innerHTML = '<span class="empty">No runs in this view.</span>';
       return;
     }
     var html = "<table><thead><tr><th>Identifier</th><th>Repo</th><th>Type</th><th>Status</th><th>Duration</th><th>PR</th><th>Started</th></tr></thead><tbody>";
     for (var i = 0; i < runs.length; i++) {
       var r = runs[i];
-      var idCell = r.linear_url ? link(r.linear_url, r.identifier) : esc(r.identifier);
-      var prCell = r.pr_url ? link(r.pr_url, "PR") : "-";
-      html += "<tr><td class='mono'>" + idCell + "</td><td>" + esc(r.repo || "-") + "</td><td>" + typeBadge(r.run_type) + "</td><td>" + statusBadge(r.status) + "</td><td class='mono'>" + formatDuration(r.duration_s) + "</td><td>" + prCell + "</td><td>" + shortTime(r.started_at) + "</td></tr>";
+      var idCell = r.linear_url ? link(r.linear_url, r.identifier) : '<span class="mono">' + esc(r.identifier) + "</span>";
+      var prCell = r.pr_url ? link(r.pr_url, "PR") : '<span class="dim">-</span>';
+      html += "<tr><td class='mono'>" + idCell + "</td><td class='mono'>" + esc(r.repo || "-") + "</td><td>" + typeBadge(r.run_type) + "</td><td>" + statusBadge(r.status) + "</td><td class='mono'>" + formatDuration(r.duration_s) + "</td><td>" + prCell + "</td><td class='mono'>" + shortTime(r.started_at) + "</td></tr>";
     }
     html += "</tbody></table>";
     el.innerHTML = html;
   }
 
-  // ── PR auto-iterate panel ───────────────────────────────────────────────
+  // ── PR auto-iterate panel ─────────────────────────────────────────
 
   function renderPRs(el, data) {
     if (!data || data.length === 0) {
-      el.innerHTML = '<span class="empty">No tracked PRs</span>';
+      el.innerHTML = '<span class="empty">No tracked PRs.</span>';
       return;
     }
-    var html = "<table><thead><tr><th>PR</th><th>Ticket</th><th>Iterations</th><th>CI SHA</th><th>Reasoning</th></tr></thead><tbody>";
+    var html = "<table><thead><tr><th>PR</th><th>Ticket</th><th>Iterations</th><th>CI</th><th>Reasoning</th></tr></thead><tbody>";
     for (var i = 0; i < data.length; i++) {
       var p = data[i];
       var prLink = p.pr_url ? link(p.pr_url, p.pr_url.replace(/.*\/pull\//, "#")) : "-";
       var ticketLink = p.linear_url ? link(p.linear_url, p.ticket_id) : esc(p.ticket_id || "-");
       var iterText = p.iterations + " / " + p.max_iterations;
-      var iterBadge = p.capped ? '<span class="badge badge-red">capped</span>' : '<span class="badge badge-green">' + esc(iterText) + "</span>";
-      var sha = p.last_ci_sha ? esc(p.last_ci_sha.substring(0, 7)) : "-";
-      var reason = p.last_reasoning ? '<span class="truncate" title="' + esc(p.last_reasoning) + '">' + esc(p.last_reasoning.substring(0, 80)) + "</span>" : "-";
-      html += "<tr><td>" + prLink + "</td><td class='mono'>" + ticketLink + "</td><td>" + iterBadge + "</td><td class='mono'>" + sha + "</td><td>" + reason + "</td></tr>";
+      var iterBadge = p.capped ? '<span class="badge badge-bad">capped</span>' : '<span class="badge badge-ok">' + esc(iterText) + "</span>";
+      var ciCell = "-";
+      if (p.last_ci_sha) {
+        var shaText = p.last_ci_sha.substring(0, 7);
+        if (p.last_ci_run_url) {
+          ciCell = '<a href="' + esc(p.last_ci_run_url) + '" target="_blank" rel="noopener" class="mono" title="View CI run">' + esc(shaText) + '</a>';
+        } else {
+          ciCell = '<span class="mono">' + esc(shaText) + "</span>";
+        }
+      }
+      var reason = p.last_reasoning ? '<span class="truncate" title="' + esc(p.last_reasoning) + '">' + esc(p.last_reasoning.substring(0, 80)) + "</span>" : '<span class="dim">-</span>';
+      html += "<tr><td>" + prLink + "</td><td class='mono'>" + ticketLink + "</td><td>" + iterBadge + "</td><td>" + ciCell + "</td><td>" + reason + "</td></tr>";
     }
     html += "</tbody></table>";
     el.innerHTML = html;
   }
 
-  // ── Sweep panel ─────────────────────────────────────────────────────────
+  // ── Sweep panel ───────────────────────────────────────────────────
 
   function renderSweeps(el, data) {
     if (!data || data.length === 0) {
-      el.innerHTML = '<span class="empty">No sweep data</span>';
+      el.innerHTML = '<span class="empty">No sweep data.</span>';
       return;
     }
-    var html = "<table><thead><tr><th>Repo</th><th>Task</th><th>Status</th><th>Last run</th></tr></thead><tbody>";
+    var html = "<table><thead><tr><th>Repo</th><th>Task</th><th>Status</th><th>Last Run</th></tr></thead><tbody>";
     for (var i = 0; i < data.length; i++) {
       var s = data[i];
       var statusBdg;
       if (s.eligible) {
-        statusBdg = '<span class="badge badge-green">eligible</span>';
+        statusBdg = '<span class="badge badge-ok">eligible</span>';
       } else {
         var left = s.cooldown_left_h;
         var leftStr = left < 1 ? Math.round(left * 60) + "m" : Math.round(left) + "h";
-        statusBdg = '<span class="badge badge-yellow">' + leftStr + " left</span>";
+        statusBdg = '<span class="badge badge-warn">' + leftStr + " left</span>";
       }
-      html += "<tr><td>" + esc(s.repo) + "</td><td>" + esc(s.task) + "</td><td>" + statusBdg + "</td><td>" + shortTime(s.last_run_at) + "</td></tr>";
+      html += "<tr><td class='mono'>" + esc(s.repo) + "</td><td>" + esc(s.task) + "</td><td>" + statusBdg + "</td><td class='mono'>" + shortTime(s.last_run_at) + "</td></tr>";
     }
     html += "</tbody></table>";
     el.innerHTML = html;
   }
 
-  // ── Load data ───────────────────────────────────────────────────────────
+  // ── Load data ─────────────────────────────────────────────────────
 
   function fetchJSON(url) {
     return fetch(url, { headers: headers }).then(function(r) {
@@ -357,7 +706,6 @@
   function load() {
     var errEl = document.getElementById("error");
 
-    // Fetch all endpoints in parallel
     Promise.all([
       fetchJSON("/api/snapshot"),
       fetchJSON("/api/history?limit=100"),
@@ -368,9 +716,10 @@
       errEl.style.display = "none";
       var snap = results[0], history = results[1], prs = results[2], sweeps = results[3], cost = results[4];
 
-      renderList(document.getElementById("active"), snap.active, "No active runs");
+      updateTopbar(snap);
+      renderActive(document.getElementById("active"), snap.active);
       renderQueued(document.getElementById("queued"), snap.queued);
-      renderList(document.getElementById("skipped"), snap.skipped, "No skipped tickets");
+      renderSkipped(document.getElementById("skipped"), snap.skipped);
       renderBudget(document.getElementById("budget"), snap.budget, snap.paused);
 
       renderCost(document.getElementById("cost-panel"), cost);
