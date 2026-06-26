@@ -514,10 +514,10 @@ type stubControls struct {
 	resumeCall  bool
 }
 
-func (s *stubControls) KillRun(id string) error          { return s.killErr }
-func (s *stubControls) PauseDispatch() bool               { s.pauseCalled = true; return false }
-func (s *stubControls) ResumeDispatch() bool              { s.resumeCall = true; return true }
-func (s *stubControls) ClearSkipped(id string) error      { return s.retryErr }
+func (s *stubControls) KillRun(id string) error      { return s.killErr }
+func (s *stubControls) PauseDispatch() bool          { s.pauseCalled = true; return false }
+func (s *stubControls) ResumeDispatch() bool         { s.resumeCall = true; return true }
+func (s *stubControls) ClearSkipped(id string) error { return s.retryErr }
 func (s *stubControls) RequeueTicket(_ context.Context, id, ctx, src string) error {
 	return s.requeueErr
 }
