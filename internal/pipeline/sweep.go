@@ -406,24 +406,26 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
-	reviewSection := ""
+	// The multi-model review verdict is posted as a PR comment (after creation),
+	// not embedded in the PR description, so the body stays focused on what was done.
+	reviewComment := ""
 	if p.review.Enabled() {
 		if reviewSkipped {
-			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
+			reviewComment = fmt.Sprintf("⚠️ **Multi-model review:** Skipped (Gemini `%s` via `%s`)\n\n%s",
 				p.review.Model, p.review.Mode, reviewBody)
 		} else if reviewPassed {
-			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
+			reviewComment = fmt.Sprintf("✅ **Multi-model review:** Passed (Gemini `%s` via `%s`)",
 				p.review.Model, p.review.Mode)
 		} else {
-			reviewSection = fmt.Sprintf(
-				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
+			reviewComment = fmt.Sprintf(
+				"⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
 				reviewAttempts, reviewBody)
 		}
 	}
 
 	prBody := fmt.Sprintf(
-		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
-		job.Task.Name, job.Task.Description, job.RepoSlug, summary, reviewSection, backend.Label(), github.NoctraPRBodyMarker)
+		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		job.Task.Name, job.Task.Description, job.RepoSlug, summary, backend.Label(), github.NoctraPRBodyMarker)
 
 	prTitle := fmt.Sprintf("%s: %s", job.Task.CommitPrefix, job.Task.Description)
 
@@ -441,6 +443,13 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	logger.Info("✅ sweep PR created", "url", prURL)
+
+	if reviewComment != "" {
+		if err := p.gh.PostComment(ctx, prURL, reviewComment); err != nil {
+			logger.Warn("could not post review verdict comment", "err", err)
+		}
+	}
+
 	p.bumpSuccess()
 	p.notifier.Send(ctx, fmt.Sprintf("✅ *Sweep: %s* on %s\nPR: %s",
 		notify.EscapeMarkdown(job.Task.Name),
