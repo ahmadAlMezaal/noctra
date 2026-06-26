@@ -446,7 +446,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
 
-				// Record usage from the fix pass.
 				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				p.recordUsage(fixUsage, "ticket", id, "", backend)

@@ -13,10 +13,8 @@ import (
 )
 
 func TestProcessMergedPRs(t *testing.T) {
-	// Create mock binaries
 	dir := t.TempDir()
 
-	// Mock 'gh' script
 	ghScript := `#!/bin/sh
 case "$*" in
 	*view*pull/1*)
@@ -37,7 +35,6 @@ esac
 		t.Fatal(err)
 	}
 
-	// Mock 'git' script
 	gitScript := `#!/bin/sh
 case "$*" in
 	*diff*)
@@ -54,7 +51,6 @@ esac
 
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Create test state store
 	dbPath := filepath.Join(dir, "state.db")
 	store, err := state.Open(dbPath)
 	if err != nil {
@@ -66,7 +62,6 @@ esac
 		}
 	}()
 
-	// Setup tracked PRs
 	const pr1 = "https://github.com/owner/repo/pull/1"
 	const pr2 = "https://github.com/owner/repo/pull/2"
 	const pr3 = "https://github.com/owner/repo/pull/3"
@@ -116,7 +111,6 @@ echo "Lesson 1: updated lessons from mock"
 
 	ProcessMergedPRs(context.Background(), store, ghClient, resolver, reviewGate)
 
-	// Check if merged PR was processed and updated the lessons
 	p1State := store.Get(pr1)
 	if !p1State.MergedProcessed {
 		t.Error("expected pr1 MergedProcessed to be true")

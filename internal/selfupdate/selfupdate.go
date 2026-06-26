@@ -150,7 +150,6 @@ func Update(ctx context.Context, current string, restart bool) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	// Download the platform archive + the checksums file.
 	dl := exec.CommandContext(ctx, "gh", "release", "download", tag,
 		"--repo", repo,
 		"--pattern", asset,

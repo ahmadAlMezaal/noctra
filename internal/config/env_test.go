@@ -159,7 +159,6 @@ func TestPatchEnvFile_CreatesFileFromScratch(t *testing.T) {
 		t.Errorf("BRAND_NEW: got %q, want %q", got["BRAND_NEW"], "yes")
 	}
 
-	// Verify file permissions (0600).
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

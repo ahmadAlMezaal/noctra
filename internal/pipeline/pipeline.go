@@ -512,7 +512,7 @@ func (p *Pipeline) markDone(id string) {
 	defer p.mu.Unlock()
 	delete(p.active, id)
 	if cancel, ok := p.cancels[id]; ok {
-		cancel() // release context resources
+		cancel()
 		delete(p.cancels, id)
 	}
 	delete(p.killed, id)

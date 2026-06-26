@@ -44,7 +44,6 @@ func Run(scriptDir string) error {
 	}
 	fmt.Println()
 
-	// Mode selector (interactive vs manual)
 	switch w.chooseMode() {
 	case "manual":
 		// Reuse the wizard's scanner so we don't risk dropping buffered
@@ -972,7 +971,6 @@ func (v envValues) toMap() map[string]string {
 		"DASHBOARD_TOKEN":       v.dashboardToken,
 	}
 
-	// Trigger-mode-dependent keys.
 	if v.triggerMode == "label" {
 		m["TRIGGER_LABEL"] = v.triggerLabel
 	} else {
@@ -1020,7 +1018,6 @@ func writeEnvFile(path string, v envValues) error {
 			v.oauthClientID, v.oauthClientSecret)
 	}
 
-	// Render trigger lines based on mode.
 	triggerLines := fmt.Sprintf("TRIGGER_MODE=\"%s\"\n", v.triggerMode)
 	if v.triggerMode == "label" {
 		triggerLines += fmt.Sprintf("TRIGGER_LABEL=\"%s\"\n", v.triggerLabel)

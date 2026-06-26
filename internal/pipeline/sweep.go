@@ -183,7 +183,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		return
 	}
 
-	// Timeout.
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("sweep task timed out", "timeout", p.cfg.AgentTimeout)
 		return
@@ -191,7 +190,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	output := agent.ReadAfter(logFile, offset)
 
-	// Record usage.
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "sweep", identifier, "", backend)
@@ -205,14 +203,12 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			notify.EscapeMarkdown(reason)))
 	}
 
-	// Rate limit.
 	if rateLimited(backend, runErr, output) {
 		logger.Warn("rate limit detected during sweep")
 		p.flagRateLimit()
 		return
 	}
 
-	// Agent error.
 	if runErr != nil {
 		logger.Warn("sweep agent exited with error", "err", runErr)
 		// Record the run even on failure so cooldown is respected.
@@ -241,7 +237,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		return
 	}
 
-	// Check for changes.
 	dirty, err := workingTreeChanged(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git status failed", "err", err)
@@ -265,7 +260,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		return
 	}
 
-	// Stage, commit, push.
 	if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
 		logger.Error("git add failed", "err", err)
 		return
@@ -364,7 +358,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
 
-				// Record usage from the fix pass.
 				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				p.recordUsage(fixUsage, "sweep", identifier, "", backend)
@@ -397,7 +390,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 				"attempts", reviewAttempts)
 		}
 
-		// Commit and push any fixes from the review gate loop.
 		staged, err := hasStagedChanges(ctx, wt.Path)
 		if err != nil {
 			logger.Error("git diff --cached failed", "err", err)
@@ -420,7 +412,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		}
 	}
 
-	// PR body.
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
@@ -451,7 +442,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		return
 	}
 
-	// Apply maintenance label if configured.
 	if job.Task.PRLabel != "" {
 		if err := ghAddLabel(ctx, job.RepoPath, prURL, job.Task.PRLabel); err != nil {
 			logger.Warn("could not apply label", "label", job.Task.PRLabel, "err", err)
@@ -477,12 +467,10 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		notify.EscapeMarkdown(job.RepoSlug),
 		prURL))
 
-	// Record cooldown.
 	if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 		logger.Warn("could not record sweep run in state", "err", err)
 	}
 
-	// Track in state store for auto-iterate (if enabled).
 	if p.store != nil {
 		if err := p.store.Update(prURL, func(r *state.PRState) {
 			r.TicketID = identifier
