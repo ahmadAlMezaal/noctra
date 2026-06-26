@@ -300,7 +300,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	if nc := agent.NoChangesLine(output); nc != "" {
 		logger.Info("no changes needed", "reason", nc)
 		p.resolveNoChanges(ctx, issue, fmt.Sprintf(
-			"✅ **Noctra: nothing to do**\n\n> %s\n\nNo changes were needed, so this ticket was closed automatically.", nc))
+			"✅ **Noctra: nothing to do**\n\n> %s\n\nNo changes were needed, so this ticket was archived automatically. Restore it from the archive if work is still required.", nc))
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — nothing to do\n%s", id, notify.EscapeMarkdown(nc)))
 		p.recordRun(state.RunHistory{
 			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
@@ -349,15 +349,12 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 	if !dirty && !committed {
-		// Count the attempt — otherwise this re-queues to the trigger state every
-		// poll and burns the whole dispatch budget on one unprogressable ticket
-		// (e.g. a vague description, already-done work, or a ticket pointed at the
-		// wrong repo). After MaxRetries it's skipped until restart.
-		attempts := p.bumpFailed(id)
-		logger.Warn("no changes made", "attempt", attempts, "max", p.cfg.MaxRetries)
-		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
-			"💭 **Noctra: No code changes made** (attempt %d/%d)\n\nThe agent completed without modifying any files — usually the ticket is too vague, already done, or its Linear project points at the wrong repo.\n\nAdd more detail (or check the project's `Repo:` directive), then move it back to **%s** to retry. After %d attempts it won't be re-dispatched until Noctra restarts.",
-			attempts, p.cfg.MaxRetries, p.cfg.TriggerState, p.cfg.MaxRetries))
+		// Empty diff with no NO_CHANGES line: resolve as a no-op (archive) instead
+		// of re-queuing every poll until MaxRetries.
+		logger.Info("no changes made; archiving", "issue", id)
+		p.resolveNoChanges(ctx, issue,
+			"💭 **Noctra: No code changes made**\n\nThe agent completed without modifying any files — usually the ticket is already done, too vague, or its Linear project points at the wrong repo. It was archived automatically.\n\nIf work is still required, add detail (or fix the project's `Repo:` directive) and restore it from the archive.")
+		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — no changes made, archived", id))
 		p.recordRun(state.RunHistory{
 			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
 			AgentBackend: backend.Name(), RunType: "ticket",
@@ -688,13 +685,22 @@ func (p *Pipeline) ticketComment(ctx context.Context, ticket source.Ticket, body
 	return p.ticketSource(ticket).Comment(ctx, ticket, body)
 }
 
-// resolveNoChanges comments, then moves a no-op ticket to Done (or skips it for
-// the session) so it leaves the trigger state and isn't re-dispatched.
+// resolveNoChanges comments, then archives a no-op ticket (falling back to a
+// Done transition, then to skip-for-session) so it leaves the trigger state and
+// isn't re-dispatched.
 func (p *Pipeline) resolveNoChanges(ctx context.Context, ticket source.Ticket, body string) {
 	if err := p.ticketComment(ctx, ticket, body); err != nil {
 		slog.Warn("no-changes comment failed", "issue_id", ticket.ID, "err", err)
 	}
-	if dm, ok := p.ticketSource(ticket).(source.DoneMarker); ok {
+	src := p.ticketSource(ticket)
+	if ar, ok := src.(source.Archiver); ok {
+		if err := ar.Archive(ctx, ticket); err == nil {
+			return
+		} else {
+			slog.Warn("archive failed; falling back to mark-done", "issue_id", ticket.ID, "err", err)
+		}
+	}
+	if dm, ok := src.(source.DoneMarker); ok {
 		if err := dm.MarkDone(ctx, ticket); err == nil {
 			return
 		} else {
