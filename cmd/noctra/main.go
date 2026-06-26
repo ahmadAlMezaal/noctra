@@ -4,7 +4,7 @@
 //
 //	noctra            start the poll loop (default)
 //	noctra setup      interactive .env wizard
-//	noctra config     read or edit .env settings (path, edit, get, set)
+//	noctra config     read or edit .env settings (path, list, edit, get, set)
 //	noctra cleanup    clean up stale branches and worktrees
 //	noctra cleanup --force
 //	noctra doctor     preflight dependency and config checks
@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/cleanup"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
@@ -178,6 +179,7 @@ func realMain() error {
 	case "version", "--version", "-v":
 		printBanner()
 		fmt.Println("noctra", version)
+		printUpdateNotice()
 		return nil
 	case "help", "--help", "-h":
 		printBanner()
@@ -198,6 +200,25 @@ func printBanner() {
 	}
 	fmt.Print(ansiAmber, bannerArt, ansiReset)
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
+}
+
+// printUpdateNotice does a best-effort check for a newer release and prints a
+// single non-fatal hint when one exists. It is silent on any failure (offline,
+// gh missing/unauthed, timeout) and on dev/snapshot builds — mirroring
+// pipeline.checkForUpdate — so `noctra version` stays fast and works offline.
+// The short timeout bounds the wait; the version line is already printed before
+// this runs, so the network check never delays the answer the user asked for.
+func printUpdateNotice() {
+	if version == "" || strings.Contains(version, "dev") || strings.Contains(version, "snapshot") {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	latest, err := selfupdate.Latest(ctx)
+	if err != nil || !selfupdate.IsNewer(latest, version) {
+		return
+	}
+	fmt.Printf("\n🆙 A newer version is available: %s (run `noctra update` to upgrade)\n", latest)
 }
 
 // parseUninstallArgs interprets the flags for the destructive `uninstall`
