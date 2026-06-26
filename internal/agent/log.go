@@ -198,9 +198,8 @@ func betweenMarkers(s string) (string, bool) {
 	return between(s, SummaryStartMarker, SummaryEndMarker)
 }
 
-// between returns the trimmed text between the LAST start marker and the first
-// end marker after it (last start guards against the agent echoing the
-// instruction earlier). ok is false when a marker is absent or the span empty.
+// between returns the trimmed text between the last start marker and the first
+// end marker after it; ok is false when a marker is absent or the span empty.
 func between(s, startMarker, endMarker string) (string, bool) {
 	start := strings.LastIndex(s, startMarker)
 	if start < 0 {

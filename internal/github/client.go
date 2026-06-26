@@ -406,16 +406,15 @@ func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	return nil
 }
 
-// ThreadReply is a tailored reply for one review thread, plus whether to
-// resolve it once posted.
+// ThreadReply is a reply for one review thread, plus whether to resolve it.
 type ThreadReply struct {
 	Body    string
 	Resolve bool
 }
 
-// ReplyToThreadsByComment replies to each unresolved review thread keyed by its
-// first comment's database ID in replies, resolving only those flagged. Threads
-// with no entry are left untouched. Best-effort: failures are logged.
+// ReplyToThreadsByComment replies to each unresolved thread keyed by its first
+// comment's database ID, resolving only those flagged; others are left
+// untouched. Best-effort: failures are logged.
 func (c *Client) ReplyToThreadsByComment(ctx context.Context, prURL string, replies map[int64]ThreadReply) {
 	if len(replies) == 0 {
 		return

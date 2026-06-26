@@ -5,14 +5,13 @@ import (
 	"strings"
 )
 
-// Finding markers wrap the per-finding status array the fix prompt asks for.
+// Finding markers wrap the per-finding status array in the agent's output.
 const (
 	FindingsStartMarker = "===NOCTRA FINDINGS==="
 	FindingsEndMarker   = "===END NOCTRA FINDINGS==="
 )
 
-// FindingReply is the agent's status for one numbered review finding: its
-// 1-based number, whether code changed for it, and a note for its thread.
+// FindingReply is the agent's status for one numbered review finding.
 type FindingReply struct {
 	Finding   int    `json:"finding"`
 	Addressed bool   `json:"addressed"`
@@ -20,9 +19,7 @@ type FindingReply struct {
 }
 
 // ExtractFindingReplies parses the per-finding JSON array from the finding
-// markers. ok is false when it's absent, malformed, or empty so the caller can
-// fall back. Entries with a non-positive Finding or empty Reply are dropped; on
-// a duplicate Finding the last wins.
+// markers; ok is false when it's absent, malformed, or empty.
 func ExtractFindingReplies(logContents string) ([]FindingReply, bool) {
 	raw, ok := between(lastAttempt(logContents), FindingsStartMarker, FindingsEndMarker)
 	if !ok {
