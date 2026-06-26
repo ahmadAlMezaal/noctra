@@ -40,6 +40,9 @@ setup: build ## Build and run the interactive setup wizard
 cleanup: build ## Build and run cleanup
 	./$(BINARY) cleanup
 
+dashboard: build ## SSH-tunnel to a remote dashboard and open it (set DASHBOARD_SSH in .env)
+	./$(BINARY) dashboard
+
 # ── Cross-compile (run on the Mac, scp the output to the Pi) ────────────────
 
 build-pi: ## Cross-compile for Raspberry Pi (arm64)
