@@ -186,6 +186,26 @@ func TestParseStructuredRejectsProse(t *testing.T) {
 	}
 }
 
+func TestParseStructuredSalvagesTruncatedJSON(t *testing.T) {
+	truncated := `{"verdict": "FAIL", "summary": "Two requirements not met: \"repo grouping\" and CI deep links.", "findings": [{"path": "internal/dashboard/static/index.html", "comment": "Active Runs is not gr`
+	r, ok := parseStructured(truncated)
+	if !ok {
+		t.Fatal("truncated structured review should be salvaged, not dropped")
+	}
+	if r.Passed {
+		t.Error("salvaged verdict should be FAIL (not passed)")
+	}
+	if !strings.Contains(r.Summary, "repo grouping") {
+		t.Errorf("salvaged summary should be unescaped; got %q", r.Summary)
+	}
+}
+
+func TestParseStructuredNoVerdictStillRejected(t *testing.T) {
+	if _, ok := parseStructured(`{"summary": "incomplete`); ok {
+		t.Error("JSON with no recoverable verdict must not parse")
+	}
+}
+
 func TestResultRender(t *testing.T) {
 	r := Result{Summary: "ok overall", Findings: []Finding{{Path: "a.go", Line: 3, Severity: "high", Comment: "fix this"}}}
 	got := r.Render()
