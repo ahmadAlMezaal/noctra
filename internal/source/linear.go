@@ -166,6 +166,21 @@ func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
 	return firstErr
 }
 
+// Archive archives a ticket. In label mode the trigger label is dropped first
+// so a later restore doesn't immediately re-dispatch it.
+func (s *LinearSource) Archive(ctx context.Context, ticket Ticket) error {
+	var firstErr error
+	if s.cfg.TriggerMode == "label" && s.triggerLabelID != "" {
+		if err := s.client.RemoveLabel(ctx, ticket.ID, s.triggerLabelID); err != nil {
+			firstErr = err
+		}
+	}
+	if err := s.client.ArchiveIssue(ctx, ticket.ID); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
 func (s *LinearSource) Comment(ctx context.Context, ticket Ticket, body string) error {
 	return s.client.Comment(ctx, ticket.ID, body)
 }

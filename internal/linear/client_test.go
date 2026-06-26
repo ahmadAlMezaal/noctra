@@ -573,6 +573,39 @@ func TestRemoveLabel_RemovesTarget(t *testing.T) {
 	}
 }
 
+func TestArchiveIssue(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "k",
+		query:      "issueArchive",
+		variables:  map[string]any{"id": "issue_1"},
+	}, map[string]any{
+		"data": map[string]any{"issueArchive": map[string]any{"success": true}},
+	})
+	if err := client.ArchiveIssue(context.Background(), "issue_1"); err != nil {
+		t.Fatalf("ArchiveIssue: %v", err)
+	}
+}
+
+func TestArchiveIssue_SuccessFalse(t *testing.T) {
+	client := fakeServer(t, struct {
+		authHeader string
+		query      string
+		variables  map[string]any
+	}{
+		authHeader: "k",
+		query:      "issueArchive",
+	}, map[string]any{
+		"data": map[string]any{"issueArchive": map[string]any{"success": false}},
+	})
+	if err := client.ArchiveIssue(context.Background(), "issue_1"); err == nil {
+		t.Fatal("expected error when issueArchive reports success=false")
+	}
+}
+
 func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 	client := fakeServer(t, struct {
 		authHeader string

@@ -23,10 +23,15 @@ type TicketSource interface {
 	Comment(context.Context, Ticket, string) error
 }
 
-// DoneMarker is an optional capability for sources that can move a ticket to a
-// terminal "done" state (used on NO_CHANGES).
+// DoneMarker moves a ticket to a terminal "done" state — the no-op resolution
+// fallback when a source can't archive.
 type DoneMarker interface {
 	MarkDone(context.Context, Ticket) error
+}
+
+// Archiver archives a ticket outright (preferred over DoneMarker on a no-op).
+type Archiver interface {
+	Archive(context.Context, Ticket) error
 }
 
 // ReadyInfo is the source-agnostic status update after Noctra opens a PR.

@@ -249,6 +249,26 @@ func (c *Client) SetState(ctx context.Context, issueID, stateID string) error {
 	return nil
 }
 
+// ArchiveIssue archives an issue (reversible — restorable from the Linear UI).
+func (c *Client) ArchiveIssue(ctx context.Context, issueID string) error {
+	mutation := `mutation($id: String!) {
+	  issueArchive(id: $id) { success }
+	}`
+
+	var resp struct {
+		IssueArchive struct {
+			Success bool `json:"success"`
+		} `json:"issueArchive"`
+	}
+	if err := c.Do(ctx, mutation, map[string]any{"id": issueID}, &resp); err != nil {
+		return err
+	}
+	if !resp.IssueArchive.Success {
+		return fmt.Errorf("issueArchive reported success=false for %s", issueID)
+	}
+	return nil
+}
+
 // Comment posts a markdown comment on an issue.
 func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 	mutation := `mutation($issueId: String!, $body: String!) {
