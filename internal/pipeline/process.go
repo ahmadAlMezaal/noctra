@@ -553,39 +553,39 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		}
 	}
 
-	reviewSection := ""
+	reviewComment := ""
 	if p.review.Enabled() {
 		model := fmt.Sprintf("Gemini `%s` via `%s`", p.review.Model, p.review.Mode)
 		switch {
 		case reviewSkipped:
-			reviewSection = fmt.Sprintf("\n---\n\n⚠️ **Multi-model review:** Skipped (%s)\n\n%s", model, reviewBody)
+			reviewComment = fmt.Sprintf("⚠️ **Multi-model review:** Skipped (%s)\n\n%s", model, reviewBody)
 		case reviewSummary != "" || len(reviewFindings) > 0:
 			verdict := "✅ Passed"
 			if !reviewPassed {
 				verdict = "⚠️ Changes requested"
 			}
-			reviewSection = fmt.Sprintf("\n---\n\n%s **Multi-model review** (%s)", verdict, model)
+			reviewComment = fmt.Sprintf("%s **Multi-model review** (%s)", verdict, model)
 			if reviewSummary != "" {
-				reviewSection += "\n\n" + reviewSummary
+				reviewComment += "\n\n" + reviewSummary
 			}
 			if len(reviewFindings) > 0 {
-				reviewSection += "\n\nSpecific findings are posted as inline review comments."
+				reviewComment += "\n\nSpecific findings are posted as inline review comments."
 			}
 		case reviewPassed:
-			reviewSection = fmt.Sprintf("\n---\n\n✅ **Multi-model review:** Passed (%s)", model)
+			reviewComment = fmt.Sprintf("✅ **Multi-model review:** Passed (%s)", model)
 			if body := strings.TrimSpace(reviewBody); body != "" {
-				reviewSection += fmt.Sprintf("\n\n<details>\n<summary>Gemini review</summary>\n\n```\n%s\n```\n\n</details>", body)
+				reviewComment += fmt.Sprintf("\n\n<details>\n<summary>Gemini review</summary>\n\n```\n%s\n```\n\n</details>", body)
 			}
 		default:
-			reviewSection = fmt.Sprintf(
-				"\n\n---\n\n⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
+			reviewComment = fmt.Sprintf(
+				"⚠️ **Multi-model review:** Did not pass after %d attempt(s). Please review before merging:\n\n<details>\n<summary>Gemini review comments</summary>\n\n```\n%s\n```\n\n</details>",
 				reviewAttempts, reviewBody)
 		}
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n%s\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
-		id, issue.Title, issue.URL, summary, reviewSection, backend.Label(), github.NoctraPRBodyMarker)
+		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		id, issue.Title, issue.URL, summary, backend.Label(), github.NoctraPRBodyMarker)
 
 	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,
@@ -616,6 +616,12 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 
 	logger.Info("✅ PR created", "url", prURL)
+
+	if reviewComment != "" {
+		if err := p.gh.PostComment(ctx, prURL, reviewComment); err != nil {
+			logger.Warn("could not post review verdict comment", "err", err)
+		}
+	}
 
 	if len(reviewFindings) > 0 {
 		headSHA := gitHead(ctx, wt.Path)
