@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
 	"strings"
 	"time"
@@ -92,6 +93,7 @@ func gather(scriptDir string) []check {
 	} else {
 		checks = append(checks, checkLinearKey(cfg))
 		checks = append(checks, checkRepos(cfg))
+		checks = append(checks, checkDashboard(cfg))
 	}
 
 	// ── Config dir ───────────────────────────────────────────────────────────
@@ -281,6 +283,33 @@ func checkLinearKey(cfg *config.Config) check {
 // each Linear project's `Repo: owner/name` directive, with REPO_PATH as an
 // optional single-repo fallback — there's nothing to validate up front, so this
 // is always an informational OK.
+func checkDashboard(cfg *config.Config) check {
+	if cfg.DashboardAddr == "" {
+		return check{
+			name:   "dashboard",
+			ok:     true,
+			detail: "disabled (set DASHBOARD_ADDR to enable)",
+		}
+	}
+	if cfg.DashboardToken == "" {
+		return check{
+			name:   "dashboard",
+			ok:     false,
+			detail: "DASHBOARD_ADDR set but DASHBOARD_TOKEN is empty",
+			hint:   "set DASHBOARD_TOKEN — Noctra refuses to start an unauthenticated dashboard",
+		}
+	}
+	detail := "enabled at " + cfg.DashboardAddr
+	if host, _, err := net.SplitHostPort(cfg.DashboardAddr); err == nil && (host == "0.0.0.0" || host == "::") {
+		detail += " — exposed on all interfaces; only the token gates access"
+	}
+	return check{
+		name:   "dashboard",
+		ok:     true,
+		detail: detail,
+	}
+}
+
 func checkRepos(cfg *config.Config) check {
 	if cfg.RepoPath != "" {
 		return check{

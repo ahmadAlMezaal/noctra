@@ -82,6 +82,46 @@ func TestCheckRepos_FallbackPath(t *testing.T) {
 	}
 }
 
+func TestCheckDashboard_Disabled(t *testing.T) {
+	c := checkDashboard(&config.Config{DashboardAddr: ""})
+	if !c.ok {
+		t.Errorf("disabled dashboard should pass; detail=%q", c.detail)
+	}
+	if !strings.Contains(c.detail, "disabled") {
+		t.Errorf("expected detail to say disabled; got %q", c.detail)
+	}
+}
+
+func TestCheckDashboard_EnabledNoToken(t *testing.T) {
+	c := checkDashboard(&config.Config{DashboardAddr: ":8080", DashboardToken: ""})
+	if c.ok {
+		t.Error("enabled dashboard with no token must fail (mirrors the runtime fail-fast)")
+	}
+	if !strings.Contains(c.detail, "DASHBOARD_TOKEN") || c.hint == "" {
+		t.Errorf("expected token detail + a hint; got detail=%q hint=%q", c.detail, c.hint)
+	}
+}
+
+func TestCheckDashboard_EnabledWithToken(t *testing.T) {
+	c := checkDashboard(&config.Config{DashboardAddr: ":8080", DashboardToken: "secret"})
+	if !c.ok {
+		t.Errorf("enabled dashboard with a token should pass; detail=%q", c.detail)
+	}
+	if !strings.Contains(c.detail, ":8080") {
+		t.Errorf("expected detail to mention the address; got %q", c.detail)
+	}
+}
+
+func TestCheckDashboard_ExposedBindWarns(t *testing.T) {
+	c := checkDashboard(&config.Config{DashboardAddr: "0.0.0.0:8080", DashboardToken: "secret"})
+	if !c.ok {
+		t.Errorf("a 0.0.0.0 bind with a token still passes; detail=%q", c.detail)
+	}
+	if !strings.Contains(c.detail, "all interfaces") {
+		t.Errorf("expected an exposure warning in detail; got %q", c.detail)
+	}
+}
+
 func TestRunJSON_Shape(t *testing.T) {
 	// Use a temp dir with no config: gather() still emits checks (CLIs, gh
 	// auth, config error, config dir), so we get a non-empty, well-formed array.
