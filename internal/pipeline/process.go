@@ -134,6 +134,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	p.mu.Lock()
 	p.activeRepos[id] = filepath.Base(resolved.Path)
 	p.mu.Unlock()
+	p.publishDashboardChange()
 
 	// ── Create worktree ──────────────────────────────────────────────────────
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
@@ -712,8 +713,9 @@ func (p *Pipeline) resolveNoChanges(ctx context.Context, ticket source.Ticket, b
 
 func (p *Pipeline) markSkipped(id string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.skipped[id] = struct{}{}
+	p.mu.Unlock()
+	p.publishDashboardChange()
 }
 
 func (p *Pipeline) ticketSource(ticket source.Ticket) source.TicketSource {
@@ -955,5 +957,7 @@ func (p *Pipeline) recordRun(rec state.RunHistory) {
 	}
 	if err := p.store.InsertRunHistory(rec); err != nil {
 		slog.Warn("record run history failed", "id", rec.Identifier, "status", rec.Status, "err", err)
+		return
 	}
+	p.publishDashboardChange()
 }

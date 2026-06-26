@@ -119,6 +119,7 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 		p.activeRepos[identifier] = job.RepoSlug
 		p.cancels[identifier] = taskCancel
 		p.mu.Unlock()
+		p.publishDashboardChange()
 
 		wg.Add(1)
 		go func(j sweep.Job, id string) {

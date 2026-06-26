@@ -1,19 +1,22 @@
 // Package dashboard serves a read-only HTTP dashboard showing a point-in-time
-// snapshot of the pipeline. All requests require a Bearer token.
+// snapshot of the pipeline. All requests require a valid dashboard token.
 package dashboard
 
 import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ahmadAlMezaal/noctra/internal/agent"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
@@ -32,12 +35,16 @@ type Providers struct {
 	SweepTasks      []sweep.Task
 	MaxPRIterations int
 	RepoPaths       func() []string // repo.Resolver.AllRepoPaths
+	LogDir          string
+	Hub             *Hub
 }
 
 // Server is the dashboard HTTP server.
 type Server struct {
-	srv   *http.Server
-	token string
+	srv        *http.Server
+	token      string
+	snapshotFn SnapshotFunc
+	prov       Providers
 }
 
 // New creates a dashboard server bound to addr, gated by the given token.
@@ -51,7 +58,12 @@ func New(addr, token string, snapshotFn SnapshotFunc, prov Providers) *Server {
 			Addr:    addr,
 			Handler: mux,
 		},
-		token: token,
+		token:      token,
+		snapshotFn: snapshotFn,
+		prov:       prov,
+	}
+	if s.prov.Hub == nil {
+		s.prov.Hub = NewHub(defaultMaxSubscribers)
 	}
 
 	mux.Handle("/api/snapshot", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +73,22 @@ func New(addr, token string, snapshotFn SnapshotFunc, prov Providers) *Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(snapshotFn())
+	})))
+
+	mux.Handle("/api/events", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleEvents(w, r)
+	})))
+
+	mux.Handle("/api/logs/", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleLogs(w, r)
 	})))
 
 	mux.Handle("/api/history", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +170,136 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// Hub returns the server's live event hub.
+func (s *Server) Hub() *Hub {
+	return s.prov.Hub
+}
+
 // ── API handlers ────────────────────────────────────────────────────────────
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	events, unsubscribe, ok := s.prov.Hub.Subscribe(r.Context())
+	if !ok {
+		http.Error(w, "too many subscribers", http.StatusTooManyRequests)
+		return
+	}
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	if !s.writeSnapshotEvent(w) {
+		return
+	}
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case _, ok := <-events:
+			if !ok {
+				return
+			}
+			if !s.writeSnapshotEvent(w) {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *Server) writeSnapshotEvent(w http.ResponseWriter) bool {
+	b, err := json.Marshal(s.snapshotFn())
+	if err != nil {
+		slog.Warn("dashboard snapshot encode failed", "err", err)
+		return false
+	}
+	if _, err := fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", b); err != nil {
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/logs/")
+	if id == "" || id != filepath.Base(id) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	logFile := filepath.Join(s.prov.LogDir, id+".log")
+	if r.URL.Query().Get("follow") != "1" && r.URL.Query().Get("follow") != "true" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprint(w, boundedTail(logFile, 64*1024))
+		return
+	}
+	s.followLog(w, r, logFile)
+}
+
+func (s *Server) followLog(w http.ResponseWriter, r *http.Request, logFile string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	offset := agent.OffsetBefore(logFile)
+	initial := boundedTail(logFile, 64*1024)
+	if initial != "" {
+		writeLogEvent(w, initial)
+		flusher.Flush()
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			next := agent.OffsetBefore(logFile)
+			if next <= offset {
+				continue
+			}
+			chunk := agent.ReadAfter(logFile, offset)
+			offset = next
+			if chunk == "" {
+				continue
+			}
+			if len(chunk) > 32*1024 {
+				chunk = chunk[len(chunk)-32*1024:]
+			}
+			writeLogEvent(w, chunk)
+			flusher.Flush()
+		}
+	}
+}
+
+func boundedTail(logFile string, maxBytes int64) string {
+	size := agent.OffsetBefore(logFile)
+	if size <= 0 {
+		return ""
+	}
+	offset := size - maxBytes
+	if offset < 0 {
+		offset = 0
+	}
+	return agent.ReadAfter(logFile, offset)
+}
+
+func writeLogEvent(w http.ResponseWriter, chunk string) {
+	b, _ := json.Marshal(chunk)
+	fmt.Fprintf(w, "event: log\ndata: %s\n\n", b)
+}
 
 type historyEntry struct {
 	Identifier string  `json:"identifier"`

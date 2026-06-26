@@ -69,6 +69,7 @@ type Pipeline struct {
 
 	// Dashboard server — nil when cfg.DashboardAddr is empty.
 	dash *dashboard.Server
+	hub  *dashboard.Hub
 
 	sessionStart time.Time
 
@@ -181,10 +182,13 @@ func New(cfg *config.Config) *Pipeline {
 	// ListenAndServe is deferred to Run (which validates the token).
 	if cfg.DashboardAddr != "" {
 		addr := normalizeDashboardAddr(cfg.DashboardAddr)
+		p.hub = dashboard.NewHub(64)
 		prov := dashboard.Providers{
 			Store:           store,
 			MaxPRIterations: cfg.MaxPRIterations,
 			RepoPaths:       p.resolver.AllRepoPaths,
+			LogDir:          cfg.LogDir,
+			Hub:             p.hub,
 		}
 		if p.sweeper != nil {
 			prov.SweepTasks = sweep.FilterTasks(cfg.SweepTasks)
@@ -485,6 +489,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		p.cancels[issue.Identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()
+		p.publishDashboardChange()
 
 		available--
 
@@ -519,13 +524,14 @@ func (p *Pipeline) fetchTickets(ctx context.Context) ([]source.Ticket, error) {
 
 func (p *Pipeline) markDone(id string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	delete(p.active, id)
 	if cancel, ok := p.cancels[id]; ok {
 		cancel()
 		delete(p.cancels, id)
 	}
 	delete(p.killed, id)
+	p.mu.Unlock()
+	p.publishDashboardChange()
 }
 
 // isKilled reports whether a ticket was terminated via /kill. Used to skip
@@ -566,9 +572,12 @@ func (p *Pipeline) KillRun(identifier string) error {
 // It returns true if dispatching was already paused.
 func (p *Pipeline) PauseDispatch() bool {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	alreadyPaused := p.paused
 	p.paused = true
+	p.mu.Unlock()
+	if !alreadyPaused {
+		p.publishDashboardChange()
+	}
 	return alreadyPaused
 }
 
@@ -576,9 +585,12 @@ func (p *Pipeline) PauseDispatch() bool {
 // dispatching had been paused.
 func (p *Pipeline) ResumeDispatch() bool {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	wasPaused := p.paused
 	p.paused = false
+	p.mu.Unlock()
+	if wasPaused {
+		p.publishDashboardChange()
+	}
 	return wasPaused
 }
 
@@ -590,16 +602,19 @@ func (p *Pipeline) dispatchPaused() bool {
 
 func (p *Pipeline) bumpFailed(id string) int {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.failedAttempts[id]++
 	p.failCount++
-	return p.failedAttempts[id]
+	attempts := p.failedAttempts[id]
+	p.mu.Unlock()
+	p.publishDashboardChange()
+	return attempts
 }
 
 func (p *Pipeline) bumpSuccess() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.successCount++
+	p.mu.Unlock()
+	p.publishDashboardChange()
 }
 
 // skipPermanently marks a ticket as permanently skipped (non-transient failure
@@ -610,12 +625,23 @@ func (p *Pipeline) bumpSuccess() {
 // Idempotent: calling multiple times for the same ID only refunds once.
 func (p *Pipeline) skipPermanently(id string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	changed := false
 	if _, ok := p.skipped[id]; !ok {
 		p.skipped[id] = struct{}{}
+		changed = true
 		if p.totalDispatches > 0 {
 			p.totalDispatches-- // refund — config errors shouldn't count
 		}
+	}
+	p.mu.Unlock()
+	if changed {
+		p.publishDashboardChange()
+	}
+}
+
+func (p *Pipeline) publishDashboardChange() {
+	if p.hub != nil {
+		p.hub.Publish()
 	}
 }
 
@@ -626,8 +652,9 @@ func (p *Pipeline) skipPermanently(id string) {
 func (p *Pipeline) flagRateLimit() {
 	if p.cfg.RateLimitStrategy == "shutdown" {
 		p.mu.Lock()
-		defer p.mu.Unlock()
 		p.rateLimitDetected = true
+		p.mu.Unlock()
+		p.publishDashboardChange()
 		return
 	}
 	// Pause strategy: pause dispatching for the cooldown period.
@@ -635,6 +662,7 @@ func (p *Pipeline) flagRateLimit() {
 	p.budget.Pause("rate limit", resumeAt)
 	slog.Info("⏸ rate limit detected — pausing dispatches",
 		"cooldown", p.cfg.RateLimitCooldown, "resume_at", resumeAt.Format(time.RFC3339))
+	p.publishDashboardChange()
 }
 
 // flagBudgetExceeded pauses dispatching until the next UTC midnight when a
@@ -644,6 +672,7 @@ func (p *Pipeline) flagBudgetExceeded(reason string) {
 	p.budget.Pause(reason, resumeAt)
 	slog.Info("⏸ daily budget exceeded — pausing dispatches",
 		"reason", reason, "resume_at", resumeAt.Format(time.RFC3339))
+	p.publishDashboardChange()
 }
 
 // rateLimited reports whether a run should be treated as having hit a usage /

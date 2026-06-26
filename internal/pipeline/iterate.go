@@ -140,6 +140,7 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		p.active[identifier] = struct{}{}
 		p.cancels[identifier] = ticketCancel
 		p.mu.Unlock()
+		p.publishDashboardChange()
 
 		slog.Info("pr poll detail",
 			"pr", ch.PR.Number, "id", identifier,
@@ -254,6 +255,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	p.mu.Lock()
 	p.activeRepos[identifier] = filepath.Base(resolved.Path)
 	p.mu.Unlock()
+	p.publishDashboardChange()
 
 	wt, err := repo.ResumeWorktree(ctx, p.cfg.WorktreeBase, identifier, resolved.Path)
 	if err != nil {
