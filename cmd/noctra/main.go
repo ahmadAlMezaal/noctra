@@ -202,12 +202,9 @@ func printBanner() {
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
 }
 
-// printUpdateNotice does a best-effort check for a newer release and prints a
-// single non-fatal hint when one exists. It is silent on any failure (offline,
-// gh missing/unauthed, timeout) and on dev/snapshot builds — mirroring
-// pipeline.checkForUpdate — so `noctra version` stays fast and works offline.
-// The short timeout bounds the wait; the version line is already printed before
-// this runs, so the network check never delays the answer the user asked for.
+// printUpdateNotice prints a non-fatal hint when a newer release exists. Best-
+// effort: silent on any failure and on dev/snapshot builds, with a short
+// timeout so `noctra version` stays fast and works offline.
 func printUpdateNotice() {
 	if version == "" || strings.Contains(version, "dev") || strings.Contains(version, "snapshot") {
 		return
