@@ -519,9 +519,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		}
 	}
 
-	// The multi-model review verdict is posted as a PR comment (after creation),
-	// not embedded in the PR description, so the body stays focused on what was
-	// implemented.
 	reviewComment := ""
 	if p.review.Enabled() {
 		model := fmt.Sprintf("Gemini `%s` via `%s`", p.review.Model, p.review.Mode)

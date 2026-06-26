@@ -406,8 +406,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
-	// The multi-model review verdict is posted as a PR comment (after creation),
-	// not embedded in the PR description, so the body stays focused on what was done.
 	reviewComment := ""
 	if p.review.Enabled() {
 		if reviewSkipped {

@@ -160,6 +160,8 @@ DEBUG: pwd = /path
 
 Keep comments minimal: explain *why* for a non-obvious decision, never narrate *what* the code already says. Prefer a self-explanatory name over a comment. Keep doc comments on exported symbols (Go convention); drop inline comments that just restate the next line.
 
+⚠️ **Do NOT add redundant comments.** This applies to humans AND any agent (Claude/Codex/Copilot) working in this repo. A comment that paraphrases the line below it, restates a clear variable/function name, or explains an obvious assignment is noise — delete it. Only write a comment when the code cannot explain *why* on its own (a non-obvious trade-off, a workaround, a subtle invariant). When in doubt, leave it out.
+
 ## Running tests
 
 ```bash
