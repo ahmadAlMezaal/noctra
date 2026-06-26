@@ -32,7 +32,6 @@ func ProcessMergedPRs(ctx context.Context, store *state.Store, gh *github.Client
 
 		logger := slog.With("pr", prURL, "ticket", cursor.TicketID)
 
-		// 1. Fetch the latest PR details from GitHub to see its state
 		details, err := gh.GetPR(ctx, prURL)
 		if err != nil {
 			logger.Warn("lessons: failed to get PR details", "err", err)
@@ -84,7 +83,6 @@ func processMergedPR(ctx context.Context, store *state.Store, resolver *repo.Res
 	}
 	repoDir := resolved.Path
 
-	// Fetch the PR head to FETCH_HEAD
 	prNumStr := prURL[strings.LastIndex(prURL, "/")+1:]
 	fetchCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "fetch", "origin", fmt.Sprintf("pull/%s/head", prNumStr))
 	if err := fetchCmd.Run(); err != nil {

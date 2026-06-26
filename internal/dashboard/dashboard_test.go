@@ -23,7 +23,6 @@ func TestAuth_BearerToken(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	// Valid Bearer token → 200.
 	req, _ := http.NewRequest("GET", ts.URL+"/api/snapshot", nil)
 	req.Header.Set("Authorization", "Bearer secret-token")
 	resp, err := http.DefaultClient.Do(req)
@@ -96,7 +95,6 @@ func TestAuth_StaticPage(t *testing.T) {
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	// Page load without token → 401.
 	resp, err := http.Get(ts.URL + "/")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +104,6 @@ func TestAuth_StaticPage(t *testing.T) {
 		t.Errorf("expected 401 for page without token, got %d", resp.StatusCode)
 	}
 
-	// Page load with query param token → 200.
 	resp, err = http.Get(ts.URL + "/?token=page-token")
 	if err != nil {
 		t.Fatal(err)

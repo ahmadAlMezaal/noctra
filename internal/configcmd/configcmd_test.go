@@ -22,7 +22,6 @@ func TestRunGet_ExistingKey(t *testing.T) {
 AGENT_BACKEND="claude"
 `)
 
-	// runGet reads from the .env — we just verify no error for an existing key.
 	if err := runGet(envFile, "LINEAR_API_KEY"); err != nil {
 		t.Errorf("runGet should succeed for existing key: %v", err)
 	}
@@ -121,7 +120,6 @@ LINEAR_OAUTH_TOKEN="oauth_secret"
 }
 
 func TestRunPath(t *testing.T) {
-	// runPath just prints; verify it doesn't error.
 	if err := runPath("/some/path/.env"); err != nil {
 		t.Errorf("runPath: %v", err)
 	}
@@ -185,7 +183,6 @@ func TestRun_UnknownSubcommand(t *testing.T) {
 }
 
 func TestRun_NoArgs(t *testing.T) {
-	// No args prints usage and returns nil.
 	if err := Run(t.TempDir(), nil); err != nil {
 		t.Errorf("no-args should print usage, not error: %v", err)
 	}

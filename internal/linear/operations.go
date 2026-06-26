@@ -408,7 +408,6 @@ func (c *Client) ResolveLabelID(ctx context.Context, labelName string) (string, 
 // RemoveLabel removes a single label from an issue. It fetches the issue's
 // current labels, filters out the target, and writes the remaining set back.
 func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error {
-	// Fetch current labels.
 	fetchQ := `query($id: String!) {
 	  issue(id: $id) { labels { nodes { id } } }
 	}`

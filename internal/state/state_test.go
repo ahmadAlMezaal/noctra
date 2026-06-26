@@ -38,7 +38,6 @@ func TestUpdate_PersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 
-	// Reopen and verify the values came back.
 	s2, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +140,6 @@ func TestUpdateSweep_PersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("UpdateSweep: %v", err)
 	}
 
-	// Reopen and verify.
 	s2, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -156,21 +154,18 @@ func TestUpdateSweep_CoexistsWithPRState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	s, _ := Open(path)
 
-	// Write a PR state entry.
 	if err := s.Update("https://github.com/me/repo/pull/1", func(r *PRState) {
 		r.TicketID = "ENG-1"
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Write a sweep state entry.
 	if err := s.UpdateSweep("my-repo/lint", func(ss *SweepState) {
 		ss.LastRunAt = time.Now()
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Reopen and verify both exist.
 	s2, _ := Open(path)
 	pr := s2.Get("https://github.com/me/repo/pull/1")
 	if pr.TicketID != "ENG-1" {
@@ -497,7 +492,6 @@ func TestLessons(t *testing.T) {
 	}
 	defer closeStore(t, s)
 
-	// Unset should return empty string.
 	got, err := s.GetLessons("owner/repo")
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +500,6 @@ func TestLessons(t *testing.T) {
 		t.Errorf("expected empty lessons, got %q", got)
 	}
 
-	// Save and retrieve should work.
 	const lessons = "- Lesson 1: follow code conventions\n- Lesson 2: write tests"
 	if err := s.SaveLessons("owner/repo", lessons); err != nil {
 		t.Fatal(err)
@@ -520,7 +513,6 @@ func TestLessons(t *testing.T) {
 		t.Errorf("expected lessons %q, got %q", lessons, got)
 	}
 
-	// Upsert should overwrite.
 	const newLessons = "- Lesson 1 updated"
 	if err := s.SaveLessons("owner/repo", newLessons); err != nil {
 		t.Fatal(err)
@@ -574,7 +566,6 @@ func TestInsertAndListRunHistory(t *testing.T) {
 		}
 	}
 
-	// All — newest first.
 	got, err := s.ListRunHistory(10)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -592,7 +583,6 @@ func TestInsertAndListRunHistory(t *testing.T) {
 		t.Errorf("third: got %s", got[2].Identifier)
 	}
 
-	// Fields on the first record.
 	if got[0].RunType != "sweep" {
 		t.Errorf("run_type: got %q", got[0].RunType)
 	}
@@ -606,7 +596,6 @@ func TestInsertAndListRunHistory(t *testing.T) {
 		t.Errorf("status: got %q", got[2].Status)
 	}
 
-	// Bounded read.
 	got2, err := s.ListRunHistory(2)
 	if err != nil {
 		t.Fatalf("list(2): %v", err)

@@ -108,7 +108,6 @@ func PatchEnvFile(path string, updates map[string]string) error {
 	}
 
 	content := strings.Join(lines, "\n")
-	// Ensure trailing newline.
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}

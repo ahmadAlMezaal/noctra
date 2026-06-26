@@ -77,7 +77,6 @@ func runPath(envFile string) error {
 func runEdit(envFile string) error {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		// Try vi first, then nano.
 		if _, err := exec.LookPath("vi"); err == nil {
 			editor = "vi"
 		} else if _, err := exec.LookPath("nano"); err == nil {
@@ -93,8 +92,6 @@ func runEdit(envFile string) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
-	// Split $EDITOR into binary + optional flags (e.g. "code --wait" →
-	// ["code", "--wait"]).
 	parts := strings.Fields(editor)
 
 	bin, err := exec.LookPath(parts[0])
@@ -102,7 +99,6 @@ func runEdit(envFile string) error {
 		return fmt.Errorf("editor %q not found: %w", parts[0], err)
 	}
 
-	// Build argv: [binary, ...editor-flags, envFile].
 	argv := make([]string, 0, len(parts)+1)
 	argv = append(argv, parts...)
 	argv = append(argv, envFile)
@@ -144,7 +140,6 @@ func parseKeyValue(args []string) (key, value string, err error) {
 		return "", "", fmt.Errorf("usage: noctra config set KEY=VALUE (or KEY VALUE)")
 	}
 
-	// Form 1: KEY=VALUE in a single arg.
 	if eq := strings.IndexByte(args[0], '='); eq >= 0 {
 		if len(args) > 1 {
 			return "", "", fmt.Errorf("too many arguments; did you forget to quote the value?")
@@ -157,7 +152,6 @@ func parseKeyValue(args []string) (key, value string, err error) {
 		return key, value, nil
 	}
 
-	// Form 2: KEY VALUE as two args.
 	if len(args) < 2 {
 		return "", "", fmt.Errorf("usage: noctra config set KEY=VALUE (or KEY VALUE)")
 	}

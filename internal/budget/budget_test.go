@@ -99,7 +99,6 @@ func TestPauseAndResume(t *testing.T) {
 
 func TestIsPaused_AutoResume(t *testing.T) {
 	tr := New(Config{})
-	// Pause until a time that's already past.
 	tr.Pause("test", time.Now().Add(-1*time.Second))
 
 	paused, _, _ := tr.IsPaused()
@@ -110,7 +109,6 @@ func TestIsPaused_AutoResume(t *testing.T) {
 
 func TestStats_AutoResume(t *testing.T) {
 	tr := New(Config{})
-	// Pause until a time that's already past.
 	tr.Pause("expired pause", time.Now().Add(-1*time.Second))
 
 	s := tr.Stats()
@@ -125,7 +123,6 @@ func TestStats_AutoResume(t *testing.T) {
 func TestDailyReset(t *testing.T) {
 	tr := New(Config{MaxDailyTokens: 1000})
 
-	// Record usage and confirm it's tracked.
 	tr.Record(999, 0)
 	if tr.Exceeded() {
 		t.Error("should not exceed at 999/1000")
@@ -135,7 +132,6 @@ func TestDailyReset(t *testing.T) {
 	tomorrow := time.Now().UTC().Add(25 * time.Hour)
 	tr.now = func() time.Time { return tomorrow }
 
-	// Daily counters should reset.
 	if tr.Exceeded() {
 		t.Error("should not exceed after daily reset")
 	}
@@ -143,7 +139,6 @@ func TestDailyReset(t *testing.T) {
 	if s.DailyTokens != 0 {
 		t.Errorf("DailyTokens after reset: got %d, want 0", s.DailyTokens)
 	}
-	// Session counters persist.
 	if s.SessionTokens != 999 {
 		t.Errorf("SessionTokens should persist across day boundary: got %d", s.SessionTokens)
 	}

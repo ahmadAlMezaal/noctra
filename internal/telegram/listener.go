@@ -87,7 +87,6 @@ func (l *Listener) Run(ctx context.Context) error {
 			continue
 		}
 
-		// Reset backoff on success.
 		backoff = time.Second
 
 		for _, u := range updates {

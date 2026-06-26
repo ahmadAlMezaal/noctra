@@ -47,7 +47,6 @@ func New(addr, token string, snapshotFn SnapshotFunc) *Server {
 		_ = json.NewEncoder(w).Encode(snapshotFn())
 	})))
 
-	// Serve embedded static files at /.
 	staticSub, _ := fs.Sub(staticFiles, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
 	mux.Handle("/", s.requireAuth(fileServer))

@@ -54,7 +54,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 	// Strip leading slash if present (Telegram sends "/status" for commands).
 	text = strings.TrimPrefix(text, "/")
 
-	// Split into command + args.
 	parts := strings.SplitN(text, " ", 2)
 	name := strings.ToLower(parts[0])
 	args := ""

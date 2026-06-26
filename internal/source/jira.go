@@ -102,11 +102,9 @@ func (s *JiraSource) BackToTrigger(ctx context.Context, ticket Ticket, body stri
 
 func (s *JiraSource) MarkReady(ctx context.Context, ticket Ticket, info ReadyInfo) error {
 	var firstErr error
-	// Transition to the in-review status.
 	if err := s.transitionTo(ctx, ticket.Identifier, s.cfg.InReviewStatus); err != nil {
 		firstErr = err
 	}
-	// Remove the trigger label if we're in label mode.
 	if s.cfg.TriggerLabel != "" {
 		if err := s.removeLabel(ctx, ticket.Identifier, s.cfg.TriggerLabel); err != nil && firstErr == nil {
 			firstErr = err

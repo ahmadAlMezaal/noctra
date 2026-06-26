@@ -523,7 +523,6 @@ func TestRemoveLabel_RemovesTarget(t *testing.T) {
 
 		callCount++
 		if callCount == 1 {
-			// First call: fetch current labels
 			if !strings.Contains(got.Query, "labels { nodes { id } }") {
 				t.Errorf("expected label fetch query, got: %s", got.Query)
 			}
@@ -541,11 +540,9 @@ func TestRemoveLabel_RemovesTarget(t *testing.T) {
 				},
 			})
 		} else {
-			// Second call: update with remaining labels
 			if !strings.Contains(got.Query, "labelIds") {
 				t.Errorf("expected labelIds mutation, got: %s", got.Query)
 			}
-			// Verify the removed label is absent
 			labelIds, ok := got.Variables["labelIds"].([]any)
 			if !ok {
 				t.Fatalf("labelIds not an array: %T", got.Variables["labelIds"])
