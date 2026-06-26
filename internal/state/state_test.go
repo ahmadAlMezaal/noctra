@@ -758,6 +758,113 @@ func TestInsertRunHistory_SurvivesReopen(t *testing.T) {
 	}
 }
 
+// ── ListUsageEvents tests (ENG-277) ─────────────────────────────────────────
+
+func TestListUsageEvents(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	events := []UsageEvent{
+		{OccurredAt: now.Add(-2 * time.Hour), Source: "ticket", TicketID: "ENG-1", CostUSD: 0.10, TotalTokens: 5000},
+		{OccurredAt: now.Add(-1 * time.Hour), Source: "iterate", TicketID: "ENG-1", CostUSD: 0.05, TotalTokens: 2500},
+		{OccurredAt: now, Source: "sweep", TicketID: "", CostUSD: 0.03, TotalTokens: 1500},
+	}
+	for _, ev := range events {
+		if err := s.RecordUsage(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ListUsageEvents(time.Time{})
+	if err != nil {
+		t.Fatalf("ListUsageEvents(zero): %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("all: got %d, want 3", len(got))
+	}
+	if got[0].Source != "ticket" || got[2].Source != "sweep" {
+		t.Errorf("order: got %s..%s, want ticket..sweep", got[0].Source, got[2].Source)
+	}
+
+	got2, err := s.ListUsageEvents(now.Add(-90 * time.Minute))
+	if err != nil {
+		t.Fatalf("ListUsageEvents(since): %v", err)
+	}
+	if len(got2) != 2 {
+		t.Fatalf("since: got %d, want 2", len(got2))
+	}
+	if got2[0].Source != "iterate" {
+		t.Errorf("since first: got %q, want iterate", got2[0].Source)
+	}
+}
+
+func TestListUsageEvents_Empty(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	got, err := s.ListUsageEvents(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty, got %d", len(got))
+	}
+}
+
+// ── AllSweepStates tests (ENG-277) ──────────────────────────────────────────
+
+func TestAllSweepStates(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := s.UpdateSweep("repo-a/lint-cleanup", func(ss *SweepState) {
+		ss.LastRunAt = now
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateSweep("repo-b/dead-code", func(ss *SweepState) {
+		ss.LastRunAt = now.Add(-24 * time.Hour)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := s.AllSweepStates()
+	if len(got) != 2 {
+		t.Fatalf("expected 2, got %d", len(got))
+	}
+	if !got["repo-a/lint-cleanup"].LastRunAt.Equal(now) {
+		t.Errorf("repo-a/lint-cleanup: got %v, want %v", got["repo-a/lint-cleanup"].LastRunAt, now)
+	}
+	if !got["repo-b/dead-code"].LastRunAt.Equal(now.Add(-24 * time.Hour)) {
+		t.Errorf("repo-b/dead-code: got %v", got["repo-b/dead-code"].LastRunAt)
+	}
+}
+
+func TestAllSweepStates_Empty(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+
+	got := s.AllSweepStates()
+	if len(got) != 0 {
+		t.Fatalf("expected empty, got %d", len(got))
+	}
+}
+
 func closeStore(t *testing.T, s *Store) {
 	t.Helper()
 	if err := s.Close(); err != nil {

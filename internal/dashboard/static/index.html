@@ -7,15 +7,19 @@
 <style>
   :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 64rem; margin: 0 auto; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
   h1 { font-size: 1.5rem; margin-bottom: 1rem; }
   h2 { font-size: 1.1rem; color: var(--muted); margin-bottom: 0.5rem; font-weight: 500; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+  h3 { font-size: 0.95rem; color: var(--accent); margin: 0.75rem 0 0.25rem; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .wide { grid-column: 1 / -1; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; }
   .badge { display: inline-block; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 1rem; font-weight: 600; }
   .badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
   .badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
   .badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge-muted { background: rgba(139,148,158,0.15); color: var(--muted); }
   ul { list-style: none; }
   li { padding: 0.25rem 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.875rem; }
   .empty { color: var(--muted); font-style: italic; font-size: 0.875rem; }
@@ -23,11 +27,26 @@
   .stat-row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.875rem; }
   .stat-label { color: var(--muted); }
   #error { display: none; background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid var(--red); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.875rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+  td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: "SFMono-Regular", Consolas, monospace; }
+  .truncate { max-width: 18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sparkline-wrap { display: flex; align-items: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+  .tab-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .tab { padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8125rem; cursor: pointer; background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .repo-group { margin-bottom: 0.5rem; }
 </style>
 </head>
 <body>
 <h1>Noctra Dashboard</h1>
 <div id="error"></div>
+
+<!-- Row 1: Live snapshot cards -->
 <div class="grid">
   <div class="card">
     <h2>Active Runs</h2>
@@ -46,10 +65,41 @@
     <div id="budget"></div>
   </div>
 </div>
+
+<!-- Row 2: Cost sparkline -->
+<div class="grid">
+  <div class="card wide">
+    <h2>Cost (last 30 days)</h2>
+    <div id="cost-panel"></div>
+  </div>
+</div>
+
+<!-- Row 3: Run history -->
+<div class="grid">
+  <div class="card wide">
+    <h2>Run History</h2>
+    <div class="tab-bar" id="history-tabs"></div>
+    <div id="history-panel"></div>
+  </div>
+</div>
+
+<!-- Row 4: PR iterate + Sweep -->
+<div class="grid">
+  <div class="card">
+    <h2>PR Auto-Iterate</h2>
+    <div id="pr-panel"></div>
+  </div>
+  <div class="card">
+    <h2>Sweep Tasks</h2>
+    <div id="sweep-panel"></div>
+  </div>
+</div>
+
 <script>
 (function() {
   var params = new URLSearchParams(window.location.search);
   var token = params.get("token") || "";
+  var headers = { "Authorization": "Bearer " + token };
 
   function formatTokens(n) {
     if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
@@ -62,6 +112,47 @@
     d.textContent = s;
     return d.innerHTML;
   }
+
+  function formatDuration(secs) {
+    if (secs <= 0) return "-";
+    if (secs < 60) return Math.round(secs) + "s";
+    var m = Math.floor(secs / 60);
+    var s = Math.round(secs % 60);
+    if (m < 60) return m + "m " + s + "s";
+    var h = Math.floor(m / 60);
+    m = m % 60;
+    return h + "h " + m + "m";
+  }
+
+  function statusBadge(status) {
+    var cls = "badge-muted";
+    if (status === "pr_opened") cls = "badge-green";
+    else if (status === "failed") cls = "badge-red";
+    else if (status === "blocked") cls = "badge-yellow";
+    else if (status === "no_change") cls = "badge-muted";
+    return '<span class="badge ' + cls + '">' + esc(status) + "</span>";
+  }
+
+  function typeBadge(runType) {
+    var cls = "badge-blue";
+    if (runType === "sweep") cls = "badge-muted";
+    else if (runType === "iterate") cls = "badge-yellow";
+    return '<span class="badge ' + cls + '">' + esc(runType) + "</span>";
+  }
+
+  function link(url, text) {
+    if (!url) return esc(text || "-");
+    return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text || url) + "</a>";
+  }
+
+  function shortTime(iso) {
+    if (!iso) return "-";
+    var d = new Date(iso);
+    return d.toLocaleDateString(undefined, {month:"short",day:"numeric"}) + " " +
+           d.toLocaleTimeString(undefined, {hour:"2-digit",minute:"2-digit"});
+  }
+
+  // ── Snapshot (live state) ───────────────────────────────────────────────
 
   function renderList(el, items, emptyMsg) {
     if (!items || items.length === 0) {
@@ -102,27 +193,194 @@
     if (b.Paused && b.PauseReason) {
       rows += '<div class="stat-row"><span class="stat-label">Pause reason</span><span>' + esc(b.PauseReason) + "</span></div>";
     }
+    if (b.PausedUntil && b.PausedUntil !== "0001-01-01T00:00:00Z") {
+      var until = new Date(b.PausedUntil);
+      if (until > new Date()) {
+        rows += '<div class="stat-row"><span class="stat-label">Resumes</span><span>' + shortTime(b.PausedUntil) + "</span></div>";
+      }
+    }
     el.innerHTML = rows;
+  }
+
+  // ── Cost sparkline ──────────────────────────────────────────────────────
+
+  function renderSparkline(values, width, height) {
+    if (!values || values.length === 0) return "";
+    var max = Math.max.apply(null, values);
+    if (max === 0) max = 1;
+    var step = width / Math.max(values.length - 1, 1);
+    var points = values.map(function(v, i) {
+      var x = (i * step).toFixed(1);
+      var y = (height - (v / max) * (height - 4) - 2).toFixed(1);
+      return x + "," + y;
+    });
+    return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '">' +
+      '<polyline fill="none" stroke="' + "var(--accent)" + '" stroke-width="1.5" points="' + points.join(" ") + '"/>' +
+      "</svg>";
+  }
+
+  function renderCost(el, data) {
+    if (!data || !data.buckets || data.buckets.length === 0) {
+      el.innerHTML = '<span class="empty">No usage data</span>';
+      return;
+    }
+    var buckets = data.buckets;
+    var totalCost = 0, totalTokens = 0, todayCost = 0, todayTokens = 0;
+    var today = new Date().toISOString().slice(0, 10);
+    var costs = [];
+    for (var i = 0; i < buckets.length; i++) {
+      totalCost += buckets[i].cost_usd;
+      totalTokens += buckets[i].total_tokens;
+      costs.push(buckets[i].cost_usd);
+      if (buckets[i].date === today) {
+        todayCost = buckets[i].cost_usd;
+        todayTokens = buckets[i].total_tokens;
+      }
+    }
+    var html = '<div class="stat-row"><span class="stat-label">Today</span><span>$' + todayCost.toFixed(2) + " / " + formatTokens(todayTokens) + " tokens</span></div>";
+    html += '<div class="stat-row"><span class="stat-label">30-day total</span><span>$' + totalCost.toFixed(2) + " / " + formatTokens(totalTokens) + " tokens</span></div>";
+    html += '<div class="sparkline-wrap">' + renderSparkline(costs, 500, 40) + "</div>";
+    el.innerHTML = html;
+  }
+
+  // ── Run history (grouped by repo with tab switching) ────────────────────
+
+  var historyData = [];
+
+  function renderHistory(el, tabsEl, data) {
+    historyData = data || [];
+    if (historyData.length === 0) {
+      tabsEl.innerHTML = "";
+      el.innerHTML = '<span class="empty">No run history</span>';
+      return;
+    }
+    // Group by repo
+    var repos = {};
+    var repoOrder = [];
+    for (var i = 0; i < historyData.length; i++) {
+      var r = historyData[i].repo || "(unknown)";
+      if (!repos[r]) { repos[r] = []; repoOrder.push(r); }
+      repos[r].push(historyData[i]);
+    }
+
+    // Tabs
+    var tabHtml = '<span class="tab active" data-repo="__all__">All</span>';
+    for (var j = 0; j < repoOrder.length; j++) {
+      tabHtml += '<span class="tab" data-repo="' + esc(repoOrder[j]) + '">' + esc(repoOrder[j]) + "</span>";
+    }
+    tabsEl.innerHTML = tabHtml;
+
+    // Tab click
+    tabsEl.querySelectorAll(".tab").forEach(function(tab) {
+      tab.addEventListener("click", function() {
+        tabsEl.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
+        tab.classList.add("active");
+        var repo = tab.getAttribute("data-repo");
+        renderHistoryTable(el, repo === "__all__" ? historyData : repos[repo] || []);
+      });
+    });
+
+    renderHistoryTable(el, historyData);
+  }
+
+  function renderHistoryTable(el, runs) {
+    if (runs.length === 0) {
+      el.innerHTML = '<span class="empty">No runs</span>';
+      return;
+    }
+    var html = "<table><thead><tr><th>Identifier</th><th>Repo</th><th>Type</th><th>Status</th><th>Duration</th><th>PR</th><th>Started</th></tr></thead><tbody>";
+    for (var i = 0; i < runs.length; i++) {
+      var r = runs[i];
+      var idCell = r.linear_url ? link(r.linear_url, r.identifier) : esc(r.identifier);
+      var prCell = r.pr_url ? link(r.pr_url, "PR") : "-";
+      html += "<tr><td class='mono'>" + idCell + "</td><td>" + esc(r.repo || "-") + "</td><td>" + typeBadge(r.run_type) + "</td><td>" + statusBadge(r.status) + "</td><td class='mono'>" + formatDuration(r.duration_s) + "</td><td>" + prCell + "</td><td>" + shortTime(r.started_at) + "</td></tr>";
+    }
+    html += "</tbody></table>";
+    el.innerHTML = html;
+  }
+
+  // ── PR auto-iterate panel ───────────────────────────────────────────────
+
+  function renderPRs(el, data) {
+    if (!data || data.length === 0) {
+      el.innerHTML = '<span class="empty">No tracked PRs</span>';
+      return;
+    }
+    var html = "<table><thead><tr><th>PR</th><th>Ticket</th><th>Iterations</th><th>CI SHA</th><th>Reasoning</th></tr></thead><tbody>";
+    for (var i = 0; i < data.length; i++) {
+      var p = data[i];
+      var prLink = p.pr_url ? link(p.pr_url, p.pr_url.replace(/.*\/pull\//, "#")) : "-";
+      var ticketLink = p.linear_url ? link(p.linear_url, p.ticket_id) : esc(p.ticket_id || "-");
+      var iterText = p.iterations + " / " + p.max_iterations;
+      var iterBadge = p.capped ? '<span class="badge badge-red">capped</span>' : '<span class="badge badge-green">' + esc(iterText) + "</span>";
+      var sha = p.last_ci_sha ? esc(p.last_ci_sha.substring(0, 7)) : "-";
+      var reason = p.last_reasoning ? '<span class="truncate" title="' + esc(p.last_reasoning) + '">' + esc(p.last_reasoning.substring(0, 80)) + "</span>" : "-";
+      html += "<tr><td>" + prLink + "</td><td class='mono'>" + ticketLink + "</td><td>" + iterBadge + "</td><td class='mono'>" + sha + "</td><td>" + reason + "</td></tr>";
+    }
+    html += "</tbody></table>";
+    el.innerHTML = html;
+  }
+
+  // ── Sweep panel ─────────────────────────────────────────────────────────
+
+  function renderSweeps(el, data) {
+    if (!data || data.length === 0) {
+      el.innerHTML = '<span class="empty">No sweep data</span>';
+      return;
+    }
+    var html = "<table><thead><tr><th>Repo</th><th>Task</th><th>Status</th><th>Last run</th></tr></thead><tbody>";
+    for (var i = 0; i < data.length; i++) {
+      var s = data[i];
+      var statusBdg;
+      if (s.eligible) {
+        statusBdg = '<span class="badge badge-green">eligible</span>';
+      } else {
+        var left = s.cooldown_left_h;
+        var leftStr = left < 1 ? Math.round(left * 60) + "m" : Math.round(left) + "h";
+        statusBdg = '<span class="badge badge-yellow">' + leftStr + " left</span>";
+      }
+      html += "<tr><td>" + esc(s.repo) + "</td><td>" + esc(s.task) + "</td><td>" + statusBdg + "</td><td>" + shortTime(s.last_run_at) + "</td></tr>";
+    }
+    html += "</tbody></table>";
+    el.innerHTML = html;
+  }
+
+  // ── Load data ───────────────────────────────────────────────────────────
+
+  function fetchJSON(url) {
+    return fetch(url, { headers: headers }).then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
   }
 
   function load() {
     var errEl = document.getElementById("error");
-    fetch("/api/snapshot", { headers: { "Authorization": "Bearer " + token } })
-      .then(function(r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        errEl.style.display = "none";
-        renderList(document.getElementById("active"), d.active, "No active runs");
-        renderQueued(document.getElementById("queued"), d.queued);
-        renderList(document.getElementById("skipped"), d.skipped, "No skipped tickets");
-        renderBudget(document.getElementById("budget"), d.budget, d.paused);
-      })
-      .catch(function(e) {
-        errEl.textContent = "Failed to load snapshot: " + e.message;
-        errEl.style.display = "block";
-      });
+
+    // Fetch all endpoints in parallel
+    Promise.all([
+      fetchJSON("/api/snapshot"),
+      fetchJSON("/api/history?limit=100"),
+      fetchJSON("/api/prs"),
+      fetchJSON("/api/sweeps"),
+      fetchJSON("/api/cost?days=30")
+    ]).then(function(results) {
+      errEl.style.display = "none";
+      var snap = results[0], history = results[1], prs = results[2], sweeps = results[3], cost = results[4];
+
+      renderList(document.getElementById("active"), snap.active, "No active runs");
+      renderQueued(document.getElementById("queued"), snap.queued);
+      renderList(document.getElementById("skipped"), snap.skipped, "No skipped tickets");
+      renderBudget(document.getElementById("budget"), snap.budget, snap.paused);
+
+      renderCost(document.getElementById("cost-panel"), cost);
+      renderHistory(document.getElementById("history-panel"), document.getElementById("history-tabs"), history);
+      renderPRs(document.getElementById("pr-panel"), prs);
+      renderSweeps(document.getElementById("sweep-panel"), sweeps);
+    }).catch(function(e) {
+      errEl.textContent = "Failed to load dashboard: " + e.message;
+      errEl.style.display = "block";
+    });
   }
 
   load();

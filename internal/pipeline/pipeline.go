@@ -100,9 +100,9 @@ func New(cfg *config.Config) *Pipeline {
 	}
 
 	// Open the state store up front if any feature needs it: auto-iterate,
-	// sweep, plan-confirm, or actor=app OAuth refresh persistence.
+	// sweep, plan-confirm, actor=app OAuth refresh persistence, or dashboard.
 	var store *state.Store
-	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.PlanConfirm || cfg.PlanConfirmLabel != "" || cfg.ActorAppConfigured() {
+	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.PlanConfirm || cfg.PlanConfirmLabel != "" || cfg.ActorAppConfigured() || cfg.DashboardAddr != "" {
 		s, err := state.OpenMigrating(cfg.StateDB, cfg.StateFile)
 		if err != nil {
 			slog.Warn("state store open failed", "path", cfg.StateDB, "legacy_path", cfg.StateFile, "err", err)
@@ -179,9 +179,17 @@ func New(cfg *config.Config) *Pipeline {
 	// ListenAndServe is deferred to Run (which validates the token).
 	if cfg.DashboardAddr != "" {
 		addr := normalizeDashboardAddr(cfg.DashboardAddr)
+		prov := dashboard.Providers{
+			Store:           store,
+			MaxPRIterations: cfg.MaxPRIterations,
+			RepoPaths:       p.resolver.AllRepoPaths,
+		}
+		if p.sweeper != nil {
+			prov.SweepTasks = sweep.FilterTasks(cfg.SweepTasks)
+		}
 		p.dash = dashboard.New(addr, cfg.DashboardToken, func() any {
 			return p.Snapshot()
-		})
+		}, prov)
 	}
 
 	return p
