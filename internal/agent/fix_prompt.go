@@ -111,6 +111,25 @@ func BuildFixPrompt(in FixPromptInput) string {
 			"\nDon't redo or re-argue anything already settled here unless the new feedback contradicts it.\n"
 	}
 
+	findingsSection := ""
+	if len(in.Feedback) > 0 {
+		findingsSection = fmt.Sprintf(`
+
+Then, after the summary, report on each numbered review finding above so Noctra can reply to that exact review thread. Wrap a JSON array between %s and %s:
+
+%s
+[
+  {"finding": 1, "addressed": true, "reply": "Narrowed the regex to 40+ hex chars so legitimate IDs aren't redacted."},
+  {"finding": 2, "addressed": false, "reply": "Kept the dual-token check by design — the read/admin split still holds; explained why."}
+]
+%s
+
+- `+"`finding`"+` is the number from the "Review feedback to address" list.
+- `+"`addressed`"+` is true if you changed code for it, false if you pushed back or judged it inapplicable.
+- `+"`reply`"+` is one plain sentence posted on that finding's thread — no markdown headings. Include an entry for every numbered finding.
+`, FindingsStartMarker, FindingsEndMarker, FindingsStartMarker, FindingsEndMarker)
+	}
+
 	return fmt.Sprintf(`There is new activity on the PR you opened for this Linear ticket — review feedback and/or failing CI. Address it on the same branch; your changes will be pushed as a follow-up commit.
 
 ## Ticket: %s — %s
@@ -131,7 +150,7 @@ func BuildFixPrompt(in FixPromptInput) string {
 ## When done
 
 Wrap a short summary between %s and %s. Say what you addressed and how, and call out anything you deliberately skipped or pushed back on (with the reason) — this is posted back on the PR for the reviewer.
-`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, lessonsSection, priorSection, sections.String(), SummaryStartMarker, SummaryEndMarker)
+%s`, in.Identifier, in.Title, desc, in.PRNumber, in.PRURL, lessonsSection, priorSection, sections.String(), SummaryStartMarker, SummaryEndMarker, findingsSection)
 }
 
 func sectionLabel(kind, state string) string {

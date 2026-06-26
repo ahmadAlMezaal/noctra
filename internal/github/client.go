@@ -406,10 +406,19 @@ func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	return nil
 }
 
-// ReplyToThreads posts the note to every unresolved review thread on a PR, and
-// resolves them only when resolve is true. Best-effort: failures are logged,
-// never returned.
-func (c *Client) ReplyToThreads(ctx context.Context, prURL, replyBody string, resolve bool) {
+// ThreadReply is a reply for one review thread, plus whether to resolve it.
+type ThreadReply struct {
+	Body    string
+	Resolve bool
+}
+
+// ReplyToThreadsByComment replies to each unresolved thread keyed by its first
+// comment's database ID, resolving only those flagged; others are left
+// untouched. Best-effort: failures are logged.
+func (c *Client) ReplyToThreadsByComment(ctx context.Context, prURL string, replies map[int64]ThreadReply) {
+	if len(replies) == 0 {
+		return
+	}
 	owner, repo, number, err := parsePRURL(prURL)
 	if err != nil {
 		slog.Warn("github: cannot parse PR URL for thread reply", "url", prURL, "err", err)
@@ -422,20 +431,18 @@ func (c *Client) ReplyToThreads(ctx context.Context, prURL, replyBody string, re
 		return
 	}
 
-	if len(threads) == 0 {
-		return
-	}
-
-	replyBody += "\n\n" + NoctraReplyMarker
-
-	resolved := 0
+	replied, resolved := 0, 0
 	for _, t := range threads {
-		if t.FirstCommentDatabaseID > 0 {
-			if err := c.replyToThread(ctx, owner, repo, number, t.FirstCommentDatabaseID, replyBody); err != nil {
-				slog.Warn("github: reply to review thread failed", "thread", t.ID, "err", err)
-			}
+		r, ok := replies[t.FirstCommentDatabaseID]
+		if !ok || t.FirstCommentDatabaseID == 0 {
+			continue
 		}
-		if resolve {
+		if err := c.replyToThread(ctx, owner, repo, number, t.FirstCommentDatabaseID, r.Body+"\n\n"+NoctraReplyMarker); err != nil {
+			slog.Warn("github: reply to review thread failed", "thread", t.ID, "err", err)
+			continue
+		}
+		replied++
+		if r.Resolve {
 			if err := c.resolveThread(ctx, t.ID); err != nil {
 				slog.Warn("github: resolve review thread failed", "thread", t.ID, "err", err)
 			} else {
@@ -444,7 +451,7 @@ func (c *Client) ReplyToThreads(ctx context.Context, prURL, replyBody string, re
 		}
 	}
 
-	slog.Info("github: review threads replied", "url", prURL, "total", len(threads), "resolved", resolved)
+	slog.Info("github: review threads replied", "url", prURL, "replied", replied, "resolved", resolved)
 }
 
 // fetchUnresolvedThreads queries the GitHub GraphQL API for all unresolved

@@ -122,6 +122,24 @@ func TestBuildFixPrompt_RequestsSummaryMarkers(t *testing.T) {
 	}
 }
 
+func TestBuildFixPrompt_FindingsBlockOnlyWithFeedback(t *testing.T) {
+	withFeedback := BuildFixPrompt(FixPromptInput{
+		Identifier: "ENG-9", Title: "T", PRNumber: 9, PRURL: "url",
+		Feedback: []FeedbackItem{{Kind: "comment", Author: "gemini", Body: "x", Path: "a.go", Line: 1}},
+	})
+	if !strings.Contains(withFeedback, FindingsStartMarker) || !strings.Contains(withFeedback, FindingsEndMarker) {
+		t.Errorf("expected per-finding markers when feedback present:\n%s", withFeedback)
+	}
+
+	ciOnly := BuildFixPrompt(FixPromptInput{
+		Identifier: "ENG-9", Title: "T", PRNumber: 9, PRURL: "url",
+		CI: []CIItem{{Name: "build"}},
+	})
+	if strings.Contains(ciOnly, FindingsStartMarker) {
+		t.Errorf("did not expect per-finding markers on a CI-only iteration:\n%s", ciOnly)
+	}
+}
+
 func TestSectionLabel(t *testing.T) {
 	cases := map[[2]string]string{
 		{"review", "CHANGES_REQUESTED"}: "Review (CHANGES_REQUESTED)",

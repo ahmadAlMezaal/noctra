@@ -195,20 +195,26 @@ func lastAttempt(logContents string) string {
 // so the caller can fall back to the heuristic. Using the LAST start marker
 // guards against the agent echoing the instruction earlier in its output.
 func betweenMarkers(s string) (string, bool) {
-	start := strings.LastIndex(s, SummaryStartMarker)
+	return between(s, SummaryStartMarker, SummaryEndMarker)
+}
+
+// between returns the trimmed text between the last start marker and the first
+// end marker after it; ok is false when a marker is absent or the span empty.
+func between(s, startMarker, endMarker string) (string, bool) {
+	start := strings.LastIndex(s, startMarker)
 	if start < 0 {
 		return "", false
 	}
-	rest := s[start+len(SummaryStartMarker):]
-	end := strings.Index(rest, SummaryEndMarker)
+	rest := s[start+len(startMarker):]
+	end := strings.Index(rest, endMarker)
 	if end < 0 {
 		return "", false
 	}
-	summary := strings.TrimSpace(rest[:end])
-	if summary == "" {
+	inner := strings.TrimSpace(rest[:end])
+	if inner == "" {
 		return "", false
 	}
-	return summary, true
+	return inner, true
 }
 
 // usageFooterRe matches a trailing token-usage footer some CLIs print after the
