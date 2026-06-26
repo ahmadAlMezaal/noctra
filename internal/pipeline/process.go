@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -847,13 +848,29 @@ func ghCreatePR(ctx context.Context, repoPath, title, body, base, head string) (
 // prURL is the PR URL returned by ghCreatePR. Errors are returned to the
 // caller for logging but never block the PR.
 func ghAddLabel(ctx context.Context, repoPath, prURL, label string) error {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "edit", prURL, "--add-label", label)
+	apiPath, err := prLabelsAPIPath(prURL)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath, "-f", "labels[]="+label)
 	cmd.Dir = repoPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func prLabelsAPIPath(prURL string) (string, error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", fmt.Errorf("parse PR URL %q: %w", prURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" || parts[0] == "" || parts[1] == "" || parts[3] == "" {
+		return "", fmt.Errorf("unexpected PR URL: %q", prURL)
+	}
+	return fmt.Sprintf("repos/%s/%s/issues/%s/labels", parts[0], parts[1], parts[3]), nil
 }
 
 // gitHeadShort returns the abbreviated HEAD commit SHA, or "" on error.
