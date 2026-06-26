@@ -271,6 +271,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 	// Record usage from the plan pass (ENG-217).
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	p.recordUsage(usage, "plan", id, "", backend)
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
 	}

@@ -201,6 +201,7 @@ func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier 
 // the existing remote branch, builds a fix prompt from the new feedback,
 // runs Claude, and pushes the follow-up commit.
 func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier string) {
+	startedAt := time.Now()
 	logger := slog.With("id", identifier, "pr", ch.PR.URL)
 	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
 
@@ -230,6 +231,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		if err != nil {
 			logger.Error("could not parse PR repo from URL", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+			p.recordRun(state.RunHistory{
+				Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+				AgentBackend: backend.Name(), RunType: "iterate",
+				StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+			})
 			return
 		}
 	}
@@ -237,6 +243,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	if err != nil {
 		logger.Error("repo resolve (direct) failed", "err", err, "ref", ref)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			AgentBackend: backend.Name(), RunType: "iterate",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		return
 	}
 
@@ -244,6 +255,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	if err != nil {
 		logger.Error("resume worktree failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, "")
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "failed",
+		})
 		return
 	}
 	logger.Info("resume worktree", "path", wt.Path)
@@ -360,6 +377,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// Record usage from the iteration (ENG-217).
 	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
+	p.recordUsage(usage, "iterate", identifier, ch.PR.URL, backend)
 	// Check budget caps immediately after recording — if exceeded, the pause
 	// takes effect on the next poll tick (in-flight work drains naturally).
 	if reason := p.budget.ExceededReason(); reason != "" {
@@ -380,6 +398,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	if runErr != nil {
 		logger.Error("agent run failed", "err", runErr)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "failed",
+		})
 		return
 	}
 
@@ -392,6 +416,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 		// Advance cursor + count attempt so we don't loop on the same feedback.
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "blocked",
+		})
 		return
 	}
 
@@ -404,12 +434,24 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
 		logger.Error("git add failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "failed",
+		})
 		return
 	}
 	staged, err := hasStagedChanges(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git diff --cached failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "failed",
+		})
 		return
 	}
 	if staged {
@@ -420,6 +462,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		if err := runIn(ctx, wt.Path, "git", "commit", "-m", commitMsg); err != nil {
 			logger.Error("git commit failed", "err", err)
 			p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+			p.recordRun(state.RunHistory{
+				Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+				Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+				RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+				Status: "failed",
+			})
 			return
 		}
 	}
@@ -427,6 +475,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	if err != nil {
 		logger.Error("git rev-list failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+			Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+			RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+			Status: "failed",
+		})
 		return
 	}
 	// Key "addressed" on HEAD moving, not branch-ahead: the agent may self-push.
@@ -437,6 +491,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			if err := runIn(ctx, wt.Path, "git", "push", "origin", wt.Branch); err != nil {
 				logger.Error("git push failed", "err", err)
 				p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
+				p.recordRun(state.RunHistory{
+					Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+					Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+					RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+					Status: "failed",
+				})
 				return
 			}
 		}
@@ -488,6 +548,16 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			notify.EscapeMarkdown(identifier), ch.PR.Number))
 	}
 
+	iterateStatus := "no_change"
+	if moved || ahead {
+		iterateStatus = "pr_opened"
+	}
+	p.recordRun(state.RunHistory{
+		Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
+		Repo: filepath.Base(resolved.Path), AgentBackend: backend.Name(),
+		RunType: "iterate", StartedAt: startedAt, FinishedAt: time.Now(),
+		Status: iterateStatus, Iterations: 1,
+	})
 	p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 }
 
