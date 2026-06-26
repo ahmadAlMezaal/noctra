@@ -193,9 +193,21 @@ func New(cfg *config.Config) *Pipeline {
 		if p.sweeper != nil {
 			prov.SweepTasks = sweep.FilterTasks(cfg.SweepTasks)
 		}
-		p.dash = dashboard.New(addr, cfg.DashboardToken, func() any {
+		redactor := dashboard.NewRedactor([]string{
+			cfg.LinearAPIKey,
+			cfg.LinearOAuthToken,
+			cfg.LinearOAuthClientSecret,
+			cfg.GeminiAPIKey,
+			cfg.DashboardToken,
+			cfg.DashboardAdminToken,
+			cfg.TelegramBotToken,
+			cfg.SlackWebhookURL,
+			cfg.DiscordWebhookURL,
+			cfg.JiraAPIToken,
+		})
+		p.dash = dashboard.New(addr, cfg.DashboardToken, cfg.DashboardAdminToken, func() any {
 			return p.Snapshot()
-		}, prov)
+		}, prov, p, redactor)
 	}
 
 	return p
@@ -615,6 +627,21 @@ func (p *Pipeline) bumpSuccess() {
 	p.successCount++
 	p.mu.Unlock()
 	p.publishDashboardChange()
+}
+
+// ClearSkipped removes a ticket from the permanently-skipped set so it is
+// eligible for dispatch again on the next poll.
+func (p *Pipeline) ClearSkipped(identifier string) error {
+	p.mu.Lock()
+	_, ok := p.skipped[identifier]
+	if !ok {
+		p.mu.Unlock()
+		return fmt.Errorf("%s is not in the skipped set", identifier)
+	}
+	delete(p.skipped, identifier)
+	p.mu.Unlock()
+	p.publishDashboardChange()
+	return nil
 }
 
 // skipPermanently marks a ticket as permanently skipped (non-transient failure

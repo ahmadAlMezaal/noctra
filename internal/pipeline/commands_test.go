@@ -197,8 +197,8 @@ func TestHandleRequeue_TicketNotFound(t *testing.T) {
 		linear: client,
 	}
 	reply := p.handleRequeue(context.Background(), "ENG-99")
-	if !strings.Contains(reply, "Could not find") {
-		t.Errorf("expected 'Could not find' in reply, got %q", reply)
+	if !strings.Contains(reply, "could not find") {
+		t.Errorf("expected 'could not find' in reply, got %q", reply)
 	}
 }
 

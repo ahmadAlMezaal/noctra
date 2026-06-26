@@ -187,7 +187,7 @@
   .stat-label { color: var(--dim); }
   .stat-value { font-family: var(--font-mono); }
 
-  /* ── Error banner ──────────────────────────────────────────────────── */
+  /* ── Error / result banner ─────────────────────────────────────────── */
   #error {
     display: none;
     background: rgba(251, 113, 133, 0.1);
@@ -198,6 +198,15 @@
     margin-bottom: 1rem;
     font-size: 0.8125rem;
   }
+  .action-result {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    margin-left: 0.25rem;
+  }
+  .action-ok { background: rgba(110,231,168,0.12); color: var(--ok); }
+  .action-err { background: rgba(251,113,133,0.12); color: var(--bad); }
 
   /* ── Links ─────────────────────────────────────────────────────────── */
   a { color: var(--glow); text-decoration: none; }
@@ -242,7 +251,8 @@
     justify-content: space-between;
     gap: 0.5rem;
   }
-  .log-btn {
+  .run-btns { display: flex; gap: 0.25rem; flex-shrink: 0; }
+  .log-btn, .ctrl-btn {
     border: 1px solid var(--edge);
     background: rgba(143, 180, 255, 0.08);
     color: var(--glow);
@@ -253,7 +263,10 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .log-btn:hover { border-color: var(--glow); color: var(--moon); }
+  .log-btn:hover, .ctrl-btn:hover { border-color: var(--glow); color: var(--moon); }
+  .ctrl-btn.danger { color: var(--bad); border-color: rgba(251,113,133,0.3); }
+  .ctrl-btn.danger:hover { border-color: var(--bad); }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .log-head {
     display: flex;
     align-items: center;
@@ -362,6 +375,7 @@
   <div class="topbar-meta">
     <span class="topbar-tag reconnecting" id="connection-status">Connecting</span>
     <span class="topbar-tag" id="dispatch-status">--</span>
+    <button type="button" class="ctrl-btn" id="pause-toggle" style="display:none">--</button>
     <span class="topbar-tag" id="budget-tag">--</span>
   </div>
 </div>
@@ -429,10 +443,14 @@
 (function() {
   var params = new URLSearchParams(window.location.search);
   var token = params.get("token") || "";
+  var adminToken = params.get("admin_token") || "";
   var headers = { "Authorization": "Bearer " + token };
+  var adminHeaders = { "Authorization": "Bearer " + (adminToken || token), "Content-Type": "application/json" };
   var events = null;
   var logEvents = null;
   var auxRefreshTimer = null;
+  var adminEnabled = false;
+  var lastPaused = false;
 
   function authURL(path) {
     if (!token) return path;
@@ -494,6 +512,39 @@
            d.toLocaleTimeString(undefined, {hour:"2-digit",minute:"2-digit"});
   }
 
+  // ── Admin control helpers ──────────────────────────────────────────
+
+  function adminPost(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: adminHeaders,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function(r) { return r.json(); });
+  }
+
+  function showResult(el, ok, msg) {
+    var span = document.createElement("span");
+    span.className = "action-result " + (ok ? "action-ok" : "action-err");
+    span.textContent = msg;
+    el.parentNode.insertBefore(span, el.nextSibling);
+    setTimeout(function() { if (span.parentNode) span.parentNode.removeChild(span); }, 3000);
+  }
+
+  function killBtn(id) {
+    if (!adminEnabled) return "";
+    return '<button type="button" class="ctrl-btn danger" data-kill-id="' + esc(id) + '">Kill</button>';
+  }
+
+  function requeueBtn(id) {
+    if (!adminEnabled) return "";
+    return '<button type="button" class="ctrl-btn" data-requeue-id="' + esc(id) + '">Requeue</button>';
+  }
+
+  function retryBtn(id) {
+    if (!adminEnabled) return "";
+    return '<button type="button" class="ctrl-btn" data-retry-id="' + esc(id) + '">Retry</button>';
+  }
+
   // ── Snapshot (live state) ──────────────────────────────────────────
 
   function groupByRepo(entries, repoKey) {
@@ -507,6 +558,10 @@
     return { groups: groups, order: order };
   }
 
+  function activeItemHtml(e) {
+    return '<li class="lamp-item"><span class="run-line"><span>' + esc(e.identifier) + '</span><span class="run-btns">' + logButton(e.identifier) + killBtn(e.identifier) + "</span></span></li>";
+  }
+
   function renderActive(el, items) {
     if (!items || items.length === 0) {
       el.innerHTML = '<p class="empty">No active runs. Waiting for tickets.</p>';
@@ -515,20 +570,20 @@
     var g = groupByRepo(items, "repo");
     var html = "";
     if (g.order.length === 1 && g.order[0] === "(unknown)") {
-      html = "<ul>" + items.map(function(e) {
-        return '<li class="lamp-item"><span class="run-line"><span>' + esc(e.identifier) + "</span>" + logButton(e.identifier) + "</span></li>";
-      }).join("") + "</ul>";
+      html = "<ul>" + items.map(activeItemHtml).join("") + "</ul>";
     } else {
       for (var i = 0; i < g.order.length; i++) {
         var repo = g.order[i];
         html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
-        html += g.groups[repo].map(function(e) {
-          return '<li class="lamp-item"><span class="run-line"><span>' + esc(e.identifier) + "</span>" + logButton(e.identifier) + "</span></li>";
-        }).join("");
+        html += g.groups[repo].map(activeItemHtml).join("");
         html += "</ul>";
       }
     }
     el.innerHTML = html;
+  }
+
+  function queuedItemHtml(e) {
+    return '<li><span class="run-line"><span>' + esc(e.identifier) + '<span class="retries">(' + e.retries + ' retries)</span></span><span class="run-btns">' + logButton(e.identifier) + requeueBtn(e.identifier) + "</span></span></li>";
   }
 
   function renderQueued(el, items) {
@@ -539,16 +594,12 @@
     var g = groupByRepo(items, "repo");
     var html = "";
     if (g.order.length === 1 && g.order[0] === "(unknown)") {
-      html = "<ul>" + items.map(function(e) {
-        return '<li><span class="run-line"><span>' + esc(e.identifier) + '<span class="retries">(' + e.retries + " retries)</span></span>" + logButton(e.identifier) + "</span></li>";
-      }).join("") + "</ul>";
+      html = "<ul>" + items.map(queuedItemHtml).join("") + "</ul>";
     } else {
       for (var i = 0; i < g.order.length; i++) {
         var repo = g.order[i];
         html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
-        html += g.groups[repo].map(function(e) {
-          return '<li><span class="run-line"><span>' + esc(e.identifier) + '<span class="retries">(' + e.retries + " retries)</span></span>" + logButton(e.identifier) + "</span></li>";
-        }).join("");
+        html += g.groups[repo].map(queuedItemHtml).join("");
         html += "</ul>";
       }
     }
@@ -560,7 +611,9 @@
       el.innerHTML = '<li class="empty">No skipped tickets.</li>';
       return;
     }
-    el.innerHTML = items.map(function(id) { return '<li><span class="run-line"><span>' + esc(id) + "</span>" + logButton(id) + "</span></li>"; }).join("");
+    el.innerHTML = items.map(function(id) {
+      return '<li><span class="run-line"><span>' + esc(id) + '</span><span class="run-btns">' + logButton(id) + retryBtn(id) + "</span></span></li>";
+    }).join("");
   }
 
   function renderBudget(el, b, paused) {
@@ -595,12 +648,18 @@
   function updateTopbar(snap) {
     var dEl = document.getElementById("dispatch-status");
     var bEl = document.getElementById("budget-tag");
+    var pBtn = document.getElementById("pause-toggle");
+    lastPaused = snap.paused;
     if (snap.paused) {
       dEl.textContent = "Paused";
       dEl.style.color = "var(--warn)";
     } else {
       dEl.textContent = "Running";
       dEl.style.color = "var(--ok)";
+    }
+    if (adminEnabled) {
+      pBtn.style.display = "";
+      pBtn.textContent = snap.paused ? "Resume" : "Pause";
     }
     var b = snap.budget || {};
     if (b.MaxDailyUSD > 0) {
@@ -847,18 +906,82 @@
     });
   }
 
+  // ── Event delegation for clicks ────────────────────────────────────
+
   document.addEventListener("click", function(ev) {
-    var btn = ev.target.closest("[data-log-id]");
+    var btn;
+
+    btn = ev.target.closest("[data-log-id]");
     if (btn) {
       openLog(btn.getAttribute("data-log-id"));
       return;
     }
+
     if (ev.target.id === "close-log") {
       if (logEvents) logEvents.close();
       logEvents = null;
       document.getElementById("log-card").style.display = "none";
+      return;
+    }
+
+    // Kill button
+    btn = ev.target.closest("[data-kill-id]");
+    if (btn) {
+      var killId = btn.getAttribute("data-kill-id");
+      if (!confirm("Kill run " + killId + "?")) return;
+      btn.disabled = true;
+      adminPost("/api/kill/" + encodeURIComponent(killId)).then(function(r) {
+        showResult(btn, !r.error, r.error || "Killed");
+      }).catch(function() { showResult(btn, false, "Request failed"); });
+      return;
+    }
+
+    // Requeue button
+    btn = ev.target.closest("[data-requeue-id]");
+    if (btn) {
+      var reqId = btn.getAttribute("data-requeue-id");
+      var ctx = prompt("Requeue " + reqId + " with context (optional):");
+      if (ctx === null) return;
+      btn.disabled = true;
+      adminPost("/api/requeue/" + encodeURIComponent(reqId), { context: ctx }).then(function(r) {
+        showResult(btn, !r.error, r.error || "Requeued");
+      }).catch(function() { showResult(btn, false, "Request failed"); });
+      return;
+    }
+
+    // Retry button
+    btn = ev.target.closest("[data-retry-id]");
+    if (btn) {
+      var retryId = btn.getAttribute("data-retry-id");
+      if (!confirm("Retry " + retryId + "?")) return;
+      btn.disabled = true;
+      adminPost("/api/retry/" + encodeURIComponent(retryId)).then(function(r) {
+        showResult(btn, !r.error, r.error || "Cleared");
+      }).catch(function() { showResult(btn, false, "Request failed"); });
+      return;
+    }
+
+    // Pause/Resume toggle
+    if (ev.target.id === "pause-toggle") {
+      var action = lastPaused ? "resume" : "pause";
+      if (!confirm(action === "pause" ? "Pause dispatching?" : "Resume dispatching?")) return;
+      ev.target.disabled = true;
+      adminPost("/api/" + action).then(function(r) {
+        showResult(ev.target, !r.error, r.error || (action === "pause" ? "Paused" : "Resumed"));
+        ev.target.disabled = false;
+      }).catch(function() {
+        showResult(ev.target, false, "Request failed");
+        ev.target.disabled = false;
+      });
+      return;
     }
   });
+
+  // ── Initialize ─────────────────────────────────────────────────────
+
+  fetchJSON("/api/admin-status").then(function(status) {
+    adminEnabled = status.admin_enabled && adminToken !== "";
+  }).catch(function() {});
 
   connectEvents();
   loadAux();

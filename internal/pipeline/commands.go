@@ -327,6 +327,29 @@ func (p *Pipeline) handleKill(_ context.Context, args string) string {
 	return fmt.Sprintf("🔪 Killed run for %s", notify.EscapeMarkdown(identifier))
 }
 
+// RequeueTicket looks up a ticket on Linear, optionally appends the caller's
+// context as a comment (tagged with source), and moves the ticket back to the
+// trigger state/label so the next poll picks it up. Both Telegram and HTTP
+// handlers delegate to this method.
+func (p *Pipeline) RequeueTicket(ctx context.Context, identifier, extraContext, source string) error {
+	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
+	if err != nil {
+		return fmt.Errorf("could not find ticket %s: %w", identifier, err)
+	}
+
+	if extraContext != "" {
+		comment := fmt.Sprintf("💬 **Requeued via %s**\n\n%s", source, extraContext)
+		if err := p.linear.Comment(ctx, issue.ID, comment); err != nil {
+			return fmt.Errorf("found %s but failed to post comment: %w", identifier, err)
+		}
+	}
+
+	if err := p.triggerIssue(ctx, issue); err != nil {
+		return fmt.Errorf("commented on %s but failed to requeue it: %w", identifier, err)
+	}
+	return nil
+}
+
 // handleRequeue looks up a ticket on Linear, appends the caller's context as
 // a comment, and moves the ticket back to the trigger state/label so the next
 // poll picks it up.
@@ -346,25 +369,8 @@ func (p *Pipeline) handleRequeue(ctx context.Context, args string) string {
 		extraContext = strings.TrimSpace(parts[1])
 	}
 
-	// Look up the issue on Linear.
-	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
-	if err != nil {
-		return fmt.Sprintf("Could not find ticket %s: %s",
-			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
-	}
-
-	// Post the user's context as a comment.
-	if extraContext != "" {
-		comment := fmt.Sprintf("💬 **Requeued via Telegram**\n\n%s", extraContext)
-		if err := p.linear.Comment(ctx, issue.ID, comment); err != nil {
-			return fmt.Sprintf("Found %s but failed to post comment: %s",
-				notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
-		}
-	}
-
-	if err := p.triggerIssue(ctx, issue); err != nil {
-		return fmt.Sprintf("Commented on %s but failed to requeue it: %s",
-			notify.EscapeMarkdown(identifier), notify.EscapeMarkdown(err.Error()))
+	if err := p.RequeueTicket(ctx, identifier, extraContext, "Telegram"); err != nil {
+		return notify.EscapeMarkdown(err.Error())
 	}
 
 	reply := fmt.Sprintf("✅ %s requeued", notify.EscapeMarkdown(identifier))

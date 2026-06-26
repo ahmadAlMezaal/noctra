@@ -1,5 +1,6 @@
-// Package dashboard serves a read-only HTTP dashboard showing a point-in-time
-// snapshot of the pipeline. All requests require a valid dashboard token.
+// Package dashboard serves the HTTP dashboard showing a point-in-time
+// snapshot of the pipeline. Read requests require the dashboard token;
+// mutating control endpoints require the admin token.
 package dashboard
 
 import (
@@ -7,6 +8,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -27,6 +29,16 @@ var staticFiles embed.FS
 // SnapshotFunc returns the current pipeline snapshot as JSON-serializable data.
 type SnapshotFunc func() any
 
+// Controls defines the mutating operations the dashboard can invoke on the
+// pipeline. The pipeline implements this interface and passes it to New.
+type Controls interface {
+	KillRun(identifier string) error
+	RequeueTicket(ctx context.Context, identifier, extraContext, source string) error
+	PauseDispatch() bool
+	ResumeDispatch() bool
+	ClearSkipped(identifier string) error
+}
+
 // Providers supplies the data sources the dashboard reads from. All fields
 // are optional — a nil Store or empty function gracefully degrades the
 // corresponding panel to an empty response.
@@ -43,14 +55,20 @@ type Providers struct {
 type Server struct {
 	srv        *http.Server
 	token      string
+	adminToken string
 	snapshotFn SnapshotFunc
 	prov       Providers
+	controls   Controls
+	redactor   *Redactor
 }
 
 // New creates a dashboard server bound to addr, gated by the given token.
 // snapshotFn is called on each GET /api/snapshot to produce the response payload.
 // prov supplies optional data sources for history, cost, PR, and sweep panels.
-func New(addr, token string, snapshotFn SnapshotFunc, prov Providers) *Server {
+// adminToken gates mutating control endpoints; empty means controls are disabled.
+// ctrl provides the pipeline callbacks; may be nil when controls are not needed.
+// redactor filters secrets from log streams; may be nil to disable redaction.
+func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers, ctrl Controls, redactor *Redactor) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
@@ -59,12 +77,17 @@ func New(addr, token string, snapshotFn SnapshotFunc, prov Providers) *Server {
 			Handler: mux,
 		},
 		token:      token,
+		adminToken: adminToken,
 		snapshotFn: snapshotFn,
 		prov:       prov,
+		controls:   ctrl,
+		redactor:   redactor,
 	}
 	if s.prov.Hub == nil {
 		s.prov.Hub = NewHub(defaultMaxSubscribers)
 	}
+
+	// ── Read endpoints (read token) ─────────────────────────────────────
 
 	mux.Handle("/api/snapshot", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -123,6 +146,26 @@ func New(addr, token string, snapshotFn SnapshotFunc, prov Providers) *Server {
 		s.handleCost(w, r, prov.Store)
 	})))
 
+	// Reports whether the admin token is configured so the UI can
+	// show/hide control buttons accordingly.
+	mux.Handle("/api/admin-status", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, map[string]bool{"admin_enabled": s.adminToken != ""})
+	})))
+
+	// ── Control endpoints (admin token) ─────────────────────────────────
+
+	mux.Handle("/api/kill/", s.requireAdmin(http.HandlerFunc(s.handleKill)))
+	mux.Handle("/api/requeue/", s.requireAdmin(http.HandlerFunc(s.handleRequeue)))
+	mux.Handle("/api/pause", s.requireAdmin(http.HandlerFunc(s.handlePause)))
+	mux.Handle("/api/resume", s.requireAdmin(http.HandlerFunc(s.handleResume)))
+	mux.Handle("/api/retry/", s.requireAdmin(http.HandlerFunc(s.handleRetry)))
+
+	// ── Static files ────────────────────────────────────────────────────
+
 	staticSub, _ := fs.Sub(staticFiles, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
 	mux.Handle("/", s.requireAuth(fileServer))
@@ -150,19 +193,13 @@ func (s *Server) Handler() http.Handler {
 	return s.srv.Handler
 }
 
-// requireAuth returns middleware that checks for a valid Bearer token in the
+// requireAuth returns middleware that checks for a valid read token in the
 // Authorization header, or a ?token= query parameter (convenience for browser
-// page loads).
+// page loads). Either the read token or admin token is accepted.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := ""
-		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimPrefix(auth, "Bearer ")
-		}
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-		if token != s.token {
+		token := extractToken(r)
+		if token != s.token && (s.adminToken == "" || token != s.adminToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -170,12 +207,48 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// requireAdmin returns middleware that checks for the admin Bearer token in
+// the Authorization header. Only header-based auth is accepted (not query
+// params) to maintain CSRF safety for POST endpoints.
+func (s *Server) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.adminToken == "" {
+			http.Error(w, "admin controls not configured", http.StatusForbidden)
+			return
+		}
+		token := ""
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+		if token != s.adminToken {
+			if token == s.token {
+				http.Error(w, "admin token required", http.StatusForbidden)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func extractToken(r *http.Request) string {
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return r.URL.Query().Get("token")
+}
+
 // Hub returns the server's live event hub.
 func (s *Server) Hub() *Hub {
 	return s.prov.Hub
 }
 
-// ── API handlers ────────────────────────────────────────────────────────────
+// ── Read API handlers ───────────────────────────────────────────────────────
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -235,7 +308,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	logFile := filepath.Join(s.prov.LogDir, id+".log")
 	if r.URL.Query().Get("follow") != "1" && r.URL.Query().Get("follow") != "true" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(w, boundedTail(logFile, 64*1024))
+		content := boundedTail(logFile, 64*1024)
+		_, _ = fmt.Fprint(w, s.redactor.Redact(content))
 		return
 	}
 	s.followLog(w, r, logFile)
@@ -255,7 +329,7 @@ func (s *Server) followLog(w http.ResponseWriter, r *http.Request, logFile strin
 	offset := agent.OffsetBefore(logFile)
 	initial := boundedTail(logFile, 64*1024)
 	if initial != "" {
-		writeLogEvent(w, initial)
+		writeLogEvent(w, s.redactor.Redact(initial))
 		flusher.Flush()
 	}
 
@@ -278,7 +352,7 @@ func (s *Server) followLog(w http.ResponseWriter, r *http.Request, logFile strin
 			if len(chunk) > 32*1024 {
 				chunk = chunk[len(chunk)-32*1024:]
 			}
-			writeLogEvent(w, chunk)
+			writeLogEvent(w, s.redactor.Redact(chunk))
 			flusher.Flush()
 		}
 	}
@@ -509,6 +583,90 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request, store *state
 		}
 	}
 	writeJSON(w, costResponse{Buckets: buckets})
+}
+
+// ── Control API handlers (admin-gated) ──────────────────────────────────────
+
+func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/kill/")
+	if id == "" {
+		http.Error(w, "missing identifier", http.StatusBadRequest)
+		return
+	}
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.controls.KillRun(id); err != nil {
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	slog.Info("dashboard: killed run", "id", id)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleRequeue(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/requeue/")
+	if id == "" {
+		http.Error(w, "missing identifier", http.StatusBadRequest)
+		return
+	}
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Context string `json:"context"`
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
+		limited := io.LimitReader(r.Body, 4096)
+		_ = json.NewDecoder(limited).Decode(&body)
+	}
+	if err := s.controls.RequeueTicket(r.Context(), id, body.Context, "Dashboard"); err != nil {
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	slog.Info("dashboard: requeued ticket", "id", id)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	already := s.controls.PauseDispatch()
+	slog.Info("dashboard: paused dispatch", "already_paused", already)
+	writeJSON(w, map[string]any{"status": "ok", "already_paused": already})
+}
+
+func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	wasPaused := s.controls.ResumeDispatch()
+	slog.Info("dashboard: resumed dispatch", "was_paused", wasPaused)
+	writeJSON(w, map[string]any{"status": "ok", "was_paused": wasPaused})
+}
+
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/retry/")
+	if id == "" {
+		http.Error(w, "missing identifier", http.StatusBadRequest)
+		return
+	}
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.controls.ClearSkipped(id); err != nil {
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	slog.Info("dashboard: cleared skipped", "id", id)
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
