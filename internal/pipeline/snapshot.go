@@ -19,11 +19,11 @@ type QueuedEntry struct {
 // JSON serialization. Collected under a single p.mu lock so the fields are
 // consistent with each other.
 type DashboardSnapshot struct {
-	Active  []ActiveEntry  `json:"active"`
-	Queued  []QueuedEntry  `json:"queued"`
-	Skipped []string       `json:"skipped"`
-	Paused  bool           `json:"paused"`
-	Budget  budget.Stats   `json:"budget"`
+	Active  []ActiveEntry `json:"active"`
+	Queued  []QueuedEntry `json:"queued"`
+	Skipped []string      `json:"skipped"`
+	Paused  bool          `json:"paused"`
+	Budget  budget.Stats  `json:"budget"`
 }
 
 // Snapshot takes p.mu once and returns a consistent snapshot of the
