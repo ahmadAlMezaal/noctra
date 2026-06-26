@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -521,14 +522,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			}
 		}
 
-		// Reply but don't resolve: we can't tell which threads this iteration
-		// actually addressed, so resolving would silently close untouched findings.
-		reply := fmt.Sprintf("Addressed in %s.", sha)
+		convReply := fmt.Sprintf("Addressed in %s.", sha)
 		if summary != "" {
-			reply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
+			convReply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
 		}
-		p.gh.ReplyToThreads(ctx, ch.PR.URL, reply, false)
-		p.replyToConversation(ctx, ch, reply, logger)
+		p.postIterationReplies(ctx, ch, output, sha, convReply, logger)
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
 		// ✅ "PR ready" ping the main ticket flow sends on success).
@@ -536,13 +534,11 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
-		reply := "Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited."
+		convReply := "Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited."
 		if summary != "" {
-			reply = "Noctra reviewed this and made no code change:\n\n" + summary
+			convReply = "Noctra reviewed this and made no code change:\n\n" + summary
 		}
-		// Reply but don't resolve — nothing changed, so the findings stay open.
-		p.gh.ReplyToThreads(ctx, ch.PR.URL, reply, false)
-		p.replyToConversation(ctx, ch, reply, logger)
+		p.postIterationReplies(ctx, ch, output, "", convReply, logger)
 		if p.store != nil && summary != "" {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 				r.LastReasoning = summary
@@ -649,6 +645,47 @@ func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 		}
 		if err := p.gh.AddEyesReaction(ctx, ch.PR.URL, ev.CommentID, ev.Path != ""); err != nil {
 			slog.Warn("ack reaction failed", "pr", ch.PR.URL, "err", err)
+		}
+	}
+}
+
+// postIterationReplies routes the agent's per-finding statuses to the exact
+// review threads they refer to, resolving only the ones it addressed. sha is
+// empty on a no-diff iteration. When no per-finding block parses it falls back
+// to one conversation comment, never the old broadcast to every thread.
+func (p *Pipeline) postIterationReplies(ctx context.Context, ch watch.PRChanges, agentOutput, sha, convReply string, logger *slog.Logger) {
+	threadReplies := map[int64]github.ThreadReply{}
+	if findings, ok := agent.ExtractFindingReplies(agentOutput); ok {
+		for _, f := range findings {
+			idx := f.Finding - 1
+			if idx < 0 || idx >= len(ch.Events) {
+				continue
+			}
+			ev := ch.Events[idx]
+			if ev.Path == "" || ev.CommentID == "" {
+				continue
+			}
+			commentID, err := strconv.ParseInt(ev.CommentID, 10, 64)
+			if err != nil {
+				continue
+			}
+			body := f.Reply
+			if f.Addressed && sha != "" {
+				body = fmt.Sprintf("Addressed in %s.\n\n%s", sha, f.Reply)
+			}
+			threadReplies[commentID] = github.ThreadReply{Body: body, Resolve: f.Addressed}
+		}
+	}
+
+	p.gh.ReplyToThreadsByComment(ctx, ch.PR.URL, threadReplies)
+
+	if hasConversationComment(ch) {
+		p.replyToConversation(ctx, ch, convReply, logger)
+		return
+	}
+	if len(threadReplies) == 0 {
+		if err := p.gh.PostComment(ctx, ch.PR.URL, convReply); err != nil {
+			logger.Warn("post iteration reply failed", "err", err)
 		}
 	}
 }

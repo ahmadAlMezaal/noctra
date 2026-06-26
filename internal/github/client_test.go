@@ -495,10 +495,11 @@ echo "{}"
 	}
 }
 
-func TestReplyToThreads_Resolve(t *testing.T) {
+func TestReplyToThreadsByComment_Resolve(t *testing.T) {
 	readCalls := fakeGHThreadCalls(t)
 
-	New().ReplyToThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.", true)
+	New().ReplyToThreadsByComment(context.Background(), "https://github.com/me/repo/pull/7",
+		map[int64]ThreadReply{42: {Body: "Narrowed the regex.", Resolve: true}})
 
 	calls := readCalls()
 	// Expect 3 calls: 1 GraphQL fetch + 1 REST reply + 1 GraphQL resolve.
@@ -512,21 +513,22 @@ func TestReplyToThreads_Resolve(t *testing.T) {
 	if !strings.Contains(calls[1], "repos/me/repo/pulls/7/comments/42/replies") {
 		t.Errorf("call 2: expected REST reply, got: %s", calls[1])
 	}
-	if !strings.Contains(calls[1], "Addressed in abc1234") {
-		t.Errorf("call 2: expected SHA in reply body, got: %s", calls[1])
+	if !strings.Contains(calls[1], "Narrowed the regex.") {
+		t.Errorf("call 2: expected per-finding body in reply, got: %s", calls[1])
 	}
 	if !strings.Contains(calls[2], "resolveReviewThread") || !strings.Contains(calls[2], "PRRT_abc") {
 		t.Errorf("call 3: expected GraphQL resolve, got: %s", calls[2])
 	}
 }
 
-func TestReplyToThreads_NoResolve(t *testing.T) {
+func TestReplyToThreadsByComment_NoResolve(t *testing.T) {
 	readCalls := fakeGHThreadCalls(t)
 
-	New().ReplyToThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.", false)
+	New().ReplyToThreadsByComment(context.Background(), "https://github.com/me/repo/pull/7",
+		map[int64]ThreadReply{42: {Body: "Kept by design.", Resolve: false}})
 
 	calls := readCalls()
-	// Expect 2 calls: 1 GraphQL fetch + 1 REST reply. No resolve when resolve=false.
+	// Expect 2 calls: 1 GraphQL fetch + 1 REST reply. No resolve when Resolve is false.
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 gh calls, got %d:\n%v", len(calls), calls)
 	}
@@ -535,7 +537,24 @@ func TestReplyToThreads_NoResolve(t *testing.T) {
 	}
 	for _, c := range calls {
 		if strings.Contains(c, "resolveReviewThread") {
-			t.Errorf("expected no resolve call when resolve=false, got: %s", c)
+			t.Errorf("expected no resolve call when Resolve is false, got: %s", c)
 		}
+	}
+}
+
+func TestReplyToThreadsByComment_UntouchedThreadGetsNothing(t *testing.T) {
+	readCalls := fakeGHThreadCalls(t)
+
+	// No reply keyed to comment 42 — only an unrelated comment ID. The
+	// unresolved thread must be left alone: just the fetch, no reply, no resolve.
+	New().ReplyToThreadsByComment(context.Background(), "https://github.com/me/repo/pull/7",
+		map[int64]ThreadReply{777: {Body: "unrelated", Resolve: true}})
+
+	calls := readCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected only the GraphQL fetch, got %d:\n%v", len(calls), calls)
+	}
+	if !strings.Contains(calls[0], "reviewThreads") {
+		t.Errorf("expected GraphQL thread fetch, got: %s", calls[0])
 	}
 }
