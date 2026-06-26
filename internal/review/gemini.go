@@ -186,7 +186,7 @@ func reviewSchema() map[string]any {
 }
 
 func (g *Gate) reviewAPI(ctx context.Context, prompt string, structured bool) (Result, error) {
-	gen := map[string]any{"temperature": 0.1, "maxOutputTokens": 4096}
+	gen := map[string]any{"temperature": 0.1, "maxOutputTokens": 8192}
 	if structured {
 		gen["responseMimeType"] = "application/json"
 		gen["responseSchema"] = reviewSchema()
@@ -259,14 +259,33 @@ func (g *Gate) reviewAPI(ctx context.Context, prompt string, structured bool) (R
 	return parseResult(text), nil
 }
 
+var salvageVerdictRe = regexp.MustCompile(`(?i)"verdict"\s*:\s*"\s*(PASS|FAIL)\s*"`)
+var salvageSummaryRe = regexp.MustCompile(`"summary"\s*:\s*("(?:\\.|[^"\\])*")`)
+
+func salvageStructured(text string) (verdict, summary string, ok bool) {
+	m := salvageVerdictRe.FindStringSubmatch(text)
+	if m == nil {
+		return "", "", false
+	}
+	if sm := salvageSummaryRe.FindStringSubmatch(text); sm != nil {
+		_ = json.Unmarshal([]byte(sm[1]), &summary)
+	}
+	return m[1], summary, true
+}
+
 func parseStructured(text string) (Result, bool) {
+	text = strings.TrimSpace(text)
 	var s struct {
 		Verdict  string    `json:"verdict"`
 		Summary  string    `json:"summary"`
 		Findings []Finding `json:"findings"`
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(text)), &s) != nil {
-		return Result{}, false
+	if json.Unmarshal([]byte(text), &s) != nil {
+		v, sum, ok := salvageStructured(text)
+		if !ok {
+			return Result{}, false
+		}
+		s.Verdict, s.Summary, s.Findings = v, sum, nil
 	}
 	switch strings.ToUpper(strings.TrimSpace(s.Verdict)) {
 	case "PASS":
