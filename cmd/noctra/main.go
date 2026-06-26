@@ -87,6 +87,8 @@ func realMain() error {
 		return runPoll(scriptDir)
 	case "setup":
 		return runSetup(scriptDir)
+	case "dashboard":
+		return runDashboard(scriptDir, os.Args[2:])
 	case "config":
 		return configcmd.Run(scriptDir, os.Args[2:])
 	case "cleanup":
@@ -242,6 +244,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  run       Start the poll loop (default)")
 	fmt.Println("  setup     Interactive configuration wizard")
+	fmt.Println("  dashboard SSH-tunnel to a remote dashboard and open it in your browser")
 	fmt.Println("  config    Read or edit .env settings (path, edit, get, set)")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
@@ -383,7 +386,7 @@ func runService(verb string) error {
 // subcommands is the list completion offers. Kept in one place so the help
 // text, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "config", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
+	"run", "setup", "dashboard", "config", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 

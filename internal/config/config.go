@@ -222,6 +222,7 @@ type Config struct {
 	// serves a read-only snapshot UI on that address.
 	DashboardAddr  string // listen address (e.g. ":8080"); empty = dashboard disabled
 	DashboardToken string // required Bearer token for all dashboard requests
+	DashboardSSH   string // SSH target (user@host) for `noctra dashboard` to tunnel to
 
 	// Derived paths
 	ScriptDir    string
@@ -352,6 +353,7 @@ func Load(scriptDir string) (*Config, error) {
 	// Dashboard (ENG-274)
 	cfg.DashboardAddr = getenv(fileEnv, "DASHBOARD_ADDR", "")
 	cfg.DashboardToken = getenv(fileEnv, "DASHBOARD_TOKEN", "")
+	cfg.DashboardSSH = getenv(fileEnv, "DASHBOARD_SSH", "")
 
 	return cfg, nil
 }
