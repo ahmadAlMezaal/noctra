@@ -697,6 +697,92 @@ func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
 	return out, nil
 }
 
+// ListUsageEvents returns usage events that occurred at or after since,
+// ordered by occurred_at ascending. When since is zero, all events are
+// returned.
+func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var rows *sql.Rows
+	var err error
+	if since.IsZero() {
+		rows, err = s.db.Query(`SELECT occurred_at, source, ticket_id, pr_url, agent_backend,
+			input_tokens, output_tokens, total_tokens, cost_usd
+			FROM usage_events ORDER BY occurred_at ASC`)
+	} else {
+		rows, err = s.db.Query(`SELECT occurred_at, source, ticket_id, pr_url, agent_backend,
+			input_tokens, output_tokens, total_tokens, cost_usd
+			FROM usage_events WHERE occurred_at >= ? ORDER BY occurred_at ASC`,
+			formatTime(since).String)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list usage events: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close usage_events rows failed", "err", err)
+		}
+	}()
+
+	var out []UsageEvent
+	for rows.Next() {
+		var ev UsageEvent
+		var occurredAt sql.NullString
+		if err := rows.Scan(
+			&occurredAt, &ev.Source, &ev.TicketID, &ev.PRURL, &ev.AgentBackend,
+			&ev.InputTokens, &ev.OutputTokens, &ev.TotalTokens, &ev.CostUSD,
+		); err != nil {
+			return nil, fmt.Errorf("scan usage event: %w", err)
+		}
+		if t, convErr := parseNullTime(occurredAt); convErr == nil {
+			ev.OccurredAt = t
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate usage events: %w", err)
+	}
+	return out, nil
+}
+
+// AllSweepStates returns every sweep state record keyed by
+// "<repo-slug>/<task-name>".
+func (s *Store) AllSweepStates() map[string]SweepState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT key, last_run_at FROM sweep_states`)
+	if err != nil {
+		slog.Warn("state all sweep states failed", "err", err)
+		return nil
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close sweep_states rows failed", "err", err)
+		}
+	}()
+	out := map[string]SweepState{}
+	for rows.Next() {
+		var key string
+		var lastRun sql.NullString
+		if err := rows.Scan(&key, &lastRun); err != nil {
+			slog.Warn("scan sweep state failed", "err", err)
+			return nil
+		}
+		lastRunAt, convErr := parseNullTime(lastRun)
+		if convErr != nil {
+			slog.Warn("parse sweep last_run_at failed", "key", key, "err", convErr)
+			continue
+		}
+		out[key] = SweepState{LastRunAt: lastRunAt}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("iterate sweep states failed", "err", err)
+		return nil
+	}
+	return out
+}
+
 // RecordUsage persists a usage-event row. Best-effort: a failed insert is
 // logged and never blocks the run.
 func (s *Store) RecordUsage(ev UsageEvent) error {
