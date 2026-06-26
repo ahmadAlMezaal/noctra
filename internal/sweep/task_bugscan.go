@@ -8,7 +8,7 @@ import (
 func init() {
 	Register(Task{
 		Name:         "bug-scan",
-		Description:  "Find and fix high-confidence bugs (error handling, nil-deref, leaks)",
+		Description:  "Find and fix medium-to-high-confidence bugs (error handling, nil-deref, leaks)",
 		Cooldown:     14 * 24 * time.Hour,
 		BranchSuffix: "bug-scan",
 		CommitPrefix: "fix",
@@ -16,11 +16,11 @@ func init() {
 		Prompt: func(repoPath string) string {
 			return fmt.Sprintf(`You are performing autonomous maintenance on a codebase.
 
-## Task: High-confidence bug scan
+## Task: Medium-to-high-confidence bug scan
 
-Scan the project at %s for clear, high-confidence bugs and fix ONLY those. This is not a refactor and not a style pass.
+Scan the project at %s for real bugs you have medium-to-high confidence in, and fix those. This is not a refactor and not a style pass.
 
-## In scope (only fix these when you are confident they are real defects):
+## In scope (fix these when you have at least medium confidence they are real defects):
 - Unchecked errors that can cause silent data loss or wrong behaviour.
 - Nil-pointer / nil-map dereferences and missing nil checks on values that can be nil.
 - Resource leaks: unclosed files, HTTP bodies, DB rows, contexts; missing defer Close.
@@ -30,18 +30,18 @@ Scan the project at %s for clear, high-confidence bugs and fix ONLY those. This 
 ## Out of scope (do NOT touch):
 - Style, naming, formatting, comments, performance micro-optimizations.
 - Anything that changes intended behaviour or public APIs.
-- Speculative "this could be better" changes, or anything you are not confident is a real bug.
+- Speculative "this could be better" changes, or low-confidence guesses about a possible bug.
 
 ## Instructions:
 1. Read the code and any available static-analysis output (go vet, staticcheck) to locate candidate defects.
-2. For each candidate, confirm it is a genuine bug before changing anything. If you are not confident, leave it.
+2. For each candidate, confirm it is a genuine bug before changing anything. Act on medium-to-high-confidence defects; skip only the low-confidence ones.
 3. Apply the smallest correct fix. Add or adjust a test that demonstrates the bug is fixed where practical.
 4. Run the build and full test suite; everything must pass.
 
 ## Rules:
-- Quality over quantity. A PR with one real, well-justified fix is the goal; zero is an acceptable outcome.
-- Default to NOT changing code. Only act on bugs you can clearly justify.
-- If you do not find a high-confidence bug, say BLOCKED: No high-confidence bugs found.
+- Quality over quantity. A few real, well-justified fixes are the goal; zero is an acceptable outcome.
+- Every fix must be one you can clearly justify as a real defect — medium-to-high confidence, never a guess.
+- If you do not find a bug of at least medium confidence, say BLOCKED: No medium-or-higher-confidence bugs found.
 
 ## When done:
 For each fix, state the bug, why it is a bug, and the fix. Wrap the summary between these exact marker lines, each alone on its own line with nothing else:
