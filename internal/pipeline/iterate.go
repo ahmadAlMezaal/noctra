@@ -649,10 +649,10 @@ func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 	}
 }
 
-// postIterationReplies routes the agent's per-finding statuses to the exact
-// review threads they refer to, resolving only the ones it addressed. sha is
-// empty on a no-diff iteration. When no per-finding block parses it falls back
-// to one conversation comment, never the old broadcast to every thread.
+// postIterationReplies routes the agent's per-finding statuses to their review
+// threads, resolving only the ones it addressed (sha is empty on a no-diff
+// iteration). With no per-finding block it falls back to one conversation
+// comment, never the old broadcast to every thread.
 func (p *Pipeline) postIterationReplies(ctx context.Context, ch watch.PRChanges, agentOutput, sha, convReply string, logger *slog.Logger) {
 	threadReplies := map[int64]github.ThreadReply{}
 	if findings, ok := agent.ExtractFindingReplies(agentOutput); ok {

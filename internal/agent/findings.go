@@ -11,20 +11,18 @@ const (
 	FindingsEndMarker   = "===END NOCTRA FINDINGS==="
 )
 
-// FindingReply is the agent's status for one numbered review finding: the
-// 1-based Finding number from the fix prompt, whether code changed for it, and
-// a one-sentence note for that finding's review thread.
+// FindingReply is the agent's status for one numbered review finding: its
+// 1-based number, whether code changed for it, and a note for its thread.
 type FindingReply struct {
 	Finding   int    `json:"finding"`
 	Addressed bool   `json:"addressed"`
 	Reply     string `json:"reply"`
 }
 
-// ExtractFindingReplies parses the per-finding JSON array the agent wraps in the
-// finding markers. Tolerant by design: absence, malformed JSON, or an empty
-// result return ok=false so the caller falls back rather than guessing — not all
-// backends emit the block reliably. Entries with a non-positive Finding or empty
-// Reply are dropped; on a duplicate Finding the last entry wins.
+// ExtractFindingReplies parses the per-finding JSON array from the finding
+// markers. ok is false when it's absent, malformed, or empty so the caller can
+// fall back. Entries with a non-positive Finding or empty Reply are dropped; on
+// a duplicate Finding the last wins.
 func ExtractFindingReplies(logContents string) ([]FindingReply, bool) {
 	raw, ok := between(lastAttempt(logContents), FindingsStartMarker, FindingsEndMarker)
 	if !ok {
