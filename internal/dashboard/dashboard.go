@@ -208,6 +208,7 @@ type prEntry struct {
 	MaxIterations int    `json:"max_iterations"`
 	Capped        bool   `json:"capped"`
 	LastCISHA     string `json:"last_ci_sha,omitempty"`
+	LastCIRunURL  string `json:"last_ci_run_url,omitempty"`
 	LastReasoning string `json:"last_reasoning,omitempty"`
 	LinearURL     string `json:"linear_url,omitempty"`
 }
@@ -227,6 +228,7 @@ func (s *Server) handlePRs(w http.ResponseWriter, _ *http.Request, store *state.
 			MaxIterations: maxIter,
 			Capped:        maxIter > 0 && pr.Iterations >= maxIter,
 			LastCISHA:     pr.LastCISHA,
+			LastCIRunURL:  pr.LastCIRunURL,
 			LastReasoning: pr.LastReasoning,
 		}
 		if pr.TicketID != "" {

@@ -131,6 +131,10 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 	logger.Info("repo resolved", "path", resolved.Path, "main", resolved.MainBranch)
 
+	p.mu.Lock()
+	p.activeRepos[id] = filepath.Base(resolved.Path)
+	p.mu.Unlock()
+
 	// ── Create worktree ──────────────────────────────────────────────────────
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {

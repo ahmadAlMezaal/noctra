@@ -251,6 +251,10 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		return
 	}
 
+	p.mu.Lock()
+	p.activeRepos[identifier] = filepath.Base(resolved.Path)
+	p.mu.Unlock()
+
 	wt, err := repo.ResumeWorktree(ctx, p.cfg.WorktreeBase, identifier, resolved.Path)
 	if err != nil {
 		logger.Error("resume worktree failed", "err", err)
@@ -582,6 +586,9 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 		}
 		if ch.CIFailure != nil && ch.CIFailure.SHA != "" {
 			r.LastCISHA = ch.CIFailure.SHA
+			if len(ch.CIFailure.FailedChecks) > 0 {
+				r.LastCIRunURL = ch.CIFailure.FailedChecks[0].URL()
+			}
 		}
 		r.Iterations++
 		r.LastIteratedAt = time.Now()

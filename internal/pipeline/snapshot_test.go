@@ -12,6 +12,7 @@ func TestSnapshot(t *testing.T) {
 	p := &Pipeline{
 		cfg:            &config.Config{},
 		active:         map[string]struct{}{"ENG-1": {}, "ENG-2": {}},
+		activeRepos:    map[string]string{"ENG-1": "my-repo", "ENG-2": "other-repo", "ENG-3": "my-repo"},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{"ENG-3": 1, "ENG-1": 0},
@@ -27,11 +28,19 @@ func TestSnapshot(t *testing.T) {
 		t.Fatalf("expected 2 active, got %d", len(snap.Active))
 	}
 	activeSet := map[string]bool{}
-	for _, id := range snap.Active {
-		activeSet[id] = true
+	activeRepoSet := map[string]string{}
+	for _, e := range snap.Active {
+		activeSet[e.Identifier] = true
+		activeRepoSet[e.Identifier] = e.Repo
 	}
 	if !activeSet["ENG-1"] || !activeSet["ENG-2"] {
 		t.Errorf("active set = %v, want ENG-1 and ENG-2", snap.Active)
+	}
+	if activeRepoSet["ENG-1"] != "my-repo" {
+		t.Errorf("ENG-1 repo = %q, want my-repo", activeRepoSet["ENG-1"])
+	}
+	if activeRepoSet["ENG-2"] != "other-repo" {
+		t.Errorf("ENG-2 repo = %q, want other-repo", activeRepoSet["ENG-2"])
 	}
 
 	// Queued should contain ENG-3 (has failed attempts, not active, not skipped).
@@ -39,8 +48,12 @@ func TestSnapshot(t *testing.T) {
 	if len(snap.Queued) != 1 {
 		t.Fatalf("expected 1 queued, got %d: %v", len(snap.Queued), snap.Queued)
 	}
-	if retries, ok := snap.Queued["ENG-3"]; !ok || retries != 1 {
-		t.Errorf("queued = %v, want {ENG-3: 1}", snap.Queued)
+	q := snap.Queued[0]
+	if q.Identifier != "ENG-3" || q.Retries != 1 {
+		t.Errorf("queued = %+v, want {Identifier:ENG-3 Retries:1}", q)
+	}
+	if q.Repo != "my-repo" {
+		t.Errorf("queued repo = %q, want my-repo", q.Repo)
 	}
 
 	// Skipped should contain ENG-4.
@@ -61,6 +74,7 @@ func TestSnapshotEmpty(t *testing.T) {
 	p := &Pipeline{
 		cfg:            &config.Config{},
 		active:         map[string]struct{}{},
+		activeRepos:    map[string]string{},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{},

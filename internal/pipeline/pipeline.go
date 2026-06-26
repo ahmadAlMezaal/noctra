@@ -74,6 +74,7 @@ type Pipeline struct {
 
 	mu                sync.Mutex
 	active            map[string]struct{}           // identifiers in-flight
+	activeRepos       map[string]string             // identifier → repo slug (for dashboard grouping)
 	cancels           map[string]context.CancelFunc // per-ticket cancel (for /kill)
 	killed            map[string]struct{}           // tickets killed via /kill
 	failedAttempts    map[string]int                // per-ticket retry counter
@@ -124,6 +125,7 @@ func New(cfg *config.Config) *Pipeline {
 			MaxDailyUSD:    cfg.MaxDailyUSD,
 		}),
 		active:         map[string]struct{}{},
+		activeRepos:    map[string]string{},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{},
