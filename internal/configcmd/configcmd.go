@@ -4,6 +4,7 @@
 // Subcommands:
 //
 //	noctra config path          print the resolved .env path
+//	noctra config list          print all KEY=VALUE pairs (secrets masked)
 //	noctra config edit          open .env in $EDITOR
 //	noctra config get KEY       print one value (exit 1 if unset)
 //	noctra config set KEY=VALUE upsert one key (atomic, comment-preserving)
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -33,6 +35,14 @@ func Run(scriptDir string, args []string) error {
 	switch args[0] {
 	case "path":
 		return runPath(envFile)
+	case "list", "ls":
+		reveal := false
+		for _, a := range args[1:] {
+			if a == "--reveal" || a == "--show-secrets" {
+				reveal = true
+			}
+		}
+		return runList(envFile, reveal)
 	case "edit":
 		return runEdit(envFile)
 	case "get":
@@ -56,6 +66,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  path            Print the resolved .env file path")
+	fmt.Println("  list            Print all KEY=VALUE pairs (secrets masked; --reveal to show)")
 	fmt.Println("  edit            Open .env in $EDITOR (falls back to vi/nano)")
 	fmt.Println("  get KEY         Print the value of KEY from .env")
 	fmt.Println("  set KEY=VALUE   Set KEY to VALUE (atomic, preserves comments)")
@@ -66,6 +77,64 @@ func printUsage() {
 func runPath(envFile string) error {
 	fmt.Println(envFile)
 	return nil
+}
+
+// runList prints every KEY=VALUE pair from .env, sorted by key. Secret-looking
+// values (tokens, keys, passwords, webhook URLs) are masked by default so the
+// output is safe to paste or screenshot; --reveal prints them verbatim. An
+// empty/missing .env is reported rather than printing nothing.
+func runList(envFile string, reveal bool) error {
+	env, err := config.LoadEnvFile(envFile)
+	if err != nil {
+		return err
+	}
+	if len(env) == 0 {
+		fmt.Printf("No settings found in %s\n", envFile)
+		return nil
+	}
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	masked := false
+	for _, k := range keys {
+		val := env[k]
+		if !reveal && isSecretKey(k) && val != "" {
+			val = maskSecret(val)
+			masked = true
+		}
+		fmt.Printf("%s=%s\n", k, val)
+	}
+	if masked {
+		fmt.Fprintln(os.Stderr, "\n(secrets masked — pass --reveal to show full values)")
+	}
+	return nil
+}
+
+// secretKeyParts flags keys whose values are sensitive and should be masked.
+var secretKeyParts = []string{"TOKEN", "SECRET", "KEY", "PASSWORD", "PASS", "WEBHOOK"}
+
+// isSecretKey reports whether a setting's value should be masked by default.
+func isSecretKey(key string) bool {
+	up := strings.ToUpper(key)
+	for _, part := range secretKeyParts {
+		if strings.Contains(up, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskSecret hides a sensitive value, keeping the last 4 characters as a hint
+// when the value is long enough to spare them without exposing the whole secret.
+func maskSecret(val string) string {
+	if len(val) <= 8 {
+		return "••••••"
+	}
+	return "••••••" + val[len(val)-4:]
 }
 
 // runEdit opens the resolved .env in the user's $EDITOR. Falls back to vi,

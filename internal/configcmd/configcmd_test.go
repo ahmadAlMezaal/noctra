@@ -205,3 +205,51 @@ func TestRun_SetMissingArg(t *testing.T) {
 		t.Error("set without a key should error")
 	}
 }
+
+func TestIsSecretKey(t *testing.T) {
+	secret := []string{"LINEAR_API_KEY", "LINEAR_OAUTH_CLIENT_SECRET", "GH_TOKEN", "TELEGRAM_BOT_TOKEN", "SLACK_WEBHOOK_URL", "DB_PASSWORD"}
+	for _, k := range secret {
+		if !isSecretKey(k) {
+			t.Errorf("isSecretKey(%q) = false, want true", k)
+		}
+	}
+	plain := []string{"AGENT_BACKEND", "TRIGGER_MODE", "REPO_PATH", "SWEEP_ENABLED", "MAIN_BRANCH"}
+	for _, k := range plain {
+		if isSecretKey(k) {
+			t.Errorf("isSecretKey(%q) = true, want false", k)
+		}
+	}
+}
+
+func TestMaskSecret(t *testing.T) {
+	// Short secrets are fully masked — no trailing characters leak.
+	if got := maskSecret("short"); got != "••••••" {
+		t.Errorf("maskSecret short = %q, want fully masked", got)
+	}
+	// Long secrets keep a 4-char hint.
+	got := maskSecret("lin_api_abcd1234")
+	if got != "••••••1234" {
+		t.Errorf("maskSecret long = %q, want last-4 hint", got)
+	}
+}
+
+func TestRunList(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	writeTestFile(t, envFile, `LINEAR_API_KEY="lin_api_abcd1234"
+AGENT_BACKEND="claude"
+`)
+	// Both masked and revealed paths should succeed without error.
+	if err := runList(envFile, false); err != nil {
+		t.Errorf("runList (masked) should succeed: %v", err)
+	}
+	if err := runList(envFile, true); err != nil {
+		t.Errorf("runList (reveal) should succeed: %v", err)
+	}
+}
+
+func TestRunList_MissingFile(t *testing.T) {
+	if err := runList(filepath.Join(t.TempDir(), "nope.env"), false); err != nil {
+		t.Errorf("runList on a missing file should not error: %v", err)
+	}
+}
