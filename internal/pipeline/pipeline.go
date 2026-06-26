@@ -32,12 +32,8 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
-// Version is the running build version, set by main before Run so the startup
-// update check can compare it against the latest published release. Empty/"dev"
-// for local builds, which suppresses the check entirely.
 var Version = ""
 
-// Pipeline holds the wiring shared by every ticket the agent processes.
 type Pipeline struct {
 	cfg      *config.Config
 	linear   *linear.Client
@@ -45,55 +41,43 @@ type Pipeline struct {
 	resolver *repo.Resolver
 	notifier *notify.Multi
 	review   *review.Gate
-	agent    agent.Backend // selected coding-agent CLI (claude / codex / copilot / antigravity)
+	agent    agent.Backend
 	states   linear.StateIDs
 
-	// Label-mode trigger — resolved at startup when cfg.TriggerMode == "label".
 	labelID string
 
-	// Auto-iterate plumbing — all nil when cfg.AutoIteratePRs is false.
 	store   *state.Store
 	gh      *github.Client
 	watcher *watch.Watcher
 
-	// Budget tracker — always non-nil (no-op when no caps configured).
-	budget *budget.Tracker
-
-	// Sweep scheduler — nil when cfg.SweepEnabled is false.
+	budget  *budget.Tracker
 	sweeper *sweep.Scheduler
 
-	// Plan-confirm label ID — resolved at startup when plan-confirm is enabled
-	// and the label name resolves successfully. Empty if resolution fails
-	// (per-ticket label detection degrades to global-only mode).
 	planConfirmLabelID string
 
-	// Dashboard server — nil when cfg.DashboardAddr is empty.
 	dash *dashboard.Server
 	hub  *dashboard.Hub
 
 	sessionStart time.Time
 
 	mu                sync.Mutex
-	active            map[string]struct{}           // identifiers in-flight
-	activeRepos       map[string]string             // identifier → repo slug (for dashboard grouping)
-	cancels           map[string]context.CancelFunc // per-ticket cancel (for /kill)
-	killed            map[string]struct{}           // tickets killed via /kill
-	failedAttempts    map[string]int                // per-ticket retry counter
-	approvedPlans     map[string]string             // plan-confirm: approved plans keyed by identifier (ENG-221)
-	skipped           map[string]struct{}           // non-transient failures — never re-dispatched
-	totalDispatches   int                           // per-UTC-day dispatch count (MAX_DISPATCHES)
+	active            map[string]struct{}
+	activeRepos       map[string]string
+	cancels           map[string]context.CancelFunc
+	killed            map[string]struct{}
+	failedAttempts    map[string]int
+	approvedPlans     map[string]string
+	skipped           map[string]struct{}
+	totalDispatches   int
 	dispatchWindow    time.Time
 	dispatchCapped    bool
 	successCount      int
 	failCount         int
-	rateLimitDetected bool // only used when RateLimitStrategy=shutdown
-	paused            bool // operator pause via Telegram; active runs continue
+	rateLimitDetected bool
+	paused            bool
 }
 
-// New constructs a Pipeline. It does not perform any I/O — call Run to start.
 func New(cfg *config.Config) *Pipeline {
-	// config.Validate already guarantees a known backend; fall back to Claude
-	// defensively if a caller skipped validation.
 	backend, err := agent.New(cfg.AgentBackend)
 	if err != nil {
 		slog.Warn("unknown agent backend; falling back to claude",
@@ -101,8 +85,6 @@ func New(cfg *config.Config) *Pipeline {
 		backend, _ = agent.New(config.DefaultAgentBackend)
 	}
 
-	// Open the state store up front if any feature needs it: auto-iterate,
-	// sweep, plan-confirm, actor=app OAuth refresh persistence, or dashboard.
 	var store *state.Store
 	if cfg.AutoIteratePRs || cfg.SweepEnabled || cfg.PlanConfirm || cfg.PlanConfirmLabel != "" || cfg.ActorAppConfigured() || cfg.DashboardAddr != "" {
 		s, err := state.OpenMigrating(cfg.StateDB, cfg.StateFile)
@@ -136,25 +118,17 @@ func New(cfg *config.Config) *Pipeline {
 	}
 	p.sources = buildTicketSources(cfg, linearClient)
 
-	// Alert when the Linear app identity degrades to the personal API key.
 	p.linear.OnDegrade = func(cause error) {
 		p.notifier.Send(context.Background(),
 			"⚠️ Linear app identity (actor=app) failed to authenticate — now posting as your personal user. Re-mint the OAuth credentials.")
 	}
 
-	// Auto-iterate is opt-in. When disabled, gh/watcher stay nil and
-	// the run loop never starts the PR-poller goroutine.
 	if cfg.AutoIteratePRs && store != nil {
 		p.gh = github.New()
 
-		// Directive-only routing has no static repo registry: the watcher
-		// discovers which repos to poll from the on-demand clones on disk,
-		// re-read on every scan (the set grows as tickets are dispatched).
 		p.watcher = watch.New(p.gh, store, p.resolver.AllRepoRemotes, cfg.TrustedReviewers)
 	}
 
-	// Sweep is opt-in. When disabled, sweeper stays nil and the run loop
-	// never starts the sweep-scheduler goroutine.
 	if cfg.SweepEnabled && store != nil {
 		tasks := sweep.FilterTasks(cfg.SweepTasks)
 		if len(tasks) == 0 {
@@ -178,8 +152,6 @@ func New(cfg *config.Config) *Pipeline {
 		}
 	}
 
-	// Dashboard — constructed eagerly so banner() can inspect it, but
-	// ListenAndServe is deferred to Run (which validates the token).
 	if cfg.DashboardAddr != "" {
 		addr := normalizeDashboardAddr(cfg.DashboardAddr)
 		p.hub = dashboard.NewHub(64)
@@ -213,8 +185,8 @@ func New(cfg *config.Config) *Pipeline {
 	return p
 }
 
-// normalizeDashboardAddr binds to localhost when the user supplies only a port
-// (e.g. ":8080") so the dashboard is not accidentally exposed on all interfaces.
+// normalizeDashboardAddr binds to localhost when only a port is given
+// so the dashboard is not accidentally exposed on all interfaces.
 func normalizeDashboardAddr(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -226,10 +198,6 @@ func normalizeDashboardAddr(addr string) string {
 	return addr
 }
 
-// Run blocks until ctx is canceled or a rate-limit is detected
-// (RATE_LIMIT_STRATEGY=shutdown). The daily dispatch cap only pauses
-// dispatching. It always waits for in-flight workers to finish before
-// returning, and prints a session summary on the way out.
 func (p *Pipeline) Run(ctx context.Context) error {
 	for _, d := range []string{p.cfg.LogDir, p.cfg.WorktreeBase, p.cfg.ReposBase} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -259,7 +227,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		}
 	}
 
-	// Fail fast: dashboard address set but no token.
 	if p.cfg.DashboardAddr != "" && p.cfg.DashboardToken == "" {
 		return fmt.Errorf("DASHBOARD_ADDR is set but DASHBOARD_TOKEN is empty — refusing to start an unauthenticated dashboard")
 	}
@@ -274,9 +241,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 			notify.EscapeMarkdown(p.cfg.TriggerState), notify.EscapeMarkdown(p.cfg.LinearTeamKey)))
 	}
 
-	// Best-effort update check: never blocks startup, swallows all errors, and
-	// does nothing for dev builds (IsNewer returns false). Logs a line and
-	// pings Telegram once if a newer release is published.
 	go p.checkForUpdate(ctx)
 
 	var wg sync.WaitGroup
@@ -284,8 +248,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
 
-	// Start the Telegram command listener alongside the poll loop if configured.
-	// The listener shares the WaitGroup so shutdown drains it like any other goroutine.
 	if p.cfg.TelegramEnabled && p.cfg.TelegramBotToken != "" && p.cfg.TelegramChatID != "" {
 		listener := telegram.New(p.cfg.TelegramBotToken, p.cfg.TelegramChatID)
 		p.registerCommands(listener.Dispatcher())
@@ -299,8 +261,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		slog.Info("telegram command listener started")
 	}
 
-	// Start the dashboard server if configured. Shares the WaitGroup so
-	// shutdown drains it alongside the poll loop and other goroutines.
 	if p.dash != nil {
 		wg.Add(1)
 		go func() {
@@ -309,7 +269,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				slog.Warn("dashboard server stopped", "err", err)
 			}
 		}()
-		// Shut the server down when the loop context is cancelled.
 		go func() {
 			<-loopCtx.Done()
 			_ = p.dash.Shutdown(context.Background())
@@ -319,19 +278,13 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
 
-	// One poll right away so we don't sit idle for the first interval.
 	p.pollOnce(ctx, &wg)
 
-	// PR watcher runs on its own ticker if auto-iterate is enabled. Lives
-	// inside this Run so it shares the WaitGroup — graceful shutdown waits
-	// for in-flight iterations the same way it waits for fresh dispatches.
 	if p.watcher != nil {
 		wg.Add(1)
 		go p.runWatcher(loopCtx, &wg)
 	}
 
-	// Sweep scheduler runs its own loop if enabled. Shares the WaitGroup
-	// so shutdown drains in-flight sweep tasks.
 	if p.sweeper != nil {
 		wg.Add(1)
 		go p.runSweepLoop(loopCtx, &wg)
@@ -357,16 +310,12 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				return nil
 			}
 
-			// Budget pause: skip dispatching but keep the loop alive.
 			if paused, until, reason := p.budget.IsPaused(); paused {
 				slog.Debug("⏸ dispatching paused",
 					"reason", reason, "until", until.Format(time.RFC3339))
 				continue
 			}
 
-			// Check budget caps on every tick so concurrent in-flight runs
-			// that pushed usage over the cap are caught promptly (rather
-			// than waiting for the next completed run to call flagBudgetExceeded).
 			if reason := p.budget.ExceededReason(); reason != "" {
 				p.flagBudgetExceeded(reason)
 				p.notifier.Send(ctx, fmt.Sprintf(
@@ -382,20 +331,15 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 }
 
-// drainAndStop cancels before waiting; reversing the order deadlocks.
 func drainAndStop(stop context.CancelFunc, wg *sync.WaitGroup) {
 	stop()
 	wg.Wait()
 }
 
-// dispatchCapReached reports whether today's dispatch count has hit the cap.
-// A max of 0 (or negative) means unlimited.
 func dispatchCapReached(max, count int) bool {
 	return max > 0 && count >= max
 }
 
-// rollDispatchWindow resets the daily dispatch counter at UTC midnight.
-// Caller must hold p.mu.
 func (p *Pipeline) rollDispatchWindow(now time.Time) {
 	day := now.UTC().Truncate(24 * time.Hour)
 	if !day.Equal(p.dispatchWindow) {
@@ -422,7 +366,6 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 	p.mu.Unlock()
 
-	// Daily cap reached: pause dispatching (resumes after the UTC-midnight reset); alert once.
 	if capped {
 		if notifyCap {
 			slog.Info("⏸ daily dispatch cap reached — pausing until UTC midnight",
@@ -434,8 +377,6 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		return
 	}
 
-	// Check for approved plans before fetching new tickets so approved
-	// plans can be dispatched in the same cycle (ENG-221).
 	p.pollPlanApprovals(ctx, wg, &available)
 
 	if available <= 0 {

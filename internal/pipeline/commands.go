@@ -14,8 +14,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 )
 
-// registerCommands wires the Telegram command handlers that require a running
-// pipeline (status, kill, requeue). Called from Run when Telegram is enabled.
 func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("status", "Show active runs and session stats", p.handleStatus)
 	d.Register("tickets", "Linear ticket counts by state for a project (e.g. /tickets Noctra)", p.handleTickets)
@@ -30,8 +28,6 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("requeue", "Re-queue a ticket with context (e.g. /requeue ENG-42 use Auth0)", p.handleRequeue)
 }
 
-// handleStatus replies with a snapshot of in-progress tickets, worker slot
-// usage, and session counters.
 func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	p.mu.Lock()
 	active := make([]string, 0, len(p.active))
@@ -76,7 +72,6 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	}
 	fmt.Fprintf(&b, "⏱ Uptime: %s\n", uptime)
 
-	// Budget / usage stats (ENG-217).
 	bs := p.budget.Stats()
 	if bs.SessionTokens > 0 || bs.SessionCostUSD > 0 || bs.HasCaps() {
 		b.WriteString("\n*Budget:*\n")
@@ -106,8 +101,6 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	return b.String()
 }
 
-// handleStart moves a ticket into the configured trigger state/label so the
-// next poll dispatches it.
 func (p *Pipeline) handleStart(ctx context.Context, args string) string {
 	identifier := normalizeIdentifier(strings.TrimSpace(args), p.cfg.LinearTeamKey)
 	if identifier == "" {
@@ -134,7 +127,6 @@ func (p *Pipeline) handleStart(ctx context.Context, args string) string {
 	return fmt.Sprintf("✅ %s will start on the next poll", notify.EscapeMarkdown(identifier))
 }
 
-// handleMove moves a ticket to any workflow state in its owning Linear team.
 func (p *Pipeline) handleMove(ctx context.Context, args string) string {
 	identifier, stateName := parseMoveArgs(args, p.cfg.LinearTeamKey)
 	if identifier == "" || stateName == "" {
@@ -194,11 +186,6 @@ func (p *Pipeline) handleResume(_ context.Context, _ string) string {
 	return "▶️ Dispatch resumed."
 }
 
-// handleTickets reports a project's Linear ticket counts grouped by workflow
-// state. Directive-only routing means there's no registry to enumerate, so a
-// project name is required.
-//
-//	/tickets <project>   counts per state for that project
 func (p *Pipeline) handleTickets(ctx context.Context, args string) string {
 	project := strings.TrimSpace(args)
 	if project == "" {
@@ -211,7 +198,6 @@ func (p *Pipeline) handleTickets(ctx context.Context, args string) string {
 	return b.String()
 }
 
-// handleTicket shows a single ticket's details, looked up by identifier.
 func (p *Pipeline) handleTicket(ctx context.Context, args string) string {
 	id := normalizeIdentifier(strings.TrimSpace(args), p.cfg.LinearTeamKey)
 	if id == "" {
@@ -245,7 +231,6 @@ func (p *Pipeline) handleTicket(ctx context.Context, args string) string {
 	return b.String()
 }
 
-// handleSearch lists tickets whose title/description match the given text.
 func (p *Pipeline) handleSearch(ctx context.Context, args string) string {
 	term := strings.TrimSpace(args)
 	if term == "" {
@@ -275,8 +260,6 @@ func (p *Pipeline) handleSearch(ctx context.Context, args string) string {
 	return b.String()
 }
 
-// snippet trims s and truncates it to at most maxRunes runes, appending an
-// ellipsis when it had to cut.
 func snippet(s string, maxRunes int) string {
 	s = strings.TrimSpace(s)
 	r := []rune(s)
@@ -286,7 +269,6 @@ func snippet(s string, maxRunes int) string {
 	return strings.TrimSpace(string(r[:maxRunes])) + "…"
 }
 
-// writeProjectCounts renders one project's per-state ticket counts into b.
 func (p *Pipeline) writeProjectCounts(ctx context.Context, b *strings.Builder, project string) {
 	counts, err := p.linear.ProjectIssueCounts(ctx, project)
 	if err != nil {
@@ -309,7 +291,6 @@ func (p *Pipeline) writeProjectCounts(ctx context.Context, b *strings.Builder, p
 	}
 }
 
-// handleKill terminates the Claude run for a specific ticket.
 func (p *Pipeline) handleKill(_ context.Context, args string) string {
 	fields := strings.Fields(args)
 	if len(fields) == 0 {
@@ -327,10 +308,6 @@ func (p *Pipeline) handleKill(_ context.Context, args string) string {
 	return fmt.Sprintf("🔪 Killed run for %s", notify.EscapeMarkdown(identifier))
 }
 
-// RequeueTicket looks up a ticket on Linear, optionally appends the caller's
-// context as a comment (tagged with source), and moves the ticket back to the
-// trigger state/label so the next poll picks it up. Both Telegram and HTTP
-// handlers delegate to this method.
 func (p *Pipeline) RequeueTicket(ctx context.Context, identifier, extraContext, source string) error {
 	issue, err := p.linear.GetIssueByIdentifier(ctx, identifier)
 	if err != nil {
@@ -350,9 +327,6 @@ func (p *Pipeline) RequeueTicket(ctx context.Context, identifier, extraContext, 
 	return nil
 }
 
-// handleRequeue looks up a ticket on Linear, appends the caller's context as
-// a comment, and moves the ticket back to the trigger state/label so the next
-// poll picks it up.
 func (p *Pipeline) handleRequeue(ctx context.Context, args string) string {
 	parts := strings.SplitN(args, " ", 2)
 	if len(parts) == 0 || parts[0] == "" {
@@ -415,14 +389,11 @@ func parseMoveArgs(args, teamKey string) (string, string) {
 	return identifier, stateName
 }
 
-// normalizeIdentifier converts user input to the standard "ENG-42" format.
-// Accepts: "ENG-42", "eng-42", "42" (just the number — team key is prepended).
 func normalizeIdentifier(input, teamKey string) string {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return ""
 	}
-	// If it's just a number, prepend the team key.
 	if _, err := strconv.Atoi(input); err == nil {
 		return strings.ToUpper(teamKey) + "-" + input
 	}

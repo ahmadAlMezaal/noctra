@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// secretPatterns matches common token/key formats in log output.
 var secretPatterns = []*regexp.Regexp{
 	// Generic API key / token patterns (hex, base64, alphanumeric 20+ chars)
 	regexp.MustCompile(`(?i)(api[_-]?key|api[_-]?token|auth[_-]?token|secret[_-]?key|access[_-]?token|bearer)\s*[=:]\s*["']?([A-Za-z0-9/+=_-]{20,})["']?`),
@@ -38,14 +37,11 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`AIza[A-Za-z0-9_-]{35}`),
 }
 
-// Redactor replaces known secret patterns and configured secret values in text.
 type Redactor struct {
-	literals []string // exact config values to redact
+	literals []string
 }
 
-// NewRedactor builds a redactor that replaces both regex-matched secret patterns
-// and any of the given literal values (typically loaded from config: API keys,
-// tokens, webhook URLs). Empty strings in literals are ignored.
+// NewRedactor builds a redactor from literal secret values (short strings < 8 chars are skipped).
 func NewRedactor(literals []string) *Redactor {
 	var filtered []string
 	for _, v := range literals {
@@ -56,7 +52,6 @@ func NewRedactor(literals []string) *Redactor {
 	return &Redactor{literals: filtered}
 }
 
-// Redact replaces secrets in s with "[REDACTED]".
 func (r *Redactor) Redact(s string) string {
 	if r == nil {
 		return s

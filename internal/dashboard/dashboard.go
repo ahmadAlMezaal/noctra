@@ -26,11 +26,9 @@ import (
 //go:embed static
 var staticFiles embed.FS
 
-// SnapshotFunc returns the current pipeline snapshot as JSON-serializable data.
 type SnapshotFunc func() any
 
-// Controls defines the mutating operations the dashboard can invoke on the
-// pipeline. The pipeline implements this interface and passes it to New.
+// Controls defines the mutating operations the dashboard can invoke on the pipeline.
 type Controls interface {
 	KillRun(identifier string) error
 	RequeueTicket(ctx context.Context, identifier, extraContext, source string) error
@@ -39,9 +37,8 @@ type Controls interface {
 	ClearSkipped(identifier string) error
 }
 
-// Providers supplies the data sources the dashboard reads from. All fields
-// are optional — a nil Store or empty function gracefully degrades the
-// corresponding panel to an empty response.
+// Providers supplies the data sources the dashboard reads from.
+// All fields are optional — nil gracefully degrades to empty responses.
 type Providers struct {
 	Store           *state.Store
 	SweepTasks      []sweep.Task
@@ -51,7 +48,6 @@ type Providers struct {
 	Hub             *Hub
 }
 
-// Server is the dashboard HTTP server.
 type Server struct {
 	srv        *http.Server
 	token      string
@@ -62,12 +58,6 @@ type Server struct {
 	redactor   *Redactor
 }
 
-// New creates a dashboard server bound to addr, gated by the given token.
-// snapshotFn is called on each GET /api/snapshot to produce the response payload.
-// prov supplies optional data sources for history, cost, PR, and sweep panels.
-// adminToken gates mutating control endpoints; empty means controls are disabled.
-// ctrl provides the pipeline callbacks; may be nil when controls are not needed.
-// redactor filters secrets from log streams; may be nil to disable redaction.
 func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers, ctrl Controls, redactor *Redactor) *Server {
 	mux := http.NewServeMux()
 
@@ -146,8 +136,6 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 		s.handleCost(w, r, prov.Store)
 	})))
 
-	// Reports whether the admin token is configured so the UI can
-	// show/hide control buttons accordingly.
 	mux.Handle("/api/admin-status", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -173,7 +161,6 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 	return s
 }
 
-// ListenAndServe starts listening. It blocks until the server is shut down.
 func (s *Server) ListenAndServe() error {
 	ln, err := net.Listen("tcp", s.srv.Addr)
 	if err != nil {
@@ -183,19 +170,15 @@ func (s *Server) ListenAndServe() error {
 	return s.srv.Serve(ln)
 }
 
-// Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
 }
 
-// Handler returns the server's HTTP handler (for testing with httptest).
 func (s *Server) Handler() http.Handler {
 	return s.srv.Handler
 }
 
-// requireAuth returns middleware that checks for a valid read token in the
-// Authorization header, or a ?token= query parameter (convenience for browser
-// page loads). Either the read token or admin token is accepted.
+// requireAuth accepts either the read or admin token via header or ?token= query param.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
@@ -207,9 +190,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// requireAdmin returns middleware that checks for the admin Bearer token in
-// the Authorization header. Only header-based auth is accepted (not query
-// params) to maintain CSRF safety for POST endpoints.
+// requireAdmin enforces admin token via header only (no query param) for CSRF safety.
 func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -243,7 +224,6 @@ func extractToken(r *http.Request) string {
 	return r.URL.Query().Get("token")
 }
 
-// Hub returns the server's live event hub.
 func (s *Server) Hub() *Hub {
 	return s.prov.Hub
 }
