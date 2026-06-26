@@ -406,12 +406,13 @@ func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	return nil
 }
 
-// ReplyAndResolveThreads replies to and resolves all unresolved review threads
-// on a PR with the given note. Best-effort: failures are logged, never returned.
-func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, replyBody string) {
+// ReplyToThreads posts the note to every unresolved review thread on a PR, and
+// resolves them only when resolve is true. Best-effort: failures are logged,
+// never returned.
+func (c *Client) ReplyToThreads(ctx context.Context, prURL, replyBody string, resolve bool) {
 	owner, repo, number, err := parsePRURL(prURL)
 	if err != nil {
-		slog.Warn("github: cannot parse PR URL for thread resolution", "url", prURL, "err", err)
+		slog.Warn("github: cannot parse PR URL for thread reply", "url", prURL, "err", err)
 		return
 	}
 
@@ -434,14 +435,16 @@ func (c *Client) ReplyAndResolveThreads(ctx context.Context, prURL, replyBody st
 				slog.Warn("github: reply to review thread failed", "thread", t.ID, "err", err)
 			}
 		}
-		if err := c.resolveThread(ctx, t.ID); err != nil {
-			slog.Warn("github: resolve review thread failed", "thread", t.ID, "err", err)
-		} else {
-			resolved++
+		if resolve {
+			if err := c.resolveThread(ctx, t.ID); err != nil {
+				slog.Warn("github: resolve review thread failed", "thread", t.ID, "err", err)
+			} else {
+				resolved++
+			}
 		}
 	}
 
-	slog.Info("github: review threads addressed", "url", prURL, "total", len(threads), "resolved", resolved)
+	slog.Info("github: review threads replied", "url", prURL, "total", len(threads), "resolved", resolved)
 }
 
 // fetchUnresolvedThreads queries the GitHub GraphQL API for all unresolved

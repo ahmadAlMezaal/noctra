@@ -519,13 +519,13 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			}
 		}
 
-		// Reply to and resolve addressed review threads, carrying the agent's
-		// reasoning so the reply isn't a bare "Addressed in <sha>" (best-effort).
+		// Reply but don't resolve: we can't tell which threads this iteration
+		// actually addressed, so resolving would silently close untouched findings.
 		reply := fmt.Sprintf("Addressed in %s.", sha)
 		if summary != "" {
 			reply = fmt.Sprintf("Addressed in %s.\n\n%s", sha, summary)
 		}
-		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
+		p.gh.ReplyToThreads(ctx, ch.PR.URL, reply, false)
 		p.replyToConversation(ctx, ch, reply, logger)
 
 		// Completion heads-up (always — mirrors the 🔄 start ping and the
@@ -538,8 +538,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		if summary != "" {
 			reply = "Noctra reviewed this and made no code change:\n\n" + summary
 		}
-		// Reply + resolve so a no-diff review isn't silent on GitHub.
-		p.gh.ReplyAndResolveThreads(ctx, ch.PR.URL, reply)
+		// Reply but don't resolve — nothing changed, so the findings stay open.
+		p.gh.ReplyToThreads(ctx, ch.PR.URL, reply, false)
 		p.replyToConversation(ctx, ch, reply, logger)
 		if p.store != nil && summary != "" {
 			if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {

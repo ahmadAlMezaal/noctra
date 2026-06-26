@@ -433,13 +433,15 @@ func TestDecodeReviewThreads_NoComments(t *testing.T) {
 	}
 }
 
-func TestReplyAndResolveThreads(t *testing.T) {
+// fakeGHThreadCalls installs a fake `gh` that records each invocation (@@@-
+// delimited, since GraphQL queries contain newlines) and returns one unresolved
+// thread. The returned func parses the recorded calls.
+func fakeGHThreadCalls(t *testing.T) func() []string {
+	t.Helper()
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "gh-calls.log")
 
 	gh := filepath.Join(dir, "gh")
-	// Use a @@@ delimiter between calls because GraphQL queries contain
-	// newlines, which would make line-counting unreliable.
 	script := `#!/bin/sh
 printf '%s\n@@@\n' "$*" >> ` + logFile + `
 case "$*" in
@@ -478,44 +480,62 @@ echo "{}"
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	New().ReplyAndResolveThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.")
-
-	log, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("read log: %v", err)
-	}
-
-	// Split on the @@@ delimiter to get one entry per gh invocation.
-	entries := strings.Split(strings.TrimSpace(string(log)), "@@@")
-	// Filter empty entries from trailing delimiters.
-	var calls []string
-	for _, e := range entries {
-		if s := strings.TrimSpace(e); s != "" {
-			calls = append(calls, s)
+	return func() []string {
+		log, err := os.ReadFile(logFile)
+		if err != nil {
+			t.Fatalf("read log: %v", err)
 		}
+		var calls []string
+		for _, e := range strings.Split(strings.TrimSpace(string(log)), "@@@") {
+			if s := strings.TrimSpace(e); s != "" {
+				calls = append(calls, s)
+			}
+		}
+		return calls
 	}
+}
 
+func TestReplyToThreads_Resolve(t *testing.T) {
+	readCalls := fakeGHThreadCalls(t)
+
+	New().ReplyToThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.", true)
+
+	calls := readCalls()
 	// Expect 3 calls: 1 GraphQL fetch + 1 REST reply + 1 GraphQL resolve.
-	// (The resolved thread PRRT_def is skipped.)
+	// (The already-resolved thread PRRT_def is skipped.)
 	if len(calls) != 3 {
-		t.Fatalf("expected 3 gh calls, got %d:\n%s", len(calls), string(log))
+		t.Fatalf("expected 3 gh calls, got %d:\n%v", len(calls), calls)
 	}
-
-	// First call: GraphQL query for threads.
 	if !strings.Contains(calls[0], "api graphql") || !strings.Contains(calls[0], "reviewThreads") {
 		t.Errorf("call 1: expected GraphQL thread fetch, got: %s", calls[0])
 	}
-
-	// Second call: REST reply to comment 42.
 	if !strings.Contains(calls[1], "repos/me/repo/pulls/7/comments/42/replies") {
 		t.Errorf("call 2: expected REST reply, got: %s", calls[1])
 	}
 	if !strings.Contains(calls[1], "Addressed in abc1234") {
 		t.Errorf("call 2: expected SHA in reply body, got: %s", calls[1])
 	}
-
-	// Third call: GraphQL resolve.
 	if !strings.Contains(calls[2], "resolveReviewThread") || !strings.Contains(calls[2], "PRRT_abc") {
 		t.Errorf("call 3: expected GraphQL resolve, got: %s", calls[2])
+	}
+}
+
+func TestReplyToThreads_NoResolve(t *testing.T) {
+	readCalls := fakeGHThreadCalls(t)
+
+	New().ReplyToThreads(context.Background(), "https://github.com/me/repo/pull/7", "Addressed in abc1234.", false)
+
+	calls := readCalls()
+	// Expect 2 calls: 1 GraphQL fetch + 1 REST reply. No resolve when resolve=false.
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 gh calls, got %d:\n%v", len(calls), calls)
+	}
+	if !strings.Contains(calls[1], "repos/me/repo/pulls/7/comments/42/replies") {
+		t.Errorf("call 2: expected REST reply, got: %s", calls[1])
+	}
+	for _, c := range calls {
+		if strings.Contains(c, "resolveReviewThread") {
+			t.Errorf("expected no resolve call when resolve=false, got: %s", c)
+		}
 	}
 }
