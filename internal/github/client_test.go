@@ -11,8 +11,7 @@ import (
 )
 
 func TestTailString_KeepsValidUTF8(t *testing.T) {
-	// A run of 3-byte runes (★ = e2 98 85) so a raw byte cut would land
-	// mid-rune for most max values.
+	// 3-byte runes (★ = e2 98 85) so a raw byte cut lands mid-rune for most max values.
 	s := strings.Repeat("★", 100)
 	for _, max := range []int{10, 50, 101, 299} {
 		out := tailString(s, max)
@@ -55,8 +54,7 @@ JSON
 	if err != nil {
 		t.Fatalf("ListNoctraPRs: %v", err)
 	}
-	// Expect: #1 (ticket, legacy footer), #4 (sweep, legacy footer), #5 (hidden
-	// marker only). Skipped: #2 (no marker), #3 (non-noctra branch).
+	// Expect #1/#4 (legacy footers), #5 (hidden marker); skip #2 (no marker), #3 (non-noctra branch).
 	var nums []int
 	for _, pr := range got {
 		nums = append(nums, pr.Number)
@@ -433,9 +431,7 @@ func TestDecodeReviewThreads_NoComments(t *testing.T) {
 	}
 }
 
-// fakeGHThreadCalls installs a fake `gh` that records each invocation (@@@-
-// delimited, since GraphQL queries contain newlines) and returns one unresolved
-// thread. The returned func parses the recorded calls.
+// fakeGHThreadCalls installs a fake `gh` recording each invocation (@@@-delimited, since GraphQL queries contain newlines) and returning one unresolved thread; the returned func parses the recorded calls.
 func fakeGHThreadCalls(t *testing.T) func() []string {
 	t.Helper()
 	dir := t.TempDir()
@@ -502,8 +498,7 @@ func TestReplyToThreadsByComment_Resolve(t *testing.T) {
 		map[int64]ThreadReply{42: {Body: "Narrowed the regex.", Resolve: true}})
 
 	calls := readCalls()
-	// Expect 3 calls: 1 GraphQL fetch + 1 REST reply + 1 GraphQL resolve.
-	// (The already-resolved thread PRRT_def is skipped.)
+	// Expect 3 calls: GraphQL fetch + REST reply + GraphQL resolve (resolved thread PRRT_def skipped).
 	if len(calls) != 3 {
 		t.Fatalf("expected 3 gh calls, got %d:\n%v", len(calls), calls)
 	}
@@ -545,8 +540,7 @@ func TestReplyToThreadsByComment_NoResolve(t *testing.T) {
 func TestReplyToThreadsByComment_UntouchedThreadGetsNothing(t *testing.T) {
 	readCalls := fakeGHThreadCalls(t)
 
-	// No reply keyed to comment 42 — only an unrelated comment ID. The
-	// unresolved thread must be left alone: just the fetch, no reply, no resolve.
+	// No reply keyed to comment 42, only an unrelated ID — leave the thread alone: just fetch, no reply, no resolve.
 	New().ReplyToThreadsByComment(context.Background(), "https://github.com/me/repo/pull/7",
 		map[int64]ThreadReply{777: {Body: "unrelated", Resolve: true}})
 

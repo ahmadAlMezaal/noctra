@@ -521,9 +521,7 @@ func TestSpend_AggregatesByAgent(t *testing.T) {
 }
 
 func TestFonts_ServedWithoutToken(t *testing.T) {
-	// @font-face url() subrequests can't carry the page's ?token=, so fonts
-	// must load unauthenticated (they hold no secrets) — otherwise the brand
-	// fonts silently fail behind a configured token.
+	// @font-face url() subrequests can't carry ?token=, so fonts must load unauthenticated (no secrets), else brand fonts silently fail behind a token.
 	s := newTestServer("secret")
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()

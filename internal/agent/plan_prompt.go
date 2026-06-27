@@ -5,10 +5,7 @@ import (
 	"strings"
 )
 
-// BuildPlanPrompt returns a plan-only prompt for the agent. Instead of
-// implementing the ticket, the agent reads the codebase and produces a
-// detailed implementation plan. The plan is posted as a Linear comment for
-// human review before Noctra proceeds with the actual implementation.
+// BuildPlanPrompt returns a plan-only prompt: the agent produces an implementation plan (posted to Linear for human review) instead of implementing.
 func BuildPlanPrompt(in BuildPromptInput) string {
 	desc := in.Description
 	if desc == "" {
@@ -55,9 +52,7 @@ const (
 	PlanEndMarker   = "===END NOCTRA PLAN==="
 )
 
-// ExtractPlan returns the agent's plan from the output, delimited by the
-// PlanStartMarker and PlanEndMarker. Returns ("", false) when the markers
-// are absent or the content between them is empty.
+// ExtractPlan returns the plan between the Plan markers; ("", false) when absent or empty.
 func ExtractPlan(output string) (string, bool) {
 	start := strings.LastIndex(output, PlanStartMarker)
 	if start < 0 {
@@ -75,9 +70,7 @@ func ExtractPlan(output string) (string, bool) {
 	return plan, true
 }
 
-// BuildPlanImplementPrompt returns the implementation prompt that includes
-// the previously approved plan as context. This is used when a human approves
-// the plan and Noctra resumes with the actual implementation.
+// BuildPlanImplementPrompt returns the implementation prompt carrying the human-approved plan as context.
 func BuildPlanImplementPrompt(in BuildPromptInput, plan string) string {
 	desc := in.Description
 	if desc == "" {

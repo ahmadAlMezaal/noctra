@@ -57,7 +57,6 @@ func TestMultiSendSyncReturnsFirstError(t *testing.T) {
 	if err == nil || err.Error() != "fail-a" {
 		t.Fatalf("expected fail-a, got %v", err)
 	}
-	// b should still receive the message.
 	if len(b.messages) != 1 {
 		t.Errorf("backend B should still receive the message: %v", b.messages)
 	}

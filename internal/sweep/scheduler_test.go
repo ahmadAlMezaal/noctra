@@ -75,7 +75,6 @@ func TestPlan_SweepReposSkipsUnresolvable(t *testing.T) {
 	}
 }
 
-// testTask returns a minimal task for testing.
 func testTask(name string, cooldown time.Duration) Task {
 	return Task{
 		Name:         name,
@@ -87,7 +86,6 @@ func testTask(name string, cooldown time.Duration) Task {
 	}
 }
 
-// initTestRepo creates a minimal git repo and returns its path.
 func initTestRepo(t *testing.T, base, name string) string {
 	t.Helper()
 	dir := filepath.Join(base, name)
@@ -115,8 +113,7 @@ func TestScheduler_DueIn(t *testing.T) {
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil, nil)
 
-	// Just created — should be immediately due (no startup suppression;
-	// per-task cooldowns prevent spam).
+	// Just created — immediately due (no startup suppression; cooldowns prevent spam).
 	if due := s.DueIn(); due != 0 {
 		t.Errorf("DueIn should be 0 immediately after creation, got %v", due)
 	}
@@ -235,8 +232,7 @@ func TestScheduler_PlanSpreadsAcrossRepos(t *testing.T) {
 
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 
-	// 3 repos, each offering 3 tasks, budget 4. Round-robin should hand the
-	// first 3 slots to one task each from a, b, c — not 3 tasks from repo-a.
+	// 3 repos × 3 tasks, budget 4: first 3 slots go one-each to a, b, c — not 3 from repo-a.
 	tasks := []Task{
 		testTask("t1", time.Hour),
 		testTask("t2", time.Hour),

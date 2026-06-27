@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-// baseCLIs are the external commands Noctra always shells out to,
-// regardless of which coding-agent backend is selected. The agent CLI itself
-// (claude / codex / copilot / agy) is appended per-backend — see AgentCLI / RequiredCLIs.
+// baseCLIs are the always-needed external commands; the per-backend agent CLI is appended (see AgentCLI/RequiredCLIs).
 var baseCLIs = []string{"git", "gh"}
 
 // agentCLIs maps a backend name to the CLI binary it requires on PATH.
@@ -24,20 +22,13 @@ var agentCLIs = map[string]string{
 	"antigravity": "agy",
 }
 
-// DefaultConfigDir returns the per-user config directory (~/.noctra/).
-// This is where .env and logs/ live when Noctra is installed globally
-// (go install / prebuilt binary). The cwd-checkout override in resolveScriptDir
-// still takes precedence during development.
+// DefaultConfigDir returns the per-user config dir (~/.noctra/) for .env and logs/; the cwd-checkout override in resolveScriptDir wins during development.
 func DefaultConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".noctra")
 }
 
-// legacyPathMigrations maps each old Nightshift home-relative path to its
-// Noctra replacement. Nightshift was renamed to Noctra (ENG-204); a live
-// instance may still hold all of its state (PR cursor, cloned repos,
-// worktrees, .env, logs) under the old ~/.nightshift* locations. We rename
-// them in place on startup so the upgrade doesn't lose that state.
+// legacyPathMigrations maps old ~/.nightshift* paths to ~/.noctra* so the ENG-204 rename keeps a live instance's state.
 var legacyPathMigrations = [][2]string{
 	{".nightshift", ".noctra"},                       // config dir (.env + logs/)
 	{".nightshift-repos", ".noctra-repos"},           // clone cache
@@ -45,11 +36,7 @@ var legacyPathMigrations = [][2]string{
 	{".nightshift-state.json", ".noctra-state.json"}, // legacy JSON state store
 }
 
-// MigrateLegacyPaths renames any surviving ~/.nightshift* paths to their
-// ~/.noctra* equivalents, but only when the old path exists and the new one
-// does not — so it's a safe no-op on fresh installs and on already-migrated
-// hosts, and never clobbers newer state. It's best-effort: a failed rename is
-// logged to stderr and does not abort startup.
+// MigrateLegacyPaths renames surviving ~/.nightshift* paths to ~/.noctra* only when the old exists and new doesn't (safe no-op, never clobbers); best-effort, a failed rename only warns.
 func MigrateLegacyPaths() {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -59,10 +46,10 @@ func MigrateLegacyPaths() {
 		oldPath := filepath.Join(home, m[0])
 		newPath := filepath.Join(home, m[1])
 		if _, err := os.Stat(oldPath); err != nil {
-			continue // old path absent — nothing to migrate
+			continue // nothing to migrate
 		}
 		if _, err := os.Stat(newPath); !os.IsNotExist(err) {
-			continue // new path already exists, or stat failed — don't clobber
+			continue // new path exists (or stat failed) — don't clobber
 		}
 		if err := os.Rename(oldPath, newPath); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not migrate %s -> %s: %v\n", oldPath, newPath, err)
@@ -72,9 +59,7 @@ func MigrateLegacyPaths() {
 	}
 }
 
-// Defaults — used when a setting is absent from both .env and the process
-// environment. Kept as exported constants so tests and the setup wizard can
-// reference them.
+// Defaults applied when a setting is absent from .env and the environment; exported so tests and the wizard can reference them.
 const (
 	DefaultLinearTeamKey    = "ENG"
 	DefaultTicketSources    = "linear"
@@ -172,9 +157,7 @@ type Config struct {
 
 	DiscordWebhookURL string
 
-	// VerboseNotifications also notifies on every ticket dispatch (plan and
-	// sweep passes included) via ALL configured notifiers — not just Telegram.
-	// Off by default: only terminal events (PR opened, blocked, etc.) are sent.
+	// VerboseNotifications notifies on every dispatch (plan/sweep included) via all notifiers; off by default (terminal events only).
 	VerboseNotifications bool
 
 	// Gemini review gate (optional)
@@ -191,9 +174,7 @@ type Config struct {
 	StateDB          string   // SQLite state database path
 	StateFile        string   // legacy JSON state file migration source
 
-	// Auto-release-label (ENG-231) — off by default. When enabled, Noctra
-	// applies a release:* label at PR creation derived from the agent's
-	// RELEASE: line in its output.
+	// Auto-release-label (ENG-231) — off by default; applies a release:* label at PR creation from the agent's RELEASE: line.
 	AutoReleaseLabel   bool
 	DefaultReleaseBump string // "patch" (default), "minor", or "major"
 
@@ -211,15 +192,11 @@ type Config struct {
 	SweepTasks    []string      // enabled task names (nil = all registered tasks)
 	SweepRepos    []string      // explicit repos to sweep (owner/name or URL); nil = all cloned
 
-	// Plan-confirm (ENG-221) — off by default; opt in via .env or per-ticket
-	// with the "plan-first" label. When enabled, Noctra runs the agent in
-	// plan-only mode first, posts the plan as a Linear comment, and waits
-	// for human approval before implementing.
+	// Plan-confirm (ENG-221) — off by default; runs the agent plan-only, posts the plan, and waits for human approval before implementing.
 	PlanConfirm      bool   // global opt-in for plan-confirm on all tickets
 	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
 
-	// Dashboard (ENG-274) — off by default. When DASHBOARD_ADDR is set,
-	// serves a read-only snapshot UI on that address.
+	// Dashboard (ENG-274) — off by default; DASHBOARD_ADDR serves a read-only snapshot UI.
 	DashboardAddr       string // listen address (e.g. ":8080"); empty = dashboard disabled
 	DashboardToken      string // required Bearer token for all dashboard requests (read-only)
 	DashboardAdminToken string // optional Bearer token for mutating control endpoints (kill/requeue/pause/retry)
@@ -233,13 +210,9 @@ type Config struct {
 	LogDir       string
 }
 
-// Load resolves config from .env (in scriptDir) and the process environment. To
-// match Noctra's bash predecessor, values declared in .env take precedence
-// over the process environment.
+// Load resolves config from .env (in scriptDir) and the environment; .env wins over the environment (matching the bash predecessor).
 func Load(scriptDir string) (*Config, error) {
-	// Rename any surviving ~/.nightshift* state into ~/.noctra* before we
-	// resolve paths, so an upgraded instance keeps its cursor/worktrees/repos.
-	MigrateLegacyPaths()
+	MigrateLegacyPaths() // before path resolution, so an upgrade keeps its state
 
 	envFile := filepath.Join(scriptDir, ".env")
 	fileEnv, err := LoadEnvFile(envFile)
@@ -360,11 +333,7 @@ func Load(scriptDir string) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate checks that required fields are set. It does NOT require REPO_PATH:
-// repos are resolved per-ticket from each Linear project's "Repo:" directive,
-// with REPO_PATH as an optional single-repo fallback — so a directive-only setup
-// is valid, and a ticket that resolves to nothing is skipped gracefully with a
-// Linear comment (not a startup failure).
+// Validate checks required fields; REPO_PATH is not required since repos resolve per-ticket from "Repo:" directives (unresolvable tickets are skipped, not startup-fatal).
 func (c *Config) Validate() error {
 	var errs []string
 	sources := c.TicketSources
@@ -382,7 +351,7 @@ func (c *Config) Validate() error {
 
 	switch c.TriggerMode {
 	case "state":
-		// Default mode — no extra validation needed (trigger state is always set via default).
+		// trigger state always has a default — nothing to validate
 	case "label":
 		if c.TriggerLabel == "" {
 			errs = append(errs, "TRIGGER_LABEL is required when TRIGGER_MODE=label")
@@ -448,10 +417,6 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("REPO_PATH (%s) is not a git repository", c.RepoPath))
 	}
 
-	// No REPO_PATH is fine: repos come from Linear project "Repo:" directives at
-	// dispatch time. An unresolvable ticket is skipped per-ticket with a Linear
-	// comment, so this isn't a startup-fatal condition.
-
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(errs, "\n  - "))
 	}
@@ -484,9 +449,7 @@ func usesSource(sources []string, name string) bool {
 	return false
 }
 
-// AgentCLI returns the CLI binary the configured backend requires on PATH.
-// Falls back to the default backend's CLI when AgentBackend is unset/unknown
-// so callers (e.g. the doctor pre-config scan) still get a sane value.
+// AgentCLI returns the configured backend's CLI binary, falling back to the default backend's when unset/unknown.
 func (c *Config) AgentCLI() string {
 	if cli, ok := agentCLIs[c.AgentBackend]; ok {
 		return cli
@@ -494,8 +457,7 @@ func (c *Config) AgentCLI() string {
 	return agentCLIs[DefaultAgentBackend]
 }
 
-// RequiredCLIs returns the external commands Noctra relies on for the
-// configured backend: the always-on base set plus the selected agent CLI.
+// RequiredCLIs returns the base CLIs plus the configured backend's agent CLI.
 func (c *Config) RequiredCLIs() []string {
 	clis := make([]string, 0, len(baseCLIs)+1)
 	clis = append(clis, baseCLIs...)
@@ -503,10 +465,7 @@ func (c *Config) RequiredCLIs() []string {
 	return clis
 }
 
-// AllCandidateCLIs returns the base CLIs plus every agent backend's CLI.
-// Used by the doctor to surface missing backends that per-ticket label
-// selection could request at runtime (e.g. "agent:codex" on a ticket when
-// only claude is installed).
+// AllCandidateCLIs returns the base CLIs plus every backend's CLI, so the doctor can flag backends a per-ticket "agent:" label might request.
 func (c *Config) AllCandidateCLIs() []string {
 	seen := map[string]bool{}
 	clis := make([]string, 0, len(baseCLIs)+len(agentCLIs))
@@ -516,8 +475,7 @@ func (c *Config) AllCandidateCLIs() []string {
 			seen[cli] = true
 		}
 	}
-	// Collect agent CLIs into a sorted slice so the output order is
-	// deterministic (Go map iteration is randomized).
+	// sort so output is deterministic (map iteration is randomized)
 	sorted := make([]string, 0, len(agentCLIs))
 	for _, cli := range agentCLIs {
 		sorted = append(sorted, cli)
@@ -532,9 +490,7 @@ func (c *Config) AllCandidateCLIs() []string {
 	return clis
 }
 
-// CheckCLIs returns the subset of RequiredCLIs that are missing from PATH.
-// `Validate` hard-errors on config; this is the softer PATH check used by
-// `run`/`cleanup` and the setup wizard's status block.
+// CheckCLIs returns the RequiredCLIs missing from PATH (the soft check for run/cleanup/wizard, vs Validate's hard config errors).
 func (c *Config) CheckCLIs() (missing []string) {
 	for _, cmd := range c.RequiredCLIs() {
 		if _, err := exec.LookPath(cmd); err != nil {
@@ -544,8 +500,7 @@ func (c *Config) CheckCLIs() (missing []string) {
 	return missing
 }
 
-// AgentCLIs returns the set of every backend's CLI binary, keyed by backend
-// name. Exposed so the doctor/wizard can render hints without a loaded Config.
+// AgentCLIs returns every backend's CLI binary keyed by backend name, for doctor/wizard hints without a loaded Config.
 func AgentCLIs() map[string]string {
 	out := make(map[string]string, len(agentCLIs))
 	for k, v := range agentCLIs {
@@ -559,9 +514,7 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// getenv returns the first non-empty value among: fileEnv[key], os.Getenv(key),
-// def. This matches the bash predecessor, where `source .env` overrode any
-// pre-existing process-env values.
+// getenv returns the first non-empty of fileEnv[key], os.Getenv(key), def (.env wins, matching the bash predecessor).
 func getenv(fileEnv map[string]string, key, def string) string {
 	if v, ok := fileEnv[key]; ok && v != "" {
 		return v
@@ -572,9 +525,7 @@ func getenv(fileEnv map[string]string, key, def string) string {
 	return def
 }
 
-// verboseNotifications resolves the VERBOSE_NOTIFICATIONS flag. It honors the
-// deprecated TELEGRAM_VERBOSE alias (with a one-time warning) when the new key
-// is absent, so existing .env files keep working after the rename.
+// verboseNotifications resolves VERBOSE_NOTIFICATIONS, honoring the deprecated TELEGRAM_VERBOSE alias (with a warning) for back-compat.
 func verboseNotifications(fileEnv map[string]string) bool {
 	if getenv(fileEnv, "VERBOSE_NOTIFICATIONS", "") != "" {
 		return getbool(fileEnv, "VERBOSE_NOTIFICATIONS", false)
@@ -624,9 +575,7 @@ func getint(fileEnv map[string]string, key string, def int) int {
 	return n
 }
 
-// getlist parses a comma-separated value into a trimmed, empty-filtered slice.
-// Returns nil (not an empty slice) when the value is absent, which lets callers
-// distinguish "no entries configured" from "configured to empty list."
+// getlist parses a comma-separated value into a trimmed, empty-filtered slice; nil when absent (vs an empty configured list).
 func getlist(fileEnv map[string]string, key string) []string {
 	v := getenv(fileEnv, key, "")
 	if v == "" {

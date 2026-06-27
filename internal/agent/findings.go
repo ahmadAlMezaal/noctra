@@ -18,8 +18,7 @@ type FindingReply struct {
 	Reply     string `json:"reply"`
 }
 
-// ExtractFindingReplies parses the per-finding JSON array from the finding
-// markers; ok is false when it's absent, malformed, or empty.
+// ExtractFindingReplies parses the per-finding JSON array between the finding markers; ok is false when absent, malformed, or empty.
 func ExtractFindingReplies(logContents string) ([]FindingReply, bool) {
 	raw, ok := between(lastAttempt(logContents), FindingsStartMarker, FindingsEndMarker)
 	if !ok {

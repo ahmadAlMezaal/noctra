@@ -18,8 +18,7 @@ type Slack struct {
 	HTTP       *http.Client
 }
 
-// NewSlack returns a Slack notifier. A non-empty webhook URL enables it;
-// an empty URL yields a disabled notifier whose Send is a safe no-op.
+// NewSlack returns a Slack notifier; a non-empty webhook URL enables it, an empty one no-ops.
 func NewSlack(webhookURL string) *Slack {
 	return &Slack{
 		Enabled:    webhookURL != "",
@@ -28,21 +27,18 @@ func NewSlack(webhookURL string) *Slack {
 	}
 }
 
-// Send posts a message in a background goroutine and returns immediately.
-// Errors are intentionally swallowed — notifications are best-effort.
+// Send posts in a background goroutine and returns immediately; errors are swallowed (best-effort).
 func (s *Slack) Send(ctx context.Context, message string) {
 	if s == nil || !s.Enabled {
 		return
 	}
 	go func() {
-		// Detach from the caller's context — the caller may return (and
-		// cancel ctx) before the HTTP round-trip completes.
+		// Detach from ctx — the caller may cancel it before the round-trip completes.
 		_ = s.post(context.Background(), message)
 	}()
 }
 
-// SendSync posts a message synchronously and returns any error. The setup
-// wizard uses this to verify a webhook URL actually works before saving.
+// SendSync posts synchronously, returning any error; the setup wizard uses it to verify the webhook URL.
 func (s *Slack) SendSync(ctx context.Context, message string) error {
 	if s == nil {
 		return fmt.Errorf("slack client is nil")

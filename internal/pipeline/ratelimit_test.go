@@ -7,11 +7,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
 )
 
-// TestRateLimited_OnlyOnFailure locks in the ENG-178 fix: a usage/rate limit is
-// a failure mode, so it must only be classified on a FAILED run. A successful
-// run whose transcript merely contains the words "rate limit" (e.g. the agent
-// edited a file that documents rate-limit handling) must never be treated as
-// rate-limited, or its completed work gets discarded.
+// TestRateLimited_OnlyOnFailure locks in ENG-178: a rate limit is classified only on a FAILED run — a successful run merely mentioning "rate limit" must not be, or its work gets discarded.
 func TestRateLimited_OnlyOnFailure(t *testing.T) {
 	codex, err := agent.New("codex")
 	if err != nil {

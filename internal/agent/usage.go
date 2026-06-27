@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// Usage holds token and cost information parsed from an agent CLI's output.
-// All fields are best-effort: backends that don't print usage stats yield zeros.
+// Usage holds best-effort token/cost info parsed from an agent CLI's output (zeros when unreported).
 type Usage struct {
 	InputTokens  int64
 	OutputTokens int64
@@ -16,9 +15,7 @@ type Usage struct {
 	CostUSD      float64
 }
 
-// Usage-parsing regexes — intentionally generous to cover the known CLI output
-// formats (Codex "tokens used: 167,195", Claude/Copilot session cost, etc.)
-// and any future format that follows common phrasing.
+// Usage-parsing regexes — generous, covering known CLI formats (Codex "tokens used: …", Claude/Copilot session cost) and similar phrasings.
 var (
 	tokensUsedRe   = regexp.MustCompile(`(?i)tokens?\s+used[:\s]+([0-9,]+)`)
 	totalTokensRe  = regexp.MustCompile(`(?i)total\s+tokens?[:\s]+([0-9,]+)`)
@@ -27,9 +24,7 @@ var (
 	costRe         = regexp.MustCompile(`(?i)(?:total\s+)?cost[:\s]+\$([0-9,.]+)`)
 )
 
-// ParseUsage extracts token and cost information from agent CLI output.
-// Returns zero-valued fields for anything not found — callers should treat
-// zeros as "not reported" rather than "no usage".
+// ParseUsage extracts token/cost info from agent CLI output; zero fields mean "not reported", not "no usage".
 func ParseUsage(output string) Usage {
 	var u Usage
 
@@ -40,15 +35,13 @@ func ParseUsage(output string) Usage {
 		u.OutputTokens = parseCommaInt(m[1])
 	}
 
-	// Total tokens: prefer an explicit "total tokens" line, fall back to the
-	// more common "tokens used" phrasing (Codex).
+	// Prefer an explicit "total tokens" line, else the common "tokens used" (Codex).
 	if m := totalTokensRe.FindStringSubmatch(output); len(m) > 1 {
 		u.TotalTokens = parseCommaInt(m[1])
 	} else if m := tokensUsedRe.FindStringSubmatch(output); len(m) > 1 {
 		u.TotalTokens = parseCommaInt(m[1])
 	}
 
-	// If we got input/output but no explicit total, sum them.
 	if u.TotalTokens == 0 && (u.InputTokens > 0 || u.OutputTokens > 0) {
 		u.TotalTokens = u.InputTokens + u.OutputTokens
 	}
@@ -78,11 +71,7 @@ type claudeResult struct {
 	} `json:"usage"`
 }
 
-// ParseClaudeJSON parses Claude Code's `--output-format json` result object,
-// returning the usage and the message text. ok is false when stdout isn't a
-// JSON result object (an error, a rate-limit message, or text mode), so the
-// caller can fall back to regex parsing. total_cost_usd is a client-side
-// estimate, populated even on subscription auth.
+// ParseClaudeJSON parses Claude Code's `--output-format json` result, returning usage + message text; false when stdout isn't a JSON result object (so the caller falls back to regex). total_cost_usd is a client-side estimate, populated even on subscription auth.
 func ParseClaudeJSON(stdout string) (usage Usage, result string, ok bool) {
 	s := strings.TrimSpace(stdout)
 	if !strings.HasPrefix(s, "{") {

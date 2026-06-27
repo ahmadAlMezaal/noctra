@@ -9,8 +9,7 @@ import (
 	"strings"
 )
 
-// BranchName returns the branch Noctra creates for a ticket
-// (e.g. "noctra/eng-42").
+// BranchName returns the branch Noctra creates for a ticket (e.g. "noctra/eng-42").
 func BranchName(identifier string) string {
 	return "noctra/" + strings.ToLower(identifier)
 }
@@ -21,17 +20,12 @@ type Worktree struct {
 	Branch string
 }
 
-// CreateWorktree creates an isolated worktree at <base>/<identifier> on a new
-// branch derived from origin/<mainBranch>. Any stale local branch or worktree
-// at the same name is removed first so retries always start clean.
+// CreateWorktree creates an isolated worktree at <base>/<identifier> on a new branch off origin/<mainBranch>, clearing any stale branch/worktree first so retries start clean.
 func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch string) (Worktree, error) {
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
 
-	// Best-effort: pull the latest main and clear any stale state. Remove the
-	// worktree BEFORE deleting the branch — git refuses to delete a branch
-	// that's still checked out in a worktree, which would leave the branch
-	// behind and make the `worktree add -b` below fail.
+	// Remove the worktree BEFORE the branch — git won't delete a branch still checked out in a worktree, which would leave it behind and fail `worktree add -b`.
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
@@ -42,13 +36,7 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// ResumeWorktree creates a worktree from an EXISTING remote branch instead of
-// starting fresh from main. Used when Noctra re-engages on an open PR to
-// address review comments or CI failures — prior commits stay intact and
-// follow-up work appears as additional commits on the same branch.
-//
-// Fails (rather than falling back to main) if origin/<branch> doesn't exist;
-// callers should use CreateWorktree for that case.
+// ResumeWorktree creates a worktree from an EXISTING remote branch (not fresh from main) so re-engagement on an open PR keeps prior commits; fails if origin/<branch> is absent (use CreateWorktree then).
 func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Worktree, error) {
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
@@ -57,9 +45,7 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 		return Worktree{}, fmt.Errorf("git fetch origin %s: %w", branch, err)
 	}
 
-	// Clear any stale worktree + local branch so the resume starts from a
-	// known-good remote tip. Worktree first: git won't delete a branch still
-	// checked out in a worktree, and a leftover branch fails `worktree add -b`.
+	// Worktree before branch: git won't delete a branch checked out in a worktree, and a leftover branch fails `worktree add -b`.
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
 
@@ -69,10 +55,7 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// CreateWorktreeWithBranch is like CreateWorktree but takes an explicit branch
-// name instead of deriving it from the identifier. Used by sweep tasks whose
-// branches follow the "noctra/sweep-<suffix>" convention instead of the
-// ticket-driven "noctra/<identifier>".
+// CreateWorktreeWithBranch is CreateWorktree with an explicit branch name (not derived from the identifier), for sweep tasks using "noctra/sweep-<suffix>".
 func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, mainBranch, branch string) (Worktree, error) {
 	wt := filepath.Join(base, identifier)
 
@@ -86,9 +69,7 @@ func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, m
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// CleanupWorktree removes the worktree for an identifier. We try the git
-// worktree machinery first (which also clears the admin entry), and fall back
-// to plain rm -rf if that fails — matching the bash predecessor.
+// CleanupWorktree removes an identifier's worktree via git (clears the admin entry too), falling back to rm -rf.
 func CleanupWorktree(ctx context.Context, repoPath, base, identifier string) {
 	if identifier == "" {
 		return

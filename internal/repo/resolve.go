@@ -15,11 +15,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 )
 
-// NonTransientError signals a failure that is deterministic and cannot
-// resolve without human intervention — e.g. a ticket whose Linear project has
-// no "Repo:" directive and no REPO_PATH fallback, or an unparseable directive.
-// The pipeline uses this to skip the ticket on future polls instead of
-// retrying every cycle and burning the dispatch budget.
+// NonTransientError signals a deterministic failure needing human intervention (e.g. no "Repo:" directive and no REPO_PATH fallback); the pipeline skips such tickets on future polls instead of retrying every cycle.
 type NonTransientError struct {
 	Err error
 }
@@ -27,17 +23,13 @@ type NonTransientError struct {
 func (e *NonTransientError) Error() string { return e.Err.Error() }
 func (e *NonTransientError) Unwrap() error { return e.Err }
 
-// Resolved describes the local repository and base branch a ticket should
-// be implemented against.
+// Resolved is the local repo path and base branch a ticket is implemented against.
 type Resolved struct {
 	Path       string
 	MainBranch string
 }
 
-// Resolver clones a ticket's repo on demand into ReposBase. Repos are routed
-// per-ticket from each Linear project's "Repo:" directive (ResolveDirect);
-// RepoPath is an optional single-repo fallback (Resolve) for tickets whose
-// project declares no directive.
+// Resolver clones a ticket's repo on demand into ReposBase; routed per-ticket via each project's "Repo:" directive (ResolveDirect), with RepoPath as an optional single-repo fallback (Resolve).
 type Resolver struct {
 	ReposBase  string
 	RepoPath   string // optional single-repo fallback
@@ -53,10 +45,7 @@ func FromConfig(cfg *config.Config) *Resolver {
 	}
 }
 
-// Resolve is the fallback path for tickets whose Linear project has no "Repo:"
-// directive: it returns the REPO_PATH single-repo fallback when configured, and
-// otherwise a NonTransientError so the pipeline skips the ticket. The directive
-// route is handled by ResolveDirect.
+// Resolve is the fallback for tickets with no "Repo:" directive: the REPO_PATH single-repo fallback when set, else a NonTransientError. The directive route is ResolveDirect.
 func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) {
 	if r.RepoPath != "" && isGitRepo(r.RepoPath) {
 		return Resolved{Path: r.RepoPath, MainBranch: r.MainBranch}, nil
@@ -71,11 +60,7 @@ func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) 
 		project)}
 }
 
-// ResolveDirect locates (cloning on demand) a repo named explicitly — by a
-// Linear project's "Repo:" directive or, in the auto-iterate path, by a PR's own
-// repository. ref may be an "owner/name" shorthand (assumed GitHub) or a full
-// https/ssh git URL. branch overrides the base branch; when empty, the repo's
-// actual default branch (read after clone) is used, falling back to MainBranch.
+// ResolveDirect locates (cloning on demand) an explicitly named repo from a "Repo:" directive or a PR's own repo. ref is an "owner/name" shorthand (GitHub) or full https/ssh URL; empty branch uses the repo's default branch (read after clone), falling back to MainBranch.
 func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resolved, error) {
 	ownerRepo, err := github.ExtractOwnerRepo(ref)
 	if err != nil {
@@ -109,8 +94,7 @@ func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resol
 	return Resolved{Path: dest, MainBranch: branch}, nil
 }
 
-// defaultBranch reads the repo's default branch from origin/HEAD (set by clone),
-// falling back to fallback when it can't be determined.
+// defaultBranch reads the repo's default branch from origin/HEAD, falling back when undetermined.
 func defaultBranch(ctx context.Context, dir, fallback string) string {
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 	out, err := cmd.Output()
@@ -124,9 +108,7 @@ func defaultBranch(ctx context.Context, dir, fallback string) string {
 	return ref
 }
 
-// checkRemoteAccess runs `git ls-remote` to verify the host can reach the
-// remote. Fast (no clone) and gives a clear failure before we commit to a
-// long clone.
+// checkRemoteAccess verifies the host can reach the remote via `git ls-remote` — fast, failing clearly before a long clone.
 func checkRemoteAccess(ctx context.Context, url string) error {
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--exit-code", url, "HEAD")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -135,9 +117,7 @@ func checkRemoteAccess(ctx context.Context, url string) error {
 	return nil
 }
 
-// ensureCloned clones url into dest if it isn't already a git repo. An mkdir
-// lock at <dest>.clone-lock serializes concurrent attempts (mkdir is atomic
-// on POSIX, so it's a portable lock primitive).
+// ensureCloned clones url into dest unless already a git repo; an mkdir lock at <dest>.clone-lock serializes concurrent attempts (mkdir is atomic on POSIX).
 func ensureCloned(ctx context.Context, url, dest string) error {
 	const (
 		pollInterval = 2 * time.Second
@@ -158,7 +138,7 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 		if !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("acquire clone lock: %w", err)
 		}
-		// Lock is held — either we'll inherit the result or time out.
+		// Lock held by another caller — inherit its result or time out.
 		if isGitRepo(dest) {
 			return nil
 		}
@@ -174,24 +154,17 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 	}
 	defer os.Remove(lock)
 
-	// Re-check after acquiring — another caller may have finished the clone
-	// just before we got the lock.
+	// Re-check: another caller may have finished just before we got the lock.
 	if isGitRepo(dest) {
 		return nil
 	}
 
-	// Clone into a temp dir, then atomically rename into place. `git clone`
-	// creates dest/.git early (before objects/refs are fetched), so cloning
-	// straight into dest would make isGitRepo(dest) true mid-clone — and a
-	// concurrent Resolve (or the lock-loser's poll) would then use a partial
-	// repo whose origin/<main> doesn't exist yet. The rename makes dest appear
-	// only once the clone is complete. (Same temp-then-rename trick as
-	// state.writeAtomic; the temp lives beside dest so the rename is atomic.)
+	// Clone into a temp dir then atomically rename in. `git clone` creates dest/.git before fetching objects/refs, so cloning straight into dest would make isGitRepo(dest) true mid-clone — a concurrent reader would use a partial repo whose origin/<main> doesn't exist yet. The rename (temp beside dest, like state.writeAtomic) exposes dest only when complete.
 	tmp, err := os.MkdirTemp(filepath.Dir(dest), filepath.Base(dest)+".cloning-*")
 	if err != nil {
 		return fmt.Errorf("create clone temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmp) }() // no-op once renamed away; cleans up on any failure
+	defer func() { _ = os.RemoveAll(tmp) }() // no-op once renamed; cleans up on failure
 
 	cmd := exec.CommandContext(ctx, "git", "clone", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -208,24 +181,17 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// SlugFromPath extracts the directory-name slug from a local repo path.
-// It's the inverse of Slug applied to the base directory — e.g.
-// "/home/user/.noctra-repos/my-repo" → "my-repo".
+// SlugFromPath returns the directory-name slug of a local repo path (e.g. ".../my-repo" → "my-repo").
 func SlugFromPath(repoPath string) string {
 	return filepath.Base(repoPath)
 }
 
-// DefaultBranchOf reads the default branch of a local clone by inspecting
-// origin/HEAD. Falls back to "main" when it can't be determined.
+// DefaultBranchOf reads a local clone's default branch from origin/HEAD, falling back to "main".
 func DefaultBranchOf(ctx context.Context, repoPath string) string {
 	return defaultBranch(ctx, repoPath, "main")
 }
 
-// AllRepoPaths returns every local repo Noctra knows about: every on-demand
-// clone found under ReposBase, plus the REPO_PATH fallback (if set and valid).
-// Used by the cleanup subcommand and startup cleanup. Directive-only routing
-// means there's no static registry, so the cloned repos are discovered by
-// scanning ReposBase rather than enumerating configured project names.
+// AllRepoPaths returns every local repo Noctra knows: on-demand clones under ReposBase plus the REPO_PATH fallback. Directive-only routing has no registry, so repos are discovered by scanning ReposBase.
 func (r *Resolver) AllRepoPaths() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -249,15 +215,7 @@ func (r *Resolver) AllRepoPaths() []string {
 	return out
 }
 
-// AllRepoRemotes returns the `origin` remote URL of every local repo from
-// AllRepoPaths. The PR watcher uses this to discover which repos to scan for
-// Noctra-authored PRs — with directive-only routing the set of repos is
-// whatever has been cloned so far, so it's derived from the clones on disk.
-//
-// The git reads run concurrently and honour ctx: this is called on the PR-poll
-// path (under that poll's timeout), so a single hung `git` must neither block
-// the loop nor outlive the scan. Results are written to fixed indices to keep
-// the order stable without a lock.
+// AllRepoRemotes returns the `origin` URL of every AllRepoPaths repo, so the PR watcher knows which repos to scan (derived from on-disk clones, since routing is registry-free). Reads run concurrently under ctx — a hung `git` mustn't block the poll loop or outlive its timeout; fixed indices keep order stable without a lock.
 func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
 	paths := r.AllRepoPaths()
 	if len(paths) == 0 {

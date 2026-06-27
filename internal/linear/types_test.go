@@ -12,18 +12,15 @@ func TestClarificationComments_FiltersSystemComments(t *testing.T) {
 			{Body: "This comment thread is synced to a corresponding GitHub issue."},
 			// A genuine human clarification — kept.
 			{Body: "Use https://getnoctra.dev as the canonical URL.", User: &User{Name: "Ahmad"}},
-			// Noctra's own BLOCKED notification — filtered (would otherwise be
-			// echoed back at the agent).
+			// Noctra's own BLOCKED notice — filtered (else echoed back at the agent).
 			{Body: "🚧 **Noctra needs your input** (attempt 1/3)\n\nThe agent got blocked..."},
-			// Legacy pre-rename (Nightshift) automated notice — still filtered so a
-			// re-dispatched older ticket doesn't echo it back to the agent (ENG-204).
+			// Legacy pre-rename (Nightshift) notice — still filtered (ENG-204).
 			{Body: "🚧 **Nightshift needs your input** (attempt 2/3)\n\nThe agent got blocked..."},
 			// Whitespace-only — skipped.
 			{Body: "   "},
 			// Author missing — kept, attributed to "Someone".
 			{Body: "Also add a badge near the title."},
-			// Human reply that QUOTES the bot notification, then adds their own
-			// clarification — must be kept, not mistaken for a system comment.
+			// Human reply quoting the bot notice then adding their own — kept, not a system comment.
 			{Body: "> 🚧 **Noctra needs your input**\n\nActually, use the other URL.", User: &User{Name: "Ahmad"}},
 		}},
 	}
@@ -52,8 +49,7 @@ func TestProjectRepoDirective(t *testing.T) {
 		wantRepo, wantBr string
 	}{
 		{"none", "", "Just a normal project summary.", "", ""},
-		// Directive in the markdown body (content) — the real-world case that
-		// the ENG-200 bug broke (we used to read description only).
+		// Directive in the markdown body — the case ENG-200 broke (we read description only).
 		{"content repo only", "Autonomous agent.\n\nRepo: ahmadAlMezaal/noctra-site", "", "ahmadAlMezaal/noctra-site", ""},
 		{"content repo + branch", "Repo: owner/site\nBranch: staging", "", "owner/site", "staging"},
 		{"content full https url", "Repo: https://github.com/owner/site", "", "https://github.com/owner/site", ""},

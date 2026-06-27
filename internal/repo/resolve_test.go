@@ -11,10 +11,7 @@ import (
 	"testing"
 )
 
-// TestEnsureCloned_ConcurrentProducesCompleteRepo drives two concurrent
-// ensureCloned calls at the same un-cloned dest and asserts the result is a
-// complete clone (origin/main resolvable) — i.e. nobody observes the repo
-// mid-clone. Regression test for the cold-clone race (ENG-180).
+// TestEnsureCloned_ConcurrentProducesCompleteRepo: two concurrent clones of one dest yield a complete repo (origin/main resolvable) — nobody sees it mid-clone. Cold-clone race regression (ENG-180).
 func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -59,8 +56,7 @@ func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 	if !isGitRepo(dest) {
 		t.Fatal("dest is not a git repo after clone")
 	}
-	// The clone must be complete: origin/main must resolve. (A repo observed
-	// mid-clone would fail here — exactly the bug.)
+	// Clone must be complete: origin/main resolves (a mid-clone repo would fail here — the bug).
 	rp := exec.Command("git", "rev-parse", "--verify", "origin/main")
 	rp.Dir = dest
 	if out, err := rp.CombinedOutput(); err != nil {
@@ -73,8 +69,7 @@ func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 	}
 }
 
-// fakeGitRepo creates a directory containing a .git/ subdir so isGitRepo
-// reports true without us shelling out to git.
+// fakeGitRepo makes a dir with a .git/ subdir so isGitRepo reports true without shelling out.
 func fakeGitRepo(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()

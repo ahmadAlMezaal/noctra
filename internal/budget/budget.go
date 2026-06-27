@@ -1,6 +1,4 @@
-// Package budget tracks token and cost usage across agent runs, enforces
-// configurable daily caps, and provides a pause/resume mechanism for the
-// pipeline when caps or rate limits are hit.
+// Package budget tracks token/cost usage across agent runs, enforces daily caps, and provides pause/resume for the pipeline when caps or rate limits hit.
 package budget
 
 import (
@@ -33,11 +31,7 @@ func (s Stats) HasCaps() bool {
 	return s.MaxDailyTokens > 0 || s.MaxDailyUSD > 0
 }
 
-// Tracker tracks token/cost usage per session and per day, enforces daily caps,
-// and provides a concurrency-safe pause/resume mechanism. It is always safe to
-// use — when no caps are configured, Record and Exceeded are lightweight no-ops
-// (Exceeded always returns false), and Pause/IsPaused remain functional for
-// rate-limit pausing.
+// Tracker tracks per-session and per-day token/cost usage, enforces daily caps, and offers concurrency-safe pause/resume. With no caps, Exceeded always returns false but Pause/IsPaused still work for rate-limit pausing.
 type Tracker struct {
 	mu  sync.Mutex
 	cfg Config
@@ -52,8 +46,7 @@ type Tracker struct {
 	pausedUntil time.Time
 	pauseReason string
 
-	// now is a hook for testing — defaults to time.Now.
-	now func() time.Time
+	now func() time.Time // testing hook, defaults to time.Now
 }
 
 // New returns a Tracker with the given caps. A zero Config is valid (no caps).
@@ -65,9 +58,7 @@ func New(cfg Config) *Tracker {
 	}
 }
 
-// Record adds tokens and cost from one agent run to both session and daily
-// totals. Zero values (backend didn't report usage) are fine — they're a
-// no-op on the cumulative counters.
+// Record adds one run's tokens and cost to the session and daily totals (zeros are a harmless no-op).
 func (t *Tracker) Record(tokens int64, costUSD float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -78,8 +69,7 @@ func (t *Tracker) Record(tokens int64, costUSD float64) {
 	t.dailyCostUSD += costUSD
 }
 
-// Exceeded reports whether any configured daily cap has been hit. Returns
-// false when no caps are configured.
+// Exceeded reports whether any configured daily cap has been hit (false when none configured).
 func (t *Tracker) Exceeded() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -97,8 +87,7 @@ func (t *Tracker) exceeded() bool {
 	return false
 }
 
-// ExceededReason returns a human-readable explanation of which cap was hit,
-// or "" if no cap is exceeded.
+// ExceededReason explains which cap was hit, or "" if none is exceeded.
 func (t *Tracker) ExceededReason() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -114,8 +103,7 @@ func (t *Tracker) ExceededReason() string {
 	return ""
 }
 
-// Pause sets the tracker into a paused state with a reason and an optional
-// auto-resume time. Pass a zero time for indefinite pause (e.g. manual resume).
+// Pause pauses the tracker with a reason and optional auto-resume time (zero time = indefinite).
 func (t *Tracker) Pause(reason string, until time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -124,9 +112,7 @@ func (t *Tracker) Pause(reason string, until time.Time) {
 	t.pausedUntil = until
 }
 
-// IsPaused reports the current pause state. If the pausedUntil time has
-// passed, it auto-resumes and returns false. This is the primary check the
-// pipeline's poll loop calls before dispatching.
+// IsPaused reports the pause state (auto-resuming when pausedUntil has passed); the poll loop's primary pre-dispatch check.
 func (t *Tracker) IsPaused() (paused bool, until time.Time, reason string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -138,8 +124,7 @@ func (t *Tracker) IsPaused() (paused bool, until time.Time, reason string) {
 	return true, t.pausedUntil, t.pauseReason
 }
 
-// maybeAutoResume clears the pause state when the pausedUntil timer has
-// expired. Must be called with t.mu held.
+// maybeAutoResume clears the pause once pausedUntil has expired. Caller holds t.mu.
 func (t *Tracker) maybeAutoResume() {
 	if !t.paused {
 		return
@@ -160,9 +145,7 @@ func (t *Tracker) Resume() {
 	t.pausedUntil = time.Time{}
 }
 
-// Stats returns a point-in-time snapshot of usage and pause state.
-// It applies the same auto-resume logic as IsPaused so callers (e.g.
-// /status) never see stale pause information after the timer has expired.
+// Stats returns a snapshot of usage and pause state, applying IsPaused's auto-resume so callers never see stale pause info.
 func (t *Tracker) Stats() Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -181,8 +164,7 @@ func (t *Tracker) Stats() Stats {
 	}
 }
 
-// maybeResetDaily resets the daily counters when a new UTC day has started.
-// Must be called with t.mu held.
+// maybeResetDaily resets the daily counters when a new UTC day has started. Caller holds t.mu.
 func (t *Tracker) maybeResetDaily() {
 	today := todayUTC(t.now())
 	if today.After(t.dayStart) {
@@ -204,8 +186,7 @@ func todayUTC(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// formatTokens renders a token count in a compact human form (e.g. "1.5M",
-// "250K", "1,234").
+// formatTokens renders a token count compactly (e.g. "1.5M", "250K", "1,234").
 func formatTokens(n int64) string {
 	switch {
 	case n >= 1_000_000:
@@ -223,6 +204,5 @@ func formatTokens(n int64) string {
 	}
 }
 
-// FormatTokens is the exported version of formatTokens for use by callers
-// that build display strings (banner, Telegram).
+// FormatTokens is the exported formatTokens for display strings (banner, Telegram).
 func FormatTokens(n int64) string { return formatTokens(n) }

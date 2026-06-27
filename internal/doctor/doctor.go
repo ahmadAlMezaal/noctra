@@ -24,14 +24,11 @@ type check struct {
 	hint   string
 }
 
-// gather runs every preflight check and returns the results. It performs no
-// output, so both the human (`Run`) and machine (`RunJSON`) renderers share it.
+// gather runs every preflight check side-effect-free so Run and RunJSON share it.
 func gather(scriptDir string) []check {
 	var checks []check
 
-	// Load config first so the CLI check knows which agent backend (and thus
-	// which agent CLI) is required. If config can't load, fall back to the
-	// default backend's CLI set so we still surface useful diagnostics.
+	// Load config first so the CLI check knows the required agent backend; on failure fall back to the default backend's CLIs.
 	cfg, loadErr := config.Load(scriptDir)
 
 	// ── Required CLIs ────────────────────────────────────────────────────────
@@ -39,7 +36,6 @@ func gather(scriptDir string) []check {
 	if loadErr == nil {
 		clis = cfg.RequiredCLIs()
 	} else {
-		// Config didn't load — check git/gh plus the default backend's CLI.
 		clis = []string{"git", "gh", config.AgentCLIs()[config.DefaultAgentBackend]}
 	}
 	for _, cli := range clis {
@@ -63,8 +59,7 @@ func gather(scriptDir string) []check {
 	}
 
 	// ── Optional agent CLIs (per-ticket label selection) ─────────────────────
-	// Tickets can override the default backend with an "agent:<name>" label,
-	// so non-default agent CLIs are surfaced as advisory (always marked OK).
+	// A ticket's "agent:<name>" label can override the backend, so non-default CLIs are advisory-only (always OK).
 	if loadErr == nil {
 		defaultCLI := cfg.AgentCLI()
 		for _, cli := range cfg.AllCandidateCLIs() {
@@ -137,8 +132,7 @@ func Run(scriptDir string) error {
 	return nil
 }
 
-// jsonCheck is the machine-readable shape of a single check, emitted by
-// `noctra doctor --json`.
+// jsonCheck is a single check as emitted by `noctra doctor --json`.
 type jsonCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
@@ -146,10 +140,7 @@ type jsonCheck struct {
 	Hint   string `json:"hint,omitempty"`
 }
 
-// RunJSON performs all preflight checks and writes them to w as a JSON array
-// of {name, ok, detail, hint} objects. It returns a non-nil error when any
-// check failed (matching Run's exit semantics) so `--json` callers can still
-// branch on success, but the JSON is always written first.
+// RunJSON writes all checks to w as a {name, ok, detail, hint} JSON array, then returns a non-nil error if any failed.
 func RunJSON(scriptDir string, w io.Writer) error {
 	checks := gather(scriptDir)
 
@@ -228,9 +219,7 @@ func checkGHAuth() check {
 	return check{name: "gh auth", ok: true, detail: "authenticated"}
 }
 
-// checkLinearKey tests whether the configured Linear credential can reach
-// Linear. It prefers an app-actor OAuth token (LINEAR_OAUTH_TOKEN) when set,
-// falling back to the personal API key.
+// checkLinearKey pings Linear with the configured credential, preferring an OAuth token over the personal API key.
 func checkLinearKey(cfg *config.Config) check {
 	name := "LINEAR_API_KEY"
 	var client *linear.Client
@@ -279,10 +268,7 @@ func checkLinearKey(cfg *config.Config) check {
 	return check{name: name, ok: true, detail: fmt.Sprintf("authenticated as %s", who)}
 }
 
-// checkRepos reports how repos are routed. Repos are resolved per-ticket from
-// each Linear project's `Repo: owner/name` directive, with REPO_PATH as an
-// optional single-repo fallback — there's nothing to validate up front, so this
-// is always an informational OK.
+// checkDashboard reports whether the dashboard is enabled and warns if exposed without auth.
 func checkDashboard(cfg *config.Config) check {
 	if cfg.DashboardAddr == "" {
 		return check{
@@ -310,6 +296,7 @@ func checkDashboard(cfg *config.Config) check {
 	}
 }
 
+// checkRepos is informational: repos route per-ticket via Linear `Repo:` directives (REPO_PATH is an optional fallback), so nothing validates up front.
 func checkRepos(cfg *config.Config) check {
 	if cfg.RepoPath != "" {
 		return check{

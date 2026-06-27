@@ -1,10 +1,5 @@
-// Package selfupdate implements npm-style in-place upgrades for the noctra
-// binary. It shells out to the (already-required, already-authed) `gh` CLI to
-// query the latest GitHub release and download the GoReleaser archive for the
-// current platform, verifies the SHA-256 against the published checksums file,
-// untars the `noctra` binary, and atomically swaps it over the running
-// executable. Only the binary is replaced — logs (config dir `logs/` +
-// journald) and state (`~/.noctra-*`) are untouched.
+// Package selfupdate does in-place binary upgrades: via `gh` it downloads the latest GoReleaser archive
+// for this platform, verifies its SHA-256, and atomically swaps the binary; logs and state are untouched.
 package selfupdate
 
 import (
@@ -27,8 +22,7 @@ import (
 
 const repo = "ahmadAlMezaal/noctra"
 
-// Latest returns the tag name of the latest GitHub release (e.g. "v0.1.0")
-// by shelling out to `gh release view`.
+// Latest returns the latest GitHub release tag (e.g. "v0.1.0") via `gh release view`.
 func Latest(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "release", "view",
 		"--repo", repo, "--json", "tagName")
@@ -51,18 +45,14 @@ func Latest(ctx context.Context) (string, error) {
 	return res.TagName, nil
 }
 
-// IsNewer reports whether latest is a strictly newer version than current.
-// Both are compared as semver-ish major.minor.patch after stripping a leading
-// "v" and any pre-release/build suffix. It returns false when current can't be
-// compared (empty, "dev", or carries a "-dev"/"-snapshot" suffix) — local and
-// development builds never advertise an update.
+// IsNewer reports whether latest is strictly newer than current (compared as major.minor.patch);
+// false when current is empty/"dev"/a "-dev"/"-snapshot" build, so dev builds never advertise updates.
 func IsNewer(latest, current string) bool {
 	current = strings.TrimSpace(current)
 	if current == "" || current == "dev" {
 		return false
 	}
-	// Development / snapshot builds (e.g. "0.4.0-dev") can't be meaningfully
-	// compared to a release tag — don't nag.
+	// Dev/snapshot builds can't be compared to a release tag — don't nag.
 	if i := strings.IndexAny(current, "-+"); i >= 0 {
 		if suf := current[i:]; strings.Contains(suf, "dev") || strings.Contains(suf, "snapshot") {
 			return false
@@ -81,9 +71,7 @@ func IsNewer(latest, current string) bool {
 	return false
 }
 
-// parseSemver extracts [major, minor, patch] from a version string, tolerating
-// a leading "v" and a trailing pre-release/build suffix. Missing components
-// default to 0.
+// parseSemver extracts [major, minor, patch] from a version, tolerating a leading "v" and a suffix; missing parts default to 0.
 func parseSemver(v string) ([3]int, bool) {
 	var out [3]int
 	v = strings.TrimSpace(v)
@@ -108,20 +96,15 @@ func parseSemver(v string) ([3]int, bool) {
 	return out, true
 }
 
-// assetName builds the GoReleaser archive filename for the given platform,
-// matching the name_template in .goreleaser.yaml:
+// assetName builds the GoReleaser archive filename, matching the name_template in .goreleaser.yaml
+// (tag's leading "v" stripped; GOARM=7 → "armv7" suffix, amd64/arm64 have no Arm component):
 //
 //	{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}.tar.gz
-//
-// GoReleaser's {{ .Version }} is the tag with the leading "v" stripped. For the
-// 32-bit arm build GOARM=7 produces an "armv7" suffix; amd64/arm64 have no Arm
-// component.
 func assetName(version, goos, goarch string) string {
 	ver := strings.TrimPrefix(version, "v")
 	arch := goarch
 	if goarch == "arm" {
-		// GOARM is fixed to 7 in .goreleaser.yaml.
-		arch = "armv7"
+		arch = "armv7" // GOARM is fixed to 7 in .goreleaser.yaml.
 	}
 	return fmt.Sprintf("noctra_%s_%s_%s.tar.gz", ver, goos, arch)
 }
@@ -197,8 +180,7 @@ func displayVersion(v string) string {
 	return v
 }
 
-// verifyChecksum confirms the archive's SHA-256 matches the entry for assetName
-// in the GoReleaser checksums.txt file (lines of "<hex>  <filename>").
+// verifyChecksum confirms the archive's SHA-256 matches assetName's entry in checksums.txt ("<hex>  <filename>" lines).
 func verifyChecksum(archivePath, checksumsPath, assetName string) error {
 	data, err := os.ReadFile(checksumsPath)
 	if err != nil {
@@ -266,10 +248,7 @@ func extractBinary(archivePath string) ([]byte, error) {
 	return nil, errors.New("noctra binary not found in archive")
 }
 
-// installBinary atomically swaps the new binary over the currently-running
-// executable. It resolves os.Executable() through symlinks, writes to a temp
-// file in the same directory (so os.Rename is atomic on the same filesystem),
-// chmods 0755, and renames into place.
+// installBinary atomically swaps the new binary over the running exe: write to a same-dir temp (keeps os.Rename atomic), chmod 0755, rename.
 func installBinary(data []byte) error {
 	exe, err := os.Executable()
 	if err != nil {

@@ -1,12 +1,4 @@
-// Package watch polls Noctra-authored PRs for actionable review feedback
-// and emits PRChanges describing what's new since the last poll. Combined
-// with the state.Store cursor, the watcher only ever surfaces events that
-// haven't been processed yet — restarts don't re-react to historical
-// comments.
-//
-// The watcher is intentionally side-effect-free: it doesn't dispatch Claude,
-// doesn't touch worktrees, doesn't post to Linear. It just classifies. The
-// pipeline layer drives the actual response.
+// Package watch classifies Noctra-authored PRs into PRChanges (new feedback since the state cursor); side-effect-free — the pipeline drives the response.
 package watch
 
 import (
@@ -21,8 +13,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// EventType distinguishes comments from reviews so the prompt builder can
-// label them appropriately.
+// EventType distinguishes comments from reviews for the prompt builder.
 type EventType string
 
 const (
@@ -30,8 +21,7 @@ const (
 	EventReview  EventType = "review"
 )
 
-// Event is one new piece of feedback on a PR — either a conversation comment
-// or a submitted review.
+// Event is one new piece of feedback on a PR — a conversation comment or a submitted review.
 type Event struct {
 	Type        EventType
 	Author      github.Actor
@@ -44,16 +34,13 @@ type Event struct {
 	CommentID   string // source comment ID, for reacting; empty for reviews
 }
 
-// CIFailure describes a head commit whose CI has completed with at least one
-// failing check and which Noctra hasn't re-engaged on yet.
+// CIFailure is a head commit whose CI completed with ≥1 failing check that Noctra hasn't re-engaged on yet.
 type CIFailure struct {
 	SHA          string         // head commit the failures belong to
 	FailedChecks []github.Check // only the failing checks
 }
 
-// PRChanges packages everything the pipeline needs to act on one PR's worth
-// of new feedback. NewestComment / NewestReview are the cursors the caller
-// should write back into the state store *after* the iteration succeeds.
+// PRChanges is one PR's worth of new feedback; NewestComment/NewestReview are cursors to persist *after* the iteration succeeds.
 type PRChanges struct {
 	PR            github.PR
 	Details       *github.Details
@@ -64,27 +51,18 @@ type PRChanges struct {
 	CIFailure     *CIFailure // non-nil when the head commit's CI failed and is unhandled
 }
 
-// Watcher couples the gh client with the state store and the trusted-reviewer
-// allowlist.
+// Watcher couples the gh client with the state store and the trusted-reviewer allowlist.
 type Watcher struct {
 	gh      *github.Client
 	store   *state.Store
 	trusted map[string]bool
-	// reposFn returns the git URLs of the repos to scan for Noctra PRs.
-	// It's a function (not a static slice) because directive-only routing
-	// clones repos on demand — the set grows as tickets are dispatched, so the
-	// watcher re-discovers them on every poll. It takes the scan context so the
-	// underlying git reads honour the poll timeout. May be nil (scans nothing).
+	// reposFn returns repo git URLs to scan; a func (not a slice) because directive routing clones on demand, so it's re-discovered each poll. May be nil (scans nothing).
 	reposFn func(context.Context) []string
 }
 
-// New constructs a Watcher. trusted is the list of GitHub logins/bot names
-// whose feedback should be acted on; humans are always trusted, so trusted
-// only meaningfully restricts bots. reposFn is evaluated on each Scan to get
-// the current set of repos to poll.
+// New constructs a Watcher; trusted lists logins/bots to act on (humans always trusted, so it only restricts bots), reposFn is evaluated per Scan.
 func New(gh *github.Client, store *state.Store, reposFn func(context.Context) []string, trusted []string) *Watcher {
-	// GitHub logins are case-insensitive; normalise to lower so a config
-	// entry like "Gemini-Code-Assist" still matches the API's casing.
+	// GitHub logins are case-insensitive; normalise to lower to match the API's casing.
 	t := make(map[string]bool, len(trusted))
 	for _, login := range trusted {
 		if login = strings.ToLower(strings.TrimSpace(login)); login != "" {
@@ -94,9 +72,7 @@ func New(gh *github.Client, store *state.Store, reposFn func(context.Context) []
 	return &Watcher{gh: gh, store: store, trusted: t, reposFn: reposFn}
 }
 
-// Scan lists all open Noctra PRs and returns one PRChanges per PR with
-// at least one new event (actionable OR skipped). PRs with no changes since
-// the last cursor are omitted from the result so callers can short-circuit.
+// Scan returns one PRChanges per open Noctra PR with new events; unchanged PRs are omitted.
 func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 	var repoURLs []string
 	if w.reposFn != nil {
@@ -120,9 +96,7 @@ func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 
 		cursor := w.store.Get(pr.URL)
 		ch := w.diff(pr, details, cursor)
-		// cursorMoved covers PRs whose only new events are non-actionable
-		// (APPROVED review, empty COMMENTED wrapper): no Events/Skipped, but
-		// still returned so the caller persists the advanced cursor.
+		// Return PRs whose only new events are non-actionable (APPROVED, empty COMMENTED) so the caller still persists the advanced cursor.
 		cursorMoved := ch.NewestComment.After(cursor.LastCommentAt) ||
 			ch.NewestReview.After(cursor.LastReviewAt)
 		if len(ch.Events) > 0 || len(ch.Skipped) > 0 || cursorMoved || ch.CIFailure != nil {
@@ -132,10 +106,7 @@ func (w *Watcher) Scan(ctx context.Context) ([]PRChanges, error) {
 	return out, nil
 }
 
-// diff produces a PRChanges for one PR by comparing comments+reviews against
-// the cursor in state. Events past the cursor get classified into actionable
-// or skipped; events at-or-before the cursor are silently ignored (already
-// handled in a prior poll).
+// diff classifies comments+reviews past the cursor as actionable or skipped; at-or-before the cursor are ignored (handled in a prior poll).
 func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PRChanges {
 	out := PRChanges{
 		PR:            pr,
@@ -166,9 +137,7 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 		}
 	}
 
-	// Inline review-thread comments share the comment cursor — they're
-	// "comments" too, and comment timestamps are globally ordered, so a new
-	// inline comment always sorts after anything seen in a prior poll.
+	// Inline review-thread comments share the comment cursor — timestamps are globally ordered, so a new one always sorts after anything seen before.
 	for _, rc := range d.ReviewComments {
 		if !rc.CreatedAt.After(cursor.LastCommentAt) {
 			continue
@@ -201,14 +170,12 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 			out.NewestReview = r.SubmittedAt
 		}
 
-		// Reviews that don't request a response: skip the prompt but still
-		// advance the cursor (no need to revisit them).
+		// Reviews needing no response: skip the prompt but still advance the cursor.
 		if r.State == "APPROVED" || r.State == "DISMISSED" {
 			continue
 		}
 		if r.State == "COMMENTED" && strings.TrimSpace(r.Body) == "" {
-			// Empty "just commented" reviews are wrappers around inline
-			// comments; nothing actionable at the review level.
+			// Empty COMMENTED reviews wrap inline comments; nothing actionable at review level.
 			continue
 		}
 
@@ -226,9 +193,7 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 		}
 	}
 
-	// CI: act at most once per head commit. Keyed by SHA, not timestamp —
-	// pushing a fix changes the SHA, so a fresh failure becomes eligible
-	// again (bounded by the iteration cap).
+	// CI: act once per head commit. Keyed by SHA not timestamp — a fix changes the SHA so a fresh failure is eligible again (bounded by the iteration cap).
 	if d.HeadRefOid != "" && d.HeadRefOid != cursor.LastCISHA {
 		if failed := failedChecks(d.StatusCheckRollup); len(failed) > 0 {
 			out.CIFailure = &CIFailure{SHA: d.HeadRefOid, FailedChecks: failed}
@@ -238,9 +203,7 @@ func (w *Watcher) diff(pr github.PR, d *github.Details, cursor state.PRState) PR
 	return out
 }
 
-// failedChecks returns any checks that have reached a final failing state.
-// It does not wait for unrelated pending checks: a manual approval or stuck
-// queue should not indefinitely hide a real failure that is already final.
+// failedChecks returns checks in a final failing state — a stuck pending check shouldn't hide an already-final failure.
 func failedChecks(checks []github.Check) []github.Check {
 	if len(checks) == 0 {
 		return nil
@@ -254,11 +217,7 @@ func failedChecks(checks []github.Check) []github.Check {
 	return failed
 }
 
-// actionable decides whether an event should be acted on. Humans are always
-// trusted; bots are acted on only if their login appears in the trusted list.
-// This is the lesson from PR #50: a bot reviewer was confidently wrong about
-// our golangci-lint config, and blindly applying its suggestion would have
-// rewritten valid v2 syntax to broken v1.
+// actionable: humans always trusted; bots only if their login is in the trusted list (PR #50 lesson — a bot was confidently wrong about our golangci-lint v2 config).
 func (w *Watcher) actionable(ev Event) bool {
 	if github.IsNoctraReply(ev.Body) {
 		return false
@@ -272,9 +231,7 @@ func (w *Watcher) actionable(ev Event) bool {
 	return w.trusted[strings.ToLower(ev.Author.Login)]
 }
 
-// botCommandRe matches a comment whose whole body is a bot-directed command
-// ("@codex review", "@gemini", "/review") — meant for another tool, not Noctra.
-// A comment mixing a command with real feedback won't match and is still acted on.
+// botCommandRe matches a body that's entirely a bot-directed command ("@codex review", "/review") — meant for another tool; a command mixed with real feedback won't match and is still acted on.
 var botCommandRe = regexp.MustCompile(`(?i)^[@/][\w-]+(\s+(review|fix|fixup|please|now|again|go|run|retry|recheck))?$`)
 
 func isBotDirectedCommand(body string) bool {

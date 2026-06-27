@@ -60,7 +60,6 @@ func Run(scriptDir string) error {
 	w.printCLIStatus(agentBackend)
 	fmt.Println()
 
-	// ── Linear ─────────────────────────────────────────────────────────────────
 	fmt.Println("─── Linear ───")
 	var linearKey string
 	for {
@@ -106,7 +105,6 @@ func Run(scriptDir string) error {
 		clearOAuth = true
 	}
 
-	// Trigger mode: state (column) or label.
 	triggerMode := w.chooseTriggerMode(existingEnv["TRIGGER_MODE"])
 	trigger := ""
 	triggerLabel := ""
@@ -128,13 +126,11 @@ func Run(scriptDir string) error {
 	})
 	fmt.Println()
 
-	// ── Repos: directive-first routing ───────────────────────────────────────────
 	mainBranch := w.askEx("Default main branch", askOpts{
 		existing: existingEnv["MAIN_BRANCH"],
 		fallback: config.DefaultMainBranch,
 	})
 
-	// Repos are routed per-ticket from each Linear project's description.
 	fmt.Println()
 	fmt.Println("─── Repos ───")
 	fmt.Println("Repos are declared per-project in Linear. Add this to each project's")
@@ -142,7 +138,6 @@ func Run(scriptDir string) error {
 	fmt.Println("  Repo: your-org/your-repo")
 	fmt.Println("  Branch: main   (optional — defaults to the repo's default branch)")
 
-	// ── Optional REPO_PATH fallback ────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Single-repo fallback (optional) ───")
 	fmt.Println("Used only for tickets whose Linear project has no `Repo:` directive.")
@@ -156,7 +151,6 @@ func Run(scriptDir string) error {
 		}
 	}
 
-	// ── Safety limits ──────────────────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Safety limits ───")
 	concurrency := w.askInt("Max concurrent tickets", existingEnv["MAX_CONCURRENT"], config.DefaultMaxConcurrent, 1)
@@ -977,7 +971,6 @@ func (v envValues) toMap() map[string]string {
 		m["TRIGGER_STATE"] = v.trigger
 	}
 
-	// REPO_PATH: include only when set (empty means the user skipped it).
 	if v.repoPath != "" {
 		m["REPO_PATH"] = v.repoPath
 	}

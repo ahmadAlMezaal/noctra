@@ -1,11 +1,6 @@
-// Package telegram implements a long-polling listener for inbound Telegram
-// messages. It authenticates the sender against the configured chat ID,
-// parses commands, and routes them to registered handlers.
-//
-// This is the inbound counterpart to internal/notify (outbound). Both use the
-// same TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from .env — same bot, now
-// bidirectional. Long-polling via getUpdates is the right fit for a Pi behind
-// a home network: no inbound ports, no tunnel, no TLS to manage.
+// Package telegram is the inbound (getUpdates long-polling) counterpart to internal/notify:
+// it authenticates the sender against TELEGRAM_CHAT_ID and routes commands to handlers.
+// Long-polling needs no inbound ports/tunnel/TLS, fitting a Pi behind a home network.
 package telegram
 
 import (
@@ -27,20 +22,14 @@ type Listener struct {
 	http       *http.Client
 	dispatcher *Dispatcher
 
-	// pollTimeout is the long-poll timeout sent to Telegram's getUpdates.
-	// Telegram holds the connection open for this duration, then returns an
-	// empty result if no updates arrived. Separate from the HTTP client
-	// timeout (which must be longer to avoid premature cancellation).
+	// pollTimeout is getUpdates' long-poll timeout; the HTTP client timeout must exceed it.
 	pollTimeout int
 
-	// baseURL overrides the Telegram API base for testing. When empty, the
-	// production URL (https://api.telegram.org/bot<token>) is used.
+	// baseURL overrides the Telegram API base for testing; empty = production URL.
 	baseURL string
 }
 
-// New creates a Listener. The chatID is used for sender authorisation — only
-// messages from this chat are processed; everything else is silently ignored.
-// Leading/trailing whitespace is trimmed from chatID for robustness.
+// New creates a Listener that only processes messages from chatID (whitespace-trimmed); others are ignored.
 func New(botToken, chatID string) *Listener {
 	return &Listener{
 		botToken:    botToken,
@@ -54,9 +43,7 @@ func New(botToken, chatID string) *Listener {
 // Dispatcher returns the command dispatcher so callers can register handlers.
 func (l *Listener) Dispatcher() *Dispatcher { return l.dispatcher }
 
-// Run blocks, polling Telegram for updates until ctx is cancelled. It
-// tracks the update offset so messages are never reprocessed, and retries
-// with exponential backoff on transient errors.
+// Run polls until ctx is cancelled, tracking the offset to avoid reprocessing and backing off on errors.
 func (l *Listener) Run(ctx context.Context) error {
 	slog.Info("telegram listener starting", "chat_id", l.chatID)
 
@@ -90,7 +77,7 @@ func (l *Listener) Run(ctx context.Context) error {
 		backoff = time.Second
 
 		for _, u := range updates {
-			// Advance offset past this update so Telegram doesn't resend it.
+			// Advance offset so Telegram doesn't resend this update.
 			if u.UpdateID >= offset {
 				offset = u.UpdateID + 1
 			}
@@ -100,15 +87,14 @@ func (l *Listener) Run(ctx context.Context) error {
 	}
 }
 
-// handleUpdate processes a single update. Unauthorised senders are silently
-// ignored. Recognised commands are dispatched; unknown ones get a helpful reply.
+// handleUpdate dispatches one update; unauthorised senders are silently ignored.
 func (l *Listener) handleUpdate(ctx context.Context, u Update) {
 	if u.Message == nil {
 		return
 	}
 	msg := u.Message
 
-	// Sender authorisation: hard-lock to the configured chat ID.
+	// Hard-lock to the configured chat ID.
 	senderChatID := fmt.Sprintf("%d", msg.Chat.ID)
 	if senderChatID != l.chatID {
 		slog.Debug("ignoring message from unauthorised chat",
@@ -133,8 +119,7 @@ func (l *Listener) handleUpdate(ctx context.Context, u Update) {
 	}
 }
 
-// sendReply sends a Markdown-formatted reply to the configured chat. Best-
-// effort — errors are logged but don't interrupt the poll loop.
+// sendReply sends a Markdown reply to the configured chat; errors are logged, not propagated.
 func (l *Listener) sendReply(ctx context.Context, text string) {
 	base := l.apiBase()
 	endpoint := base + "/sendMessage"
@@ -165,7 +150,7 @@ func (l *Listener) sendReply(ctx context.Context, text string) {
 	}
 }
 
-// apiBase returns the Bot API base URL, using the test override if set.
+// apiBase returns the Bot API base URL (test override if set).
 func (l *Listener) apiBase() string {
 	if l.baseURL != "" {
 		return l.baseURL
@@ -173,14 +158,14 @@ func (l *Listener) apiBase() string {
 	return "https://api.telegram.org/bot" + l.botToken
 }
 
-// getUpdates calls the Telegram Bot API getUpdates endpoint with long-polling.
+// getUpdates long-polls the getUpdates endpoint.
 func (l *Listener) getUpdates(ctx context.Context, offset int) ([]Update, error) {
 	endpoint := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=%d",
 		l.apiBase(), offset, l.pollTimeout)
 	return l.fetchUpdates(ctx, endpoint)
 }
 
-// fetchUpdates does the actual HTTP GET and JSON decode.
+// fetchUpdates does the HTTP GET and JSON decode.
 func (l *Listener) fetchUpdates(ctx context.Context, endpoint string) ([]Update, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -214,7 +199,7 @@ func (l *Listener) fetchUpdates(ctx context.Context, endpoint string) ([]Update,
 	return result.Result, nil
 }
 
-// nextBackoff doubles the backoff duration, capping at 60 seconds.
+// nextBackoff doubles the duration, capped at 60s.
 func nextBackoff(d time.Duration) time.Duration {
 	d *= 2
 	if d > 60*time.Second {

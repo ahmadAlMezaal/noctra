@@ -10,22 +10,16 @@ type BuildPromptInput struct {
 	Identifier  string
 	Title       string
 	Description string
-	// Comments are human clarifications from the ticket thread (already filtered
-	// of Noctra's own automated notices). They are surfaced to the agent so
-	// that replying in the comments — what the BLOCKED notification tells a human
-	// to do — actually unblocks a retry.
+	// Comments are human clarifications from the ticket thread (Noctra's notices filtered out), surfaced so a reply can unblock a retry.
 	Comments []string
 	UseTeams bool
-	// AutoReleaseLabel enables the RELEASE: instruction in the prompt,
-	// asking the agent to suggest a semver bump level.
+	// AutoReleaseLabel enables the RELEASE: instruction asking for a semver bump level.
 	AutoReleaseLabel bool
-	// RepoLessons contains per-repo lessons and conventions from human post-merge edits.
+	// RepoLessons contains per-repo lessons/conventions from human post-merge edits.
 	RepoLessons string
 }
 
-// BuildPrompt returns the prompt sent to Claude for a ticket. Two flavors:
-// the default single-agent prompt, and the Agent Teams variant that asks the
-// lead to delegate.
+// BuildPrompt returns the implement prompt for a ticket — the default single-agent flavor, or the Agent Teams variant that delegates.
 func BuildPrompt(in BuildPromptInput) string {
 	desc := in.Description
 	if desc == "" {

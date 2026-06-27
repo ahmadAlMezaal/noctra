@@ -376,7 +376,6 @@ func TestSavePlan_PersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Reopen and verify.
 	s2, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +422,6 @@ func TestDeletePlan_Idempotent(t *testing.T) {
 	}
 	defer closeStore(t, s)
 
-	// Deleting a non-existent plan should not error.
 	if err := s.DeletePlan("ENG-999"); err != nil {
 		t.Fatalf("DeletePlan on non-existent: %v", err)
 	}

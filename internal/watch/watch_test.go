@@ -9,8 +9,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// newTestWatcher returns a Watcher with no gh client (we don't exercise gh
-// here — diff is the unit we care about) and a fresh state store.
+// newTestWatcher returns a Watcher with no gh client (diff is the unit under test) and a fresh store.
 func newTestWatcher(t *testing.T, trusted []string) *Watcher {
 	t.Helper()
 	store, err := state.Open(filepath.Join(t.TempDir(), "state.json"))

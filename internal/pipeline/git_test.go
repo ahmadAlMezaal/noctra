@@ -9,9 +9,7 @@ import (
 	"testing"
 )
 
-// gitRepoWithUpstream builds a temp repo with one commit on main and a
-// refs/remotes/origin/main tracking ref pointing at it (no real remote needed),
-// so branchAhead can be exercised against "origin/main".
+// gitRepoWithUpstream builds a temp repo with one commit on main and a fake origin/main tracking ref, so branchAhead can run against "origin/main".
 func gitRepoWithUpstream(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -84,8 +82,7 @@ func TestBranchAhead(t *testing.T) {
 	if ahead, err := branchAhead(ctx, dir, "origin/main"); err != nil || ahead {
 		t.Fatalf("level: ahead=%v err=%v", ahead, err)
 	}
-	// A new commit (the "Claude committed its own work" case) → ahead, even
-	// though the working tree is clean.
+	// A new commit (the self-committed case) → ahead, even with a clean worktree.
 	if err := os.WriteFile(filepath.Join(dir, "g.txt"), []byte("b"), 0o600); err != nil {
 		t.Fatal(err)
 	}

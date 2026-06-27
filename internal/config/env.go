@@ -1,5 +1,4 @@
-// Package config loads Noctra's runtime configuration from .env and the
-// process environment, and exposes a validated Config struct.
+// Package config loads Noctra's runtime configuration from .env and the environment into a validated Config.
 package config
 
 import (
@@ -11,12 +10,7 @@ import (
 	"strings"
 )
 
-// LoadEnvFile reads a KEY=VALUE file (Noctra's .env format).
-//
-// Lines starting with # are treated as comments; blank lines are skipped.
-// Values may optionally be wrapped in single or double quotes (which are
-// stripped). A missing file is not an error — an empty map is returned, since
-// configuration may also come from the process environment.
+// LoadEnvFile reads a KEY=VALUE .env file (# comments and blanks skipped, optional surrounding quotes stripped); a missing file yields an empty map, not an error.
 func LoadEnvFile(path string) (map[string]string, error) {
 	out := map[string]string{}
 
@@ -53,20 +47,12 @@ func LoadEnvFile(path string) (map[string]string, error) {
 	return out, nil
 }
 
-// PatchEnvFile atomically upserts the given key-value pairs into the .env
-// file at path. Existing lines (comments, blanks, ordering) are preserved;
-// only keys present in updates are replaced in-place. Keys in updates that
-// don't appear in the file are appended at the end. The result is written
-// atomically (temp file + rename) with mode 0600.
-//
-// Both `noctra config set` and the setup wizard share this writer so
-// there's exactly one comment-preserving, atomic .env writer.
+// PatchEnvFile atomically upserts updates into path's .env: matched keys replaced in-place, new keys appended, comments/blanks/order preserved (mode 0600). The single shared .env writer.
 func PatchEnvFile(path string, updates map[string]string) error {
 	if len(updates) == 0 {
 		return nil
 	}
 
-	// Read existing lines (if the file exists).
 	var lines []string
 	if data, err := os.ReadFile(path); err == nil {
 		lines = splitLines(string(data))
@@ -74,10 +60,7 @@ func PatchEnvFile(path string, updates map[string]string) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// Track which keys we've already updated in-place.
 	seen := make(map[string]bool, len(updates))
-
-	// Walk existing lines; replace values for matched keys.
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -94,8 +77,7 @@ func PatchEnvFile(path string, updates map[string]string) error {
 		}
 	}
 
-	// Append keys that weren't found in the existing file, sorted
-	// alphabetically for deterministic output.
+	// append unmatched keys, sorted for deterministic output
 	var newKeys []string
 	for key := range updates {
 		if !seen[key] {
@@ -115,8 +97,7 @@ func PatchEnvFile(path string, updates map[string]string) error {
 	return atomicWriteFile(path, []byte(content), 0o600)
 }
 
-// atomicWriteFile writes data to a temp file alongside path, then renames it
-// into place. This avoids partial writes on crash / power loss.
+// atomicWriteFile writes via a temp file + rename to avoid partial writes on crash.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -150,10 +131,8 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// splitLines splits s into lines, preserving empty trailing lines (unlike
-// strings.Split which would add a phantom empty element after a trailing \n).
+// splitLines splits s into lines, trimming one trailing newline to avoid a phantom empty element.
 func splitLines(s string) []string {
-	// Remove a single trailing newline to avoid a phantom empty line.
 	s = strings.TrimSuffix(s, "\n")
 	if s == "" {
 		return nil

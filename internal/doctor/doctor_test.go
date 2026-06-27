@@ -34,8 +34,7 @@ func TestCheckCLI_NotFound(t *testing.T) {
 func TestCheckCLI_HintsForKnownCLIs(t *testing.T) {
 	for _, cli := range []string{"git", "gh", "claude", "copilot"} {
 		c := checkCLI(cli)
-		// We can't control whether these are installed, but we can verify
-		// the hint is populated when missing.
+		// A missing CLI must carry a hint (install state isn't controllable here).
 		if !c.ok && c.hint == "" {
 			t.Errorf("checkCLI(%s) failed but has no hint", cli)
 		}
@@ -43,11 +42,10 @@ func TestCheckCLI_HintsForKnownCLIs(t *testing.T) {
 }
 
 func TestCheckGHAuth_Runs(t *testing.T) {
-	// This test just verifies checkGHAuth doesn't panic.
-	// The actual result depends on whether gh is installed + authenticated.
+	// Verify checkGHAuth doesn't panic (result depends on gh install/auth state).
 	c := checkGHAuth()
 	if _, err := exec.LookPath("gh"); err != nil {
-		// gh not installed — should be skipped
+		// gh not installed — should be skipped.
 		if c.ok {
 			t.Error("checkGHAuth should not pass when gh is not installed")
 		}
@@ -55,12 +53,10 @@ func TestCheckGHAuth_Runs(t *testing.T) {
 			t.Errorf("unexpected detail when gh missing: %q", c.detail)
 		}
 	}
-	// If gh is installed, we can't predict auth state — just ensure no crash.
 }
 
 func TestCheckRepos_DirectiveOnly(t *testing.T) {
-	// With no REPO_PATH, repos are routed entirely via Linear project `Repo:`
-	// directives, so doctor must pass with an informational note.
+	// No REPO_PATH → directive-only routing must pass with an informational note.
 	cfg := &config.Config{RepoPath: ""}
 	c := checkRepos(cfg)
 	if !c.ok {
@@ -123,8 +119,7 @@ func TestCheckDashboard_ExposedBindWarns(t *testing.T) {
 }
 
 func TestRunJSON_Shape(t *testing.T) {
-	// Use a temp dir with no config: gather() still emits checks (CLIs, gh
-	// auth, config error, config dir), so we get a non-empty, well-formed array.
+	// An empty config dir still emits checks, so the array is non-empty and well-formed.
 	var buf bytes.Buffer
 	_ = RunJSON(t.TempDir(), &buf)
 
@@ -171,10 +166,7 @@ func TestRunJSON_Shape(t *testing.T) {
 }
 
 func TestRunJSON_ReturnsErrorOnFailure(t *testing.T) {
-	// Force a deterministic failure: clear LINEAR_API_KEY so an ambient key in
-	// the environment can't satisfy the Linear check, and point at an empty temp
-	// config dir. The Linear-key (or config-load) check then fails → non-nil
-	// error, regardless of which CLIs happen to be on PATH.
+	// Clear LINEAR_API_KEY + empty config dir forces the Linear/config check to fail deterministically.
 	t.Setenv("LINEAR_API_KEY", "")
 	var buf bytes.Buffer
 	err := RunJSON(t.TempDir(), &buf)
