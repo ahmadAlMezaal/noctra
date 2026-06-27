@@ -136,6 +136,14 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 		s.handleCost(w, r, prov.Store)
 	})))
 
+	mux.Handle("/api/spend", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleSpend(w, r, prov.Store)
+	})))
+
 	mux.Handle("/api/admin-status", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -156,6 +164,10 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 
 	staticSub, _ := fs.Sub(staticFiles, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
+	// Fonts are public assets (no secrets). They must load without a token:
+	// @font-face url() subrequests don't carry the page's ?token= query param,
+	// so gating them would silently break the brand fonts behind a token.
+	mux.Handle("/fonts/", fileServer)
 	mux.Handle("/", s.requireAuth(fileServer))
 
 	return s
@@ -360,6 +372,7 @@ type historyEntry struct {
 	TicketID   string  `json:"ticket_id,omitempty"`
 	PRURL      string  `json:"pr_url,omitempty"`
 	Repo       string  `json:"repo"`
+	Agent      string  `json:"agent_backend,omitempty"`
 	RunType    string  `json:"run_type"`
 	Status     string  `json:"status"`
 	DurationS  float64 `json:"duration_s"`
@@ -396,6 +409,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, store *st
 			TicketID:   r.TicketID,
 			PRURL:      r.PRURL,
 			Repo:       r.Repo,
+			Agent:      r.AgentBackend,
 			RunType:    r.RunType,
 			Status:     r.Status,
 			DurationS:  dur,
@@ -647,6 +661,57 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("dashboard: cleared skipped", "id", id)
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+type spendEntry struct {
+	Agent       string  `json:"agent"`
+	TotalTokens int64   `json:"total_tokens"`
+	CostUSD     float64 `json:"cost_usd"`
+}
+
+// handleSpend aggregates usage events into per-agent token/cost totals. The
+// window defaults to the current UTC day (the dashboard's "spend by agent /
+// today" panel); ?days=N widens it.
+func (s *Server) handleSpend(w http.ResponseWriter, r *http.Request, store *state.Store) {
+	if store == nil {
+		writeJSON(w, []spendEntry{})
+		return
+	}
+	since := time.Now().UTC().Truncate(24 * time.Hour)
+	if v := r.URL.Query().Get("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 365 {
+			since = time.Now().UTC().AddDate(0, 0, -n).Truncate(24 * time.Hour)
+		}
+	}
+	events, err := store.ListUsageEvents(since)
+	if err != nil {
+		slog.Warn("dashboard spend query failed", "err", err)
+		writeJSON(w, []spendEntry{})
+		return
+	}
+
+	byAgent := map[string]*spendEntry{}
+	order := []string{}
+	for _, ev := range events {
+		agentName := ev.AgentBackend
+		if agentName == "" {
+			agentName = "unknown"
+		}
+		e, ok := byAgent[agentName]
+		if !ok {
+			e = &spendEntry{Agent: agentName}
+			byAgent[agentName] = e
+			order = append(order, agentName)
+		}
+		e.TotalTokens += ev.TotalTokens
+		e.CostUSD += ev.CostUSD
+	}
+
+	entries := make([]spendEntry, 0, len(order))
+	for _, name := range order {
+		entries = append(entries, *byAgent[name])
+	}
+	writeJSON(w, entries)
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

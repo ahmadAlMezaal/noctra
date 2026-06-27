@@ -3,16 +3,19 @@ package pipeline
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 )
 
 func TestSnapshot(t *testing.T) {
+	started := time.Now().Add(-2 * time.Minute)
 	p := &Pipeline{
-		cfg:            &config.Config{},
+		cfg:            &config.Config{AgentBackend: "claude"},
 		active:         map[string]struct{}{"ENG-1": {}, "ENG-2": {}},
 		activeRepos:    map[string]string{"ENG-1": "my-repo", "ENG-2": "other-repo", "ENG-3": "my-repo"},
+		activeMeta:     map[string]activeRunMeta{"ENG-1": {runType: "ticket", startedAt: started}},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{"ENG-3": 1, "ENG-1": 0},
@@ -29,9 +32,11 @@ func TestSnapshot(t *testing.T) {
 	}
 	activeSet := map[string]bool{}
 	activeRepoSet := map[string]string{}
+	byID := map[string]ActiveEntry{}
 	for _, e := range snap.Active {
 		activeSet[e.Identifier] = true
 		activeRepoSet[e.Identifier] = e.Repo
+		byID[e.Identifier] = e
 	}
 	if !activeSet["ENG-1"] || !activeSet["ENG-2"] {
 		t.Errorf("active set = %v, want ENG-1 and ENG-2", snap.Active)
@@ -41,6 +46,16 @@ func TestSnapshot(t *testing.T) {
 	}
 	if activeRepoSet["ENG-2"] != "other-repo" {
 		t.Errorf("ENG-2 repo = %q, want other-repo", activeRepoSet["ENG-2"])
+	}
+	// Active entries carry the instance backend; ENG-1 also has run-type + start.
+	if byID["ENG-1"].Agent != "claude" {
+		t.Errorf("ENG-1 agent = %q, want claude", byID["ENG-1"].Agent)
+	}
+	if byID["ENG-1"].RunType != "ticket" {
+		t.Errorf("ENG-1 run_type = %q, want ticket", byID["ENG-1"].RunType)
+	}
+	if byID["ENG-1"].StartedAt == "" {
+		t.Error("ENG-1 started_at should be set")
 	}
 
 	// Queued should contain ENG-3 (has failed attempts, not active, not skipped).

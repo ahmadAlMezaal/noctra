@@ -139,6 +139,7 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		}
 		ticketCtx, ticketCancel := context.WithCancel(ctx)
 		p.active[identifier] = struct{}{}
+		p.activeMeta[identifier] = activeRunMeta{runType: "iterate", startedAt: time.Now()}
 		p.cancels[identifier] = ticketCancel
 		p.mu.Unlock()
 		p.publishDashboardChange()

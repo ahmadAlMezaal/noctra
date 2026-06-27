@@ -295,7 +295,8 @@ func TestHistory_ReturnsRuns(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := store.InsertRunHistory(state.RunHistory{
 		Identifier: "ENG-1", TicketID: "ENG-1", Repo: "my-repo",
-		RunType: "ticket", Status: "pr_opened",
+		AgentBackend: "claude",
+		RunType:      "ticket", Status: "pr_opened",
 		PRURL:     "https://github.com/o/r/pull/1",
 		StartedAt: now.Add(-5 * time.Minute), FinishedAt: now,
 	}); err != nil {
@@ -326,6 +327,9 @@ func TestHistory_ReturnsRuns(t *testing.T) {
 	}
 	if entries[0].LinearURL == "" {
 		t.Error("expected linear_url to be set")
+	}
+	if entries[0].Agent != "claude" {
+		t.Errorf("agent_backend: got %q, want %q", entries[0].Agent, "claude")
 	}
 }
 
@@ -466,6 +470,100 @@ func TestCost_ReturnsBuckets(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected at least one bucket with cost > 0")
+	}
+}
+
+func TestSpend_AggregatesByAgent(t *testing.T) {
+	srv, store := newTestServerWithStore(t, "tok")
+	defer func() { _ = store.Close() }()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	now := time.Now().UTC()
+	usages := []state.UsageEvent{
+		{OccurredAt: now, Source: "ticket", AgentBackend: "claude", CostUSD: 0.40, TotalTokens: 20000},
+		{OccurredAt: now, Source: "ticket", AgentBackend: "claude", CostUSD: 0.60, TotalTokens: 30000},
+		{OccurredAt: now, Source: "sweep", AgentBackend: "codex", CostUSD: 0.25, TotalTokens: 12000},
+	}
+	for _, u := range usages {
+		if err := store.RecordUsage(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resp := authedGet(t, ts, "/api/spend", "tok")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var entries []spendEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	byAgent := map[string]spendEntry{}
+	for _, e := range entries {
+		byAgent[e.Agent] = e
+	}
+	claude, ok := byAgent["claude"]
+	if !ok {
+		t.Fatalf("missing claude entry: %+v", entries)
+	}
+	if claude.TotalTokens != 50000 {
+		t.Errorf("claude tokens: got %d, want 50000", claude.TotalTokens)
+	}
+	if claude.CostUSD < 0.99 || claude.CostUSD > 1.01 {
+		t.Errorf("claude cost: got %f, want ~1.00", claude.CostUSD)
+	}
+	if codex, ok := byAgent["codex"]; !ok || codex.TotalTokens != 12000 {
+		t.Errorf("codex entry wrong: %+v", byAgent["codex"])
+	}
+}
+
+func TestFonts_ServedWithoutToken(t *testing.T) {
+	// @font-face url() subrequests can't carry the page's ?token=, so fonts
+	// must load unauthenticated (they hold no secrets) — otherwise the brand
+	// fonts silently fail behind a configured token.
+	s := newTestServer("secret")
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/fonts/fraunces-latin.woff2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected fonts to load without token, got %d", resp.StatusCode)
+	}
+
+	// The page itself must still require a token.
+	page, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.Body.Close()
+	if page.StatusCode != 401 {
+		t.Errorf("expected page to require token, got %d", page.StatusCode)
+	}
+}
+
+func TestSpend_NilStore(t *testing.T) {
+	srv := New(":0", "tok", "", func() any { return nil }, Providers{}, nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/api/spend", "tok")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var entries []spendEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty, got %d", len(entries))
 	}
 }
 
