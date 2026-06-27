@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -49,10 +51,11 @@ type Backend interface {
 	// Contributors-graph entry; others render as a plain name on the commit.
 	// Returns "" if no trailer should be added.
 	CoAuthor() string
-	// Run invokes the CLI in opts.Workdir, streaming stdout+stderr to
-	// opts.LogFile. It returns ErrTimedOut (wrapped) on per-attempt timeout
-	// and the underlying error on any other non-zero exit.
-	Run(ctx context.Context, opts RunOptions) error
+	// Run invokes the CLI in opts.Workdir, writing output to opts.LogFile, and
+	// returns the run's token/cost Usage (zero-valued when the CLI reports
+	// none). It returns ErrTimedOut (wrapped) on per-attempt timeout and the
+	// underlying error on any other non-zero exit.
+	Run(ctx context.Context, opts RunOptions) (Usage, error)
 	// HasRateLimit reports whether output contains this backend's usage /
 	// rate-limit markers.
 	HasRateLimit(output string) bool
@@ -76,12 +79,9 @@ func New(name string) (Backend, error) {
 	}
 }
 
-// runCLI is the shared exec plumbing for every backend: it applies the
-// per-attempt timeout, writes the DEBUG header so the log carries enough
-// context to diagnose a run, streams stdout+stderr to the log file, and maps a
-// deadline kill to ErrTimedOut. bin/args are the backend-specific command; env
-// is the full process environment to run with (pass nil to inherit os.Environ).
-func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions) error {
+// runCLI applies the timeout, writes the DEBUG header, streams output to the
+// log, and returns it. For backends whose CLIs print usage in their text output.
+func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions) (string, error) {
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
@@ -90,28 +90,66 @@ func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions
 
 	logF, err := os.OpenFile(opts.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("open log: %w", err)
+		return "", fmt.Errorf("open log: %w", err)
 	}
 	defer logF.Close()
 
 	branch, _ := currentBranch(ctx, opts.Workdir)
 	fmt.Fprintf(logF, "DEBUG: pwd = %s\nDEBUG: branch = %s\n", opts.Workdir, branch)
 
+	var buf bytes.Buffer
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = opts.Workdir
-	cmd.Stdout = logF
-	cmd.Stderr = logF
+	cmd.Stdout = io.MultiWriter(logF, &buf)
+	cmd.Stderr = io.MultiWriter(logF, &buf)
 	if env != nil {
 		cmd.Env = env
 	}
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("%w: %w", ErrTimedOut, err)
+			return buf.String(), fmt.Errorf("%w: %w", ErrTimedOut, err)
 		}
-		return err
+		return buf.String(), err
 	}
-	return nil
+	return buf.String(), nil
+}
+
+// runCLICapture captures stdout/stderr without streaming to the log, for
+// backends that must unwrap their output before writing it (Claude JSON mode).
+func runCLICapture(ctx context.Context, bin string, args, env []string, opts RunOptions) (stdout, stderr string, err error) {
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
+
+	var outBuf, errBuf bytes.Buffer
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = opts.Workdir
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if env != nil {
+		cmd.Env = env
+	}
+
+	runErr := cmd.Run()
+	if runErr != nil && ctx.Err() == context.DeadlineExceeded {
+		runErr = fmt.Errorf("%w: %w", ErrTimedOut, runErr)
+	}
+	return outBuf.String(), errBuf.String(), runErr
+}
+
+// writeRunLog appends the DEBUG header + body, matching runCLI's log format.
+func writeRunLog(ctx context.Context, opts RunOptions, body string) {
+	logF, err := os.OpenFile(opts.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer logF.Close()
+	branch, _ := currentBranch(ctx, opts.Workdir)
+	fmt.Fprintf(logF, "DEBUG: pwd = %s\nDEBUG: branch = %s\n", opts.Workdir, branch)
+	fmt.Fprintln(logF, strings.TrimRight(body, "\n"))
 }
 
 func currentBranch(ctx context.Context, workdir string) (string, error) {

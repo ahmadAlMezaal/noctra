@@ -15,8 +15,9 @@ func (antigravityBackend) Label() string    { return "Google Antigravity" }
 func (antigravityBackend) CLI() string      { return "agy" }
 func (antigravityBackend) CoAuthor() string { return "Antigravity <noreply@google.com>" }
 
-func (b antigravityBackend) Run(ctx context.Context, opts RunOptions) error {
-	return runCLI(ctx, b.CLI(), antigravityArgs(opts), nil, opts)
+func (b antigravityBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
+	out, err := runCLI(ctx, b.CLI(), antigravityArgs(opts), nil, opts)
+	return ParseUsage(out), err
 }
 
 // antigravityArgs builds the argv for an agy run. Unlike Claude's boolean

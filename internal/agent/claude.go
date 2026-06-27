@@ -15,14 +15,23 @@ func (claudeBackend) Label() string    { return "Claude Code" }
 func (claudeBackend) CLI() string      { return "claude" }
 func (claudeBackend) CoAuthor() string { return "Claude <noreply@anthropic.com>" }
 
-// Run invokes `claude --print` in opts.Workdir. When UseAgentTeams is set the
-// experimental agent-teams flag is exported into the child environment.
-func (b claudeBackend) Run(ctx context.Context, opts RunOptions) error {
+// Run invokes `claude --print --output-format json`, unwrapping the JSON result
+// into the log so the log's text consumers see the message, and returns the
+// usage/cost from the envelope. Falls back to raw output (errors, rate-limit
+// messages, text mode) when stdout isn't a JSON result object.
+func (b claudeBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
 	var env []string
 	if opts.UseAgentTeams {
 		env = append(os.Environ(), "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
 	}
-	return runCLI(ctx, b.CLI(), claudeArgs(opts), env, opts)
+	stdout, stderr, err := runCLICapture(ctx, b.CLI(), claudeArgs(opts), env, opts)
+
+	if usage, result, ok := ParseClaudeJSON(stdout); ok {
+		writeRunLog(ctx, opts, result+stderr)
+		return usage, err
+	}
+	writeRunLog(ctx, opts, stdout+stderr)
+	return ParseUsage(stdout + "\n" + stderr), err
 }
 
 // claudeArgs builds the argv for a Claude Code run. Split out from Run so the
@@ -31,7 +40,7 @@ func claudeArgs(opts RunOptions) []string {
 	return []string{
 		"--dangerously-skip-permissions",
 		"--print",
-		"--output-format", "text",
+		"--output-format", "json",
 		"-p", opts.Prompt,
 	}
 }

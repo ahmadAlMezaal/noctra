@@ -22,9 +22,10 @@ func (codexBackend) CoAuthor() string { return "Codex <noreply@openai.com>" }
 
 // Run invokes `codex exec` in opts.Workdir. UseAgentTeams is Claude-only and
 // is ignored here.
-func (b codexBackend) Run(ctx context.Context, opts RunOptions) error {
+func (b codexBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
 	// nil env → inherit os.Environ (so OPENAI_API_KEY / login state flow through).
-	return runCLI(ctx, b.CLI(), codexArgs(opts), nil, opts)
+	out, err := runCLI(ctx, b.CLI(), codexArgs(opts), nil, opts)
+	return ParseUsage(out), err
 }
 
 // codexArgs builds the argv for a Codex run. `exec` is Codex's non-interactive

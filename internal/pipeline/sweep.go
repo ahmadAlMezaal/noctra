@@ -169,7 +169,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		"log", logFile,
 		"timeout", p.cfg.AgentTimeout)
 
-	runErr := backend.Run(ctx, agent.RunOptions{
+	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir: wt.Path,
 		Prompt:  prompt,
 		LogFile: logFile,
@@ -193,7 +193,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	output := agent.ReadAfter(logFile, offset)
 
-	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "sweep", identifier, "", backend)
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
@@ -343,7 +342,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 				logger.Info("asking the agent to fix review issues")
 				fixOffset := agent.OffsetBefore(logFile)
-				fixErr := backend.Run(ctx, agent.RunOptions{
+				fixUsage, fixErr := backend.Run(ctx, agent.RunOptions{
 					Workdir: wt.Path,
 					Prompt:  fixPrompt,
 					LogFile: logFile,
@@ -361,7 +360,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
 
-				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				p.recordUsage(fixUsage, "sweep", identifier, "", backend)
 				if reason := p.budget.ExceededReason(); reason != "" {

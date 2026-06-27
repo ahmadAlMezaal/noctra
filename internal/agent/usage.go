@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -63,4 +64,39 @@ func ParseUsage(output string) Usage {
 func parseCommaInt(s string) int64 {
 	n, _ := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
 	return n
+}
+
+type claudeResult struct {
+	Type         string  `json:"type"`
+	Result       string  `json:"result"`
+	TotalCostUSD float64 `json:"total_cost_usd"`
+	Usage        struct {
+		InputTokens              int64 `json:"input_tokens"`
+		OutputTokens             int64 `json:"output_tokens"`
+		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	} `json:"usage"`
+}
+
+// ParseClaudeJSON parses Claude Code's `--output-format json` result object,
+// returning the usage and the message text. ok is false when stdout isn't a
+// JSON result object (an error, a rate-limit message, or text mode), so the
+// caller can fall back to regex parsing. total_cost_usd is a client-side
+// estimate, populated even on subscription auth.
+func ParseClaudeJSON(stdout string) (usage Usage, result string, ok bool) {
+	s := strings.TrimSpace(stdout)
+	if !strings.HasPrefix(s, "{") {
+		return Usage{}, "", false
+	}
+	var r claudeResult
+	if err := json.Unmarshal([]byte(s), &r); err != nil || r.Type != "result" {
+		return Usage{}, "", false
+	}
+	in := r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens
+	return Usage{
+		InputTokens:  in,
+		OutputTokens: r.Usage.OutputTokens,
+		TotalTokens:  in + r.Usage.OutputTokens,
+		CostUSD:      r.TotalCostUSD,
+	}, r.Result, true
 }

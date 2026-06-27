@@ -249,7 +249,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 
 	offset := agent.OffsetBefore(logFile)
 
-	runErr := backend.Run(ctx, agent.RunOptions{
+	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir: wt.Path,
 		Prompt:  prompt,
 		LogFile: logFile,
@@ -271,7 +271,6 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 	output := agent.ReadAfter(logFile, offset)
 
 	// Record usage from the plan pass (ENG-217).
-	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "plan", id, "", backend)
 	if reason := p.budget.ExceededReason(); reason != "" {

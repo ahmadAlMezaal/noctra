@@ -316,7 +316,7 @@
       <div id="tokencost"></div>
     </section>
     <section class="panel chart" style="flex:1 1 300px">
-      <div class="phead"><span class="ptitle">Spend by agent</span><span class="kicker right">today</span></div>
+      <div class="phead"><span class="ptitle">Spend by agent</span><span class="kicker right">today · est.</span></div>
       <div id="spend"></div>
     </section>
   </div>
@@ -520,7 +520,7 @@
     var agentName = active.length ? agentInfo(active[0].agent).name : "";
     var activeSub = active.length === 0 ? "idle" : (active.length === 1 ? agentName + " live" : active.length + " agents live");
 
-    var costSub = b.MaxDailyUSD > 0 ? "of " + fmtMoney(b.MaxDailyUSD) + " cap" : "today";
+    var costSub = b.MaxDailyUSD > 0 ? "est. of " + fmtMoney(b.MaxDailyUSD) + " cap" : "est. today";
 
     var kpis = [
       { label: "PRs opened",   value: String(prs14.length), sub: "last 14 days",   accent: "var(--blue)" },
