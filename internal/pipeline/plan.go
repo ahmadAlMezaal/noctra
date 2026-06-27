@@ -109,6 +109,7 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		}
 		ticketCtx, ticketCancel := context.WithCancel(ctx)
 		p.active[identifier] = struct{}{}
+		p.activeMeta[identifier] = activeRunMeta{runType: "plan", startedAt: time.Now()}
 		p.cancels[identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()

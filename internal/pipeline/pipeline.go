@@ -63,6 +63,7 @@ type Pipeline struct {
 	mu                sync.Mutex
 	active            map[string]struct{}
 	activeRepos       map[string]string
+	activeMeta        map[string]activeRunMeta // identifier → run type + start time (for dashboard)
 	cancels           map[string]context.CancelFunc
 	killed            map[string]struct{}
 	failedAttempts    map[string]int
@@ -109,6 +110,7 @@ func New(cfg *config.Config) *Pipeline {
 		}),
 		active:         map[string]struct{}{},
 		activeRepos:    map[string]string{},
+		activeMeta:     map[string]activeRunMeta{},
 		cancels:        map[string]context.CancelFunc{},
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{},
@@ -439,6 +441,7 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		}
 		ticketCtx, ticketCancel := context.WithCancel(ctx)
 		p.active[issue.Identifier] = struct{}{}
+		p.activeMeta[issue.Identifier] = activeRunMeta{runType: "ticket", startedAt: time.Now()}
 		p.cancels[issue.Identifier] = ticketCancel
 		p.totalDispatches++
 		p.mu.Unlock()
@@ -478,6 +481,7 @@ func (p *Pipeline) fetchTickets(ctx context.Context) ([]source.Ticket, error) {
 func (p *Pipeline) markDone(id string) {
 	p.mu.Lock()
 	delete(p.active, id)
+	delete(p.activeMeta, id)
 	if cancel, ok := p.cancels[id]; ok {
 		cancel()
 		delete(p.cancels, id)

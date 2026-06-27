@@ -116,6 +116,7 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 		}
 		taskCtx, taskCancel := context.WithCancel(ctx)
 		p.active[identifier] = struct{}{}
+		p.activeMeta[identifier] = activeRunMeta{runType: "sweep", startedAt: time.Now()}
 		p.activeRepos[identifier] = job.RepoSlug
 		p.cancels[identifier] = taskCancel
 		p.mu.Unlock()

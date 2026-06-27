@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Noctra Dashboard</title>
 <style>
-  /* ── Fonts ──────────────────────────────────────────────────────────── */
+  /* ── Brand fonts (getnoctra.dev) — embedded woff2, no network ─────────── */
   @font-face {
-    font-family: 'Space Grotesk';
+    font-family: 'Fraunces';
     font-style: normal;
-    font-weight: 400 700;
+    font-weight: 400 600;
     font-display: swap;
-    src: url(fonts/space-grotesk-latin.woff2) format('woff2');
+    src: url(fonts/fraunces-latin.woff2) format('woff2');
   }
   @font-face {
     font-family: 'JetBrains Mono';
@@ -21,970 +21,1046 @@
     src: url(fonts/jetbrains-mono-latin.woff2) format('woff2');
   }
 
-  /* ── Design tokens ─────────────────────────────────────────────────── */
+  /* ── Design tokens — "night shift / observatory" ──────────────────────── */
   :root {
-    --ink: #0B0E16;
-    --panel: #141A28;
-    --edge: #232C3D;
-    --moon: #E9EDF6;
-    --dim: #828BA3;
-    --glow: #8FB4FF;
-    --lamp: #F4B860;
-    --ok: #6EE7A8;
-    --warn: #F4B860;
-    --bad: #FB7185;
-    --font-display: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-    --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --ink:        #0B0E16;  /* base background (nocturnal blue) */
+    --panel:      #141A28;  /* panel surface */
+    --sunken:     #0F1422;  /* inner surface (active-run cards) */
+    --edge:       #232C3D;  /* borders */
+    --hair:       #1C2433;  /* hairline / chart track */
+    --hair2:      #161D2C;  /* subtler row divider */
+    --moon:       #E9EDF6;  /* primary text */
+    --text2:      #C7CEDF;  /* secondary text */
+    --text3:      #A6AFC4;
+    --muted:      #828BA3;  /* muted text */
+    --faint:      #6B7488;
+    --faint2:     #5E677D;
+    --faint3:     #4A5468;
+    --blue:       #8FB4FF;  /* moon-blue accent (links, tokens series) */
+    --lamp:       #F4B860;  /* lamp accent (activity, cost series) */
+    --ok:         #6EE7A8;  /* merged / success */
+    --bad:        #FB7185;  /* failed */
+    --serif: 'Fraunces','Hoefler Text','Iowan Old Style',Palatino,Georgia,serif;
+    --mono: 'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   }
 
-  /* ── Reset & base ──────────────────────────────────────────────────── */
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    font-family: var(--font-body);
     background: var(--ink);
     color: var(--moon);
-    padding: 1.25rem;
-    max-width: 80rem;
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    padding: 24px;
+    max-width: 1340px;
     margin: 0 auto;
-    line-height: 1.5;
-    font-size: 0.875rem;
-  }
-
-  /* ── Top bar ───────────────────────────────────────────────────────── */
-  .topbar {
     display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 0;
-    margin-bottom: 1.25rem;
-    border-bottom: 1px solid var(--edge);
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 18px;
   }
-  .brand {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.25rem;
-    color: var(--moon);
-    letter-spacing: -0.02em;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-shrink: 0;
-  }
-  .brand-moon { font-size: 1.1rem; }
-  .topbar-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-left: auto;
-  }
-  .topbar-tag {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 0.25rem;
-    background: rgba(143, 180, 255, 0.08);
-    color: var(--dim);
-    border: 1px solid var(--edge);
-  }
-  .topbar-tag.connected { color: var(--ok); }
-  .topbar-tag.reconnecting { color: var(--warn); }
-  .topbar-tag.disconnected { color: var(--bad); }
+  ::selection { background: rgba(143,180,255,0.3); }
 
-  /* ── Grid layout ───────────────────────────────────────────────────── */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
-    gap: 0.875rem;
-    margin-bottom: 0.875rem;
-  }
-  .wide { grid-column: 1 / -1; }
-
-  /* ── Cards ─────────────────────────────────────────────────────────── */
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--edge);
-    border-radius: 0.625rem;
-    padding: 1rem;
-  }
-  h2 {
-    font-family: var(--font-display);
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.625rem;
-  }
-  h3 {
-    font-family: var(--font-display);
-    font-size: 0.8125rem;
-    color: var(--glow);
-    margin: 0.75rem 0 0.25rem;
-    font-weight: 600;
-  }
-
-  /* ── Badges ────────────────────────────────────────────────────────── */
-  .badge {
-    display: inline-block;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 1rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .badge-ok   { background: rgba(110, 231, 168, 0.12); color: var(--ok); }
-  .badge-bad  { background: rgba(251, 113, 133, 0.12); color: var(--bad); }
-  .badge-warn { background: rgba(244, 184, 96, 0.12); color: var(--warn); }
-  .badge-glow { background: rgba(143, 180, 255, 0.12); color: var(--glow); }
-  .badge-dim  { background: rgba(130, 139, 163, 0.12); color: var(--dim); }
-
-  /* ── Lists ─────────────────────────────────────────────────────────── */
-  ul { list-style: none; }
-  li {
-    padding: 0.3rem 0;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--moon);
-    border-bottom: 1px solid rgba(35, 44, 61, 0.5);
-  }
-  li:last-child { border-bottom: none; }
-  .empty {
-    color: var(--dim);
-    font-family: var(--font-body);
-    font-style: normal;
-    font-size: 0.8125rem;
-  }
-  .retries {
-    color: var(--dim);
-    font-size: 0.6875rem;
-    margin-left: 0.25rem;
-  }
-  .repo-header {
-    font-family: var(--font-display);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--glow);
-    padding: 0.5rem 0 0.2rem;
-    margin-top: 0.25rem;
-    border-bottom: 1px solid var(--edge);
-    letter-spacing: 0.02em;
-  }
-  .repo-header:first-child { margin-top: 0; }
-
-  /* ── Stat rows ─────────────────────────────────────────────────────── */
-  .stat-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.3rem 0;
-    font-size: 0.8125rem;
-    border-bottom: 1px solid rgba(35, 44, 61, 0.3);
-  }
-  .stat-row:last-child { border-bottom: none; }
-  .stat-label { color: var(--dim); }
-  .stat-value { font-family: var(--font-mono); }
-
-  /* ── Error / result banner ─────────────────────────────────────────── */
-  #error {
-    display: none;
-    background: rgba(251, 113, 133, 0.1);
-    color: var(--bad);
-    border: 1px solid rgba(251, 113, 133, 0.3);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-    font-size: 0.8125rem;
-  }
-  .action-result {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    padding: 0.15rem 0.4rem;
-    border-radius: 0.25rem;
-    margin-left: 0.25rem;
-  }
-  .action-ok { background: rgba(110,231,168,0.12); color: var(--ok); }
-  .action-err { background: rgba(251,113,133,0.12); color: var(--bad); }
-
-  /* ── Links ─────────────────────────────────────────────────────────── */
-  a { color: var(--glow); text-decoration: none; }
+  a { color: var(--blue); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  a:focus-visible {
-    outline: 2px solid var(--glow);
-    outline-offset: 2px;
-    border-radius: 2px;
-  }
+  a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
 
-  /* ── Tables ────────────────────────────────────────────────────────── */
-  table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-  th {
-    text-align: left;
-    font-family: var(--font-display);
-    color: var(--dim);
-    font-weight: 600;
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid var(--edge);
+  /* ── The lit lamp — the only animation on the page ────────────────────── */
+  @keyframes lampPulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(244,184,96,0.26), 0 0 34px -10px rgba(244,184,96,0.40); }
+    50%      { box-shadow: 0 0 0 1px rgba(244,184,96,0.52), 0 0 58px -6px rgba(244,184,96,0.72); }
   }
-  td {
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid rgba(35, 44, 61, 0.4);
-    vertical-align: top;
-  }
-  tr:last-child td { border-bottom: none; }
-  .mono { font-family: var(--font-mono); }
-  .truncate {
-    max-width: 16rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: inline-block;
-    vertical-align: middle;
-  }
-  .run-line {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-  .run-btns { display: flex; gap: 0.25rem; flex-shrink: 0; }
-  .log-btn, .ctrl-btn {
-    border: 1px solid var(--edge);
-    background: rgba(143, 180, 255, 0.08);
-    color: var(--glow);
-    border-radius: 0.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    padding: 0.1rem 0.4rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .log-btn:hover, .ctrl-btn:hover { border-color: var(--glow); color: var(--moon); }
-  .ctrl-btn.danger { color: var(--bad); border-color: rgba(251,113,133,0.3); }
-  .ctrl-btn.danger:hover { border-color: var(--bad); }
-  .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .log-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.625rem;
-  }
-  .log-head h2 { margin-bottom: 0; }
-  #log-card { display: none; }
-  #log-output {
-    min-height: 12rem;
-    max-height: 28rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    background: #080B12;
-    border: 1px solid var(--edge);
-    border-radius: 0.375rem;
-    padding: 0.75rem;
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    line-height: 1.45;
-  }
-
-  /* ── Sparkline ─────────────────────────────────────────────────────── */
-  .sparkline-wrap {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-  }
-  .sparkline-wrap svg { max-width: 100%; height: auto; }
-
-  /* ── Tabs ───────────────────────────────────────────────────────────── */
-  .tab-bar { display: flex; gap: 0.375rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
-  .tab {
-    padding: 0.25rem 0.625rem;
-    border-radius: 0.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    cursor: pointer;
-    background: transparent;
-    color: var(--dim);
-    border: 1px solid var(--edge);
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-  .tab:hover { border-color: var(--glow); color: var(--moon); }
-  .tab:focus-visible {
-    outline: 2px solid var(--glow);
-    outline-offset: 2px;
-  }
-  .tab.active {
-    background: var(--glow);
-    color: var(--ink);
-    border-color: var(--glow);
-    font-weight: 600;
-  }
-
-  /* ── Lamp glow (active runs only) ──────────────────────────────────── */
-  .lamp-item {
-    position: relative;
-    padding-left: 1rem;
-  }
-  .lamp-item::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lamp);
-    box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5);
-    animation: lamp-pulse 2.5s ease-in-out infinite;
-  }
-  @keyframes lamp-pulse {
-    0%, 100% { box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5); }
-    50%      { box-shadow: 0 0 10px 4px rgba(244, 184, 96, 0.7); }
-  }
+  .lamp-glow { animation: lampPulse 3.4s cubic-bezier(0.32,0.72,0,1) infinite; }
+  @keyframes lampDot { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.4; transform:scale(.78);} }
+  .lamp-dot { animation: lampDot 1.8s cubic-bezier(0.32,0.72,0,1) infinite; }
   @media (prefers-reduced-motion: reduce) {
-    .lamp-item::before {
-      animation: none;
-      box-shadow: 0 0 6px 2px rgba(244, 184, 96, 0.5);
-    }
-    .tab { transition: none; }
+    .lamp-glow, .lamp-dot { animation: none; }
   }
 
-  /* ── Responsive (mobile-first at ~360px) ───────────────────────────── */
-  @media (max-width: 40rem) {
-    body { padding: 0.75rem; }
-    .grid { grid-template-columns: 1fr; }
-    .topbar { gap: 0.5rem; }
-    .topbar-meta { margin-left: 0; width: 100%; }
-    .run-line { align-items: flex-start; }
-    table { font-size: 0.75rem; }
-    th, td { padding: 0.3rem 0.25rem; }
-    .truncate { max-width: 10rem; }
+  /* ── Top bar ──────────────────────────────────────────────────────────── */
+  header.topbar {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 16px 24px; padding: 4px 2px 14px; border-bottom: 1px solid var(--edge);
   }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand-moon { font-size: 26px; line-height: 1; }
+  .brand-name { font-family: var(--serif); font-size: 26px; font-weight: 500; letter-spacing: 0.3px; color: var(--moon); }
+  .pill-version { font-size: 11px; color: var(--muted); letter-spacing: 1px; padding: 3px 8px; border: 1px solid var(--edge); border-radius: 999px; }
+  .capsule {
+    display: flex; align-items: center; gap: 9px; padding: 5px 12px;
+    border: 1px solid var(--edge); border-radius: 999px; background: #101524;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  .dot-lamp { background: var(--lamp); box-shadow: 0 0 10px 1px rgba(244,184,96,0.7); }
+  .cap-label { font-size: 12px; color: var(--muted); letter-spacing: 0.5px; }
+  .cap-value { font-size: 12px; letter-spacing: 0.5px; }
+  .spent { margin-left: auto; display: flex; align-items: baseline; gap: 9px; }
+  .spent-kicker { font-size: 11px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .spent-value { font-family: var(--serif); font-size: 22px; color: var(--lamp); }
+  .spent-cap { font-size: 12px; color: var(--faint3); }
+
+  /* ── KPI strip ────────────────────────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px,1fr)); gap: 12px; }
+  .kpi { background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 15px 16px; display: flex; flex-direction: column; gap: 7px; }
+  .kpi-label { font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+  .kpi-value { font-family: var(--serif); font-size: 30px; line-height: 1; }
+  .kpi-sub { font-size: 11px; color: var(--faint); letter-spacing: 0.3px; }
+
+  /* ── Panels ───────────────────────────────────────────────────────────── */
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .phead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .ptitle { font-family: var(--serif); font-size: 18px; color: var(--moon); font-weight: 500; }
+  .kicker { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .kicker.right { margin-left: auto; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px; }
+  .empty { color: var(--muted); font-size: 12.5px; padding: 8px 0; }
+
+  /* ── Active runs panel ────────────────────────────────────────────────── */
+  .active-panel { border: 1px solid rgba(244,184,96,0.30); box-shadow: 0 0 0 1px rgba(244,184,96,0.34), 0 0 44px -8px rgba(244,184,96,0.5); }
+  .active-panel.idle { border: 1px solid var(--edge); box-shadow: none; }
+  .active-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 14px; }
+  .run-card { background: var(--sunken); border: 1px solid rgba(244,184,96,0.22); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .run-card.idle { border-color: var(--edge); }
+  .run-card-top { display: flex; align-items: center; gap: 10px; }
+  .run-id { font-size: 14px; color: var(--blue); letter-spacing: 0.5px; cursor: pointer; }
+  .type-pill { font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); border: 1px solid var(--edge); border-radius: 999px; padding: 2px 9px; }
+  .running-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--lamp); letter-spacing: 0.5px; background: rgba(244,184,96,0.13); padding: 3px 10px; border-radius: 999px; }
+  .run-repo { font-size: 12.5px; color: var(--text3); letter-spacing: 0.3px; }
+  .run-card-foot { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--hair); }
+  .run-agent { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2); }
+  .agent-dot { width: 7px; height: 7px; border-radius: 999px; display: inline-block; }
+  .run-elapsed { margin-left: auto; font-size: 18px; color: var(--lamp); letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+
+  /* ── Run history ──────────────────────────────────────────────────────── */
+  .hist-group { display: flex; flex-direction: column; gap: 2px; }
+  .hist-grouphead { display: flex; align-items: center; gap: 10px; padding: 8px 0 4px; }
+  .hist-repo { font-size: 12px; color: var(--text3); letter-spacing: 0.3px; }
+  .hist-count { font-size: 10.5px; color: var(--faint2); letter-spacing: 0.5px; }
+  .hist-rule { flex: 1; height: 1px; background: var(--hair); }
+  .hist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--hair2); }
+  .hist-id { font-size: 12.5px; color: var(--blue); letter-spacing: 0.4px; min-width: 64px; cursor: pointer; }
+  .hist-agent { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); min-width: 96px; }
+  .hist-agent .agent-dot { width: 6px; height: 6px; }
+  .outcome-pill { font-size: 10.5px; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 999px; }
+  .hist-dur { margin-left: auto; font-size: 12px; color: var(--faint); letter-spacing: 0.5px; }
+  .hist-ci { font-size: 11.5px; letter-spacing: 0.3px; min-width: 54px; text-align: right; }
+  .hist-pr { font-size: 11.5px; letter-spacing: 0.3px; min-width: 62px; text-align: right; }
+
+  /* ── Donut ────────────────────────────────────────────────────────────── */
+  .donut-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .donut-wrap svg { width: 148px; height: 148px; flex: 0 0 auto; }
+  .donut-legend { display: flex; flex-direction: column; gap: 9px; flex: 1 1 120px; min-width: 120px; }
+  .legend-row { display: flex; align-items: center; gap: 9px; font-size: 12px; }
+  .legend-sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+  .legend-label { color: var(--text2); }
+  .legend-pct { margin-left: auto; color: var(--faint); }
+
+  /* ── Inline chart SVGs ────────────────────────────────────────────────── */
+  .chart svg { width: 100%; height: auto; display: block; }
+  .legend-inline { margin-left: auto; display: inline-flex; gap: 14px; font-size: 11px; }
+  .legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-bar { width: 10px; height: 3px; display: inline-block; border-radius: 2px; }
+
+  /* ── Budget ───────────────────────────────────────────────────────────── */
+  .budget-row { display: flex; flex-direction: column; gap: 6px; }
+  .budget-head { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+  .budget-label { color: var(--faint); letter-spacing: 0.5px; text-transform: uppercase; font-size: 10px; }
+  .budget-used { margin-left: auto; color: var(--text2); }
+  .budget-cap { color: var(--faint3); }
+  .budget-track { height: 8px; background: var(--hair); border-radius: 999px; overflow: hidden; }
+  .budget-fill { height: 100%; border-radius: 999px; }
+  .pause-callout { margin-top: 4px; display: flex; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid rgba(244,184,96,0.28); background: rgba(244,184,96,0.06); border-radius: 10px; }
+  .pause-l1 { display: flex; align-items: center; gap: 8px; }
+  .pause-title { font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--lamp); }
+  .pause-l2 { display: flex; align-items: baseline; gap: 9px; }
+  .pause-label { font-size: 12px; color: var(--text3); }
+  .pause-clock { font-size: 19px; color: var(--lamp); letter-spacing: 1.5px; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  /* ── Repo cards ───────────────────────────────────────────────────────── */
+  .repos { display: flex; flex-direction: column; gap: 12px; }
+  .repos-title { font-family: var(--serif); font-size: 18px; color: var(--moon); padding-left: 2px; font-weight: 500; }
+  .repo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 14px; }
+  .repo-card { background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 17px; display: flex; flex-direction: column; gap: 15px; }
+  .repo-card-head { display: flex; align-items: center; gap: 8px; }
+  .repo-card-name { font-size: 13px; color: var(--moon); letter-spacing: 0.3px; }
+  .repo-stats { display: flex; gap: 18px; }
+  .repo-stat { display: flex; flex-direction: column; gap: 3px; }
+  .repo-stat-num { font-family: var(--serif); font-size: 22px; color: var(--moon); line-height: 1; }
+  .repo-stat-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); }
+  .repo-card-foot { display: flex; align-items: center; gap: 8px; font-size: 11px; padding-top: 12px; border-top: 1px solid var(--hair); color: var(--faint2); }
+
+  /* ── Sweep matrix ─────────────────────────────────────────────────────── */
+  .sweep-scroll { overflow-x: auto; }
+  .sweep-inner { min-width: 720px; display: flex; flex-direction: column; }
+  .sweep-headrow { display: grid; grid-template-columns: 150px repeat(7, 1fr); gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--edge); }
+  .sweep-task { font-size: 10.5px; letter-spacing: 0.4px; color: var(--muted); text-align: center; }
+  .sweep-datarow { display: grid; grid-template-columns: 150px repeat(7, 1fr); gap: 2px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--hair2); }
+  .sweep-repo { font-size: 12px; color: var(--text2); letter-spacing: 0.3px; }
+  .sweep-cell { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; }
+  .sweep-celldot { width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
+
+  /* ── Log overlay (live tail) ──────────────────────────────────────────── */
+  .log-panel { display: none; }
+  .log-panel.open { display: flex; }
+  .log-head { display: flex; align-items: center; gap: 12px; }
+  .log-close { margin-left: auto; border: 1px solid var(--edge); background: rgba(143,180,255,0.08); color: var(--blue); border-radius: 6px; font-family: var(--mono); font-size: 11px; padding: 4px 10px; cursor: pointer; }
+  .log-close:hover { border-color: var(--blue); color: var(--moon); }
+  .log-out { max-height: 28rem; overflow: auto; white-space: pre-wrap; background: #080B12; border: 1px solid var(--edge); border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text2); }
+
+  .conn { font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--edge); }
+  .conn.live { color: var(--ok); }
+  .conn.reconnecting { color: var(--lamp); }
+  .conn.disconnected { color: var(--bad); }
+
+  #error { display: none; background: rgba(251,113,133,0.1); color: var(--bad); border: 1px solid rgba(251,113,133,0.3); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; }
+
+  /* ── Operator controls (admin token) ──────────────────────────────────── */
+  .ctrl-btn { border: 1px solid var(--edge); background: rgba(143,180,255,0.08); color: var(--blue); border-radius: 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.3px; padding: 3px 9px; cursor: pointer; }
+  .ctrl-btn:hover { border-color: var(--blue); color: var(--moon); }
+  .ctrl-btn.danger { color: var(--bad); border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.07); }
+  .ctrl-btn.danger:hover { border-color: var(--bad); color: var(--moon); }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .action-result { font-size: 10.5px; margin-left: 8px; letter-spacing: 0.3px; }
+  .action-ok { color: var(--ok); }
+  .action-err { color: var(--bad); }
+  #queue-panel { display: none; }
+  #queue-panel.show { display: flex; }
+  .queue-cols { display: flex; flex-wrap: wrap; gap: 18px; }
+  .queue-col { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .queue-col h4 { margin: 0; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); font-weight: 400; }
+  .queue-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--hair2); }
+  .queue-id { font-size: 12.5px; color: var(--blue); letter-spacing: 0.4px; cursor: pointer; }
+  .queue-meta { font-size: 11px; color: var(--faint2); }
+  .queue-row .ctrl-btn { margin-left: auto; }
 </style>
 </head>
 <body>
 
-<!-- Top bar -->
-<div class="topbar">
-  <div class="brand"><span class="brand-moon">&#127769;</span> Noctra</div>
-  <div class="topbar-meta">
-    <span class="topbar-tag reconnecting" id="connection-status">Connecting</span>
-    <span class="topbar-tag" id="dispatch-status">--</span>
-    <button type="button" class="ctrl-btn" id="pause-toggle" style="display:none">--</button>
-    <span class="topbar-tag" id="budget-tag">--</span>
-  </div>
-</div>
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-moon">&#127769;</span>
+      <span class="brand-name">Noctra</span>
+      <span class="pill-version" id="version">v—</span>
+      <span class="conn reconnecting" id="conn">Connecting</span>
+    </div>
+    <div class="capsule">
+      <span class="dot dot-lamp lamp-dot" id="dispatch-dot"></span>
+      <span class="cap-label">dispatch</span>
+      <span class="cap-value" id="dispatch-state" style="color:var(--lamp)">—</span>
+    </div>
+    <button type="button" class="ctrl-btn" id="pause-toggle" style="display:none">—</button>
+    <div class="spent">
+      <span class="spent-kicker">spent today</span>
+      <span class="spent-value" id="spent-value">$0.00</span>
+      <span class="spent-cap" id="spent-cap"></span>
+    </div>
+  </header>
 
-<div id="error"></div>
+  <div id="error"></div>
 
-<div class="card wide" id="log-card">
-  <div class="log-head">
-    <h2 id="log-title">Log</h2>
-    <button type="button" class="log-btn" id="close-log">Close</button>
-  </div>
-  <pre id="log-output"></pre>
-</div>
+  <!-- ===== LOG OVERLAY ===== -->
+  <section class="panel log-panel" id="log-panel">
+    <div class="log-head">
+      <span class="ptitle" id="log-title">Log</span>
+      <button type="button" class="log-close" id="log-close">Close</button>
+    </div>
+    <pre class="log-out" id="log-out"></pre>
+  </section>
 
-<!-- Row 1: Live snapshot cards -->
-<div class="grid">
-  <div class="card">
-    <h2>Active Runs</h2>
-    <div id="active"></div>
-  </div>
-  <div class="card">
-    <h2>Queue</h2>
-    <div id="queued"></div>
-  </div>
-  <div class="card">
-    <h2>Skipped</h2>
-    <ul id="skipped"></ul>
-  </div>
-  <div class="card">
-    <h2>Budget</h2>
-    <div id="budget"></div>
-  </div>
-</div>
+  <!-- ===== KPI STRIP ===== -->
+  <section class="kpis" id="kpis"></section>
 
-<!-- Row 2: Cost sparkline -->
-<div class="grid">
-  <div class="card wide">
-    <h2>Cost (last 30 days)</h2>
-    <div id="cost-panel"></div>
-  </div>
-</div>
+  <!-- ===== ACTIVE RUNS ===== -->
+  <section class="panel active-panel lamp-glow" id="active-panel">
+    <div class="phead" style="align-items:center">
+      <span class="dot lamp-dot" id="active-headdot" style="width:9px;height:9px;background:var(--lamp);box-shadow:0 0 12px 2px rgba(244,184,96,0.75)"></span>
+      <span class="ptitle">Active runs</span>
+      <span class="kicker" id="active-kicker" style="color:var(--lamp)">—</span>
+    </div>
+    <div class="active-cards" id="active-cards"></div>
+  </section>
 
-<!-- Row 3: Run history -->
-<div class="grid">
-  <div class="card wide">
-    <h2>Run History</h2>
-    <div class="tab-bar" id="history-tabs"></div>
-    <div id="history-panel"></div>
-  </div>
-</div>
+  <!-- ===== QUEUE & SKIPPED (only when non-empty) ===== -->
+  <section class="panel" id="queue-panel" style="flex-direction:column">
+    <div class="phead"><span class="ptitle">Queue &amp; skipped</span><span class="kicker right">retry / requeue</span></div>
+    <div class="queue-cols">
+      <div class="queue-col" id="queue-col-queued"></div>
+      <div class="queue-col" id="queue-col-skipped"></div>
+    </div>
+  </section>
 
-<!-- Row 4: PR iterate + Sweep -->
-<div class="grid">
-  <div class="card">
-    <h2>PR Auto-Iterate</h2>
-    <div id="pr-panel"></div>
+  <!-- ===== ROW: Run history + Run outcomes ===== -->
+  <div class="row">
+    <section class="panel" style="flex:2 1 460px">
+      <div class="phead"><span class="ptitle">Run history</span><span class="kicker right">completed · last 12h</span></div>
+      <div id="history"></div>
+    </section>
+    <section class="panel" style="flex:1 1 280px">
+      <div class="phead"><span class="ptitle">Run outcomes</span><span class="kicker right">14 days</span></div>
+      <div id="donut"></div>
+    </section>
   </div>
-  <div class="card">
-    <h2>Sweep Tasks</h2>
-    <div id="sweep-panel"></div>
+
+  <!-- ===== ROW: Token & cost + Spend by agent ===== -->
+  <div class="row">
+    <section class="panel chart" style="flex:2 1 460px">
+      <div class="phead">
+        <span class="ptitle">Token &amp; cost</span>
+        <span class="kicker">last 14 days</span>
+        <span class="legend-inline">
+          <span style="color:var(--blue)"><span class="legend-bar" style="background:var(--blue)"></span>tokens</span>
+          <span style="color:var(--lamp)"><span class="legend-bar" style="background:var(--lamp)"></span>cost</span>
+        </span>
+      </div>
+      <div id="tokencost"></div>
+    </section>
+    <section class="panel chart" style="flex:1 1 300px">
+      <div class="phead"><span class="ptitle">Spend by agent</span><span class="kicker right">today</span></div>
+      <div id="spend"></div>
+    </section>
   </div>
-</div>
+
+  <!-- ===== ROW: Runs by repo + PR throughput + Budget ===== -->
+  <div class="row">
+    <section class="panel chart" style="flex:1 1 300px">
+      <div class="phead"><span class="ptitle">Runs by repo</span><span class="kicker right">14 days</span></div>
+      <div id="runsbyrepo"></div>
+    </section>
+    <section class="panel chart" style="flex:1 1 300px">
+      <div class="phead"><span class="ptitle">PR throughput</span><span class="kicker right">PRs / day</span></div>
+      <div id="throughput"></div>
+    </section>
+    <section class="panel" style="flex:1 1 300px">
+      <div class="phead"><span class="ptitle">Budget</span><span class="kicker right">caps</span></div>
+      <div id="budget"></div>
+    </section>
+  </div>
+
+  <!-- ===== Repositories ===== -->
+  <section class="repos">
+    <span class="repos-title">Repositories</span>
+    <div class="repo-grid" id="repo-cards"></div>
+  </section>
+
+  <!-- ===== Maintenance sweeps ===== -->
+  <section class="panel">
+    <div class="phead">
+      <span class="ptitle">Maintenance sweeps</span>
+      <span class="kicker">cooldown status</span>
+      <span class="legend-inline">
+        <span style="color:var(--ok)"><span class="dot" style="width:7px;height:7px;background:var(--ok)"></span>eligible</span>
+        <span style="color:var(--muted)"><span class="dot" style="width:7px;height:7px;background:#3A4356"></span>cooling down</span>
+      </span>
+    </div>
+    <div id="sweeps"></div>
+  </section>
 
 <script>
-(function() {
+(function () {
+  "use strict";
+
+  // ── Config / auth ─────────────────────────────────────────────────────
   var params = new URLSearchParams(window.location.search);
   var token = params.get("token") || "";
   var adminToken = params.get("admin_token") || "";
   var headers = { "Authorization": "Bearer " + token };
+  // Admin token goes via header only (the server rejects it on the query string).
   var adminHeaders = { "Authorization": "Bearer " + (adminToken || token), "Content-Type": "application/json" };
-  var events = null;
-  var logEvents = null;
-  var auxRefreshTimer = null;
   var adminEnabled = false;
-  var lastPaused = false;
 
   function authURL(path) {
     if (!token) return path;
     var sep = path.indexOf("?") === -1 ? "?" : "&";
     return path + sep + "token=" + encodeURIComponent(token);
   }
-
-  function formatTokens(n) {
-    if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
-    if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "K";
-    return String(n);
-  }
-
-  function esc(s) {
-    var d = document.createElement("span");
-    d.textContent = s;
-    return d.innerHTML;
-  }
-
-  function formatDuration(secs) {
-    if (secs <= 0) return "-";
-    if (secs < 60) return Math.round(secs) + "s";
-    var m = Math.floor(secs / 60);
-    var s = Math.round(secs % 60);
-    if (m < 60) return m + "m " + s + "s";
-    var h = Math.floor(m / 60);
-    m = m % 60;
-    return h + "h " + m + "m";
-  }
-
-  function statusBadge(status) {
-    var cls = "badge-dim";
-    if (status === "pr_opened") cls = "badge-ok";
-    else if (status === "failed") cls = "badge-bad";
-    else if (status === "blocked") cls = "badge-warn";
-    return '<span class="badge ' + cls + '">' + esc(status) + "</span>";
-  }
-
-  function typeBadge(runType) {
-    var cls = "badge-glow";
-    if (runType === "sweep") cls = "badge-dim";
-    else if (runType === "iterate") cls = "badge-warn";
-    return '<span class="badge ' + cls + '">' + esc(runType) + "</span>";
-  }
-
-  function link(url, text) {
-    if (!url) return esc(text || "-");
-    return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text || url) + "</a>";
-  }
-
-  function logButton(id) {
-    return '<button type="button" class="log-btn" data-log-id="' + esc(id) + '">Log</button>';
-  }
-
-  function shortTime(iso) {
-    if (!iso) return "-";
-    var d = new Date(iso);
-    return d.toLocaleDateString(undefined, {month:"short",day:"numeric"}) + " " +
-           d.toLocaleTimeString(undefined, {hour:"2-digit",minute:"2-digit"});
-  }
-
-  // ── Admin control helpers ──────────────────────────────────────────
-
-  function adminPost(path, body) {
-    return fetch(path, {
-      method: "POST",
-      headers: adminHeaders,
-      body: body ? JSON.stringify(body) : undefined
-    }).then(function(r) { return r.json(); });
-  }
-
-  function showResult(el, ok, msg) {
-    var span = document.createElement("span");
-    span.className = "action-result " + (ok ? "action-ok" : "action-err");
-    span.textContent = msg;
-    el.parentNode.insertBefore(span, el.nextSibling);
-    setTimeout(function() { if (span.parentNode) span.parentNode.removeChild(span); }, 3000);
-  }
-
-  function killBtn(id) {
-    if (!adminEnabled) return "";
-    return '<button type="button" class="ctrl-btn danger" data-kill-id="' + esc(id) + '">Kill</button>';
-  }
-
-  function requeueBtn(id) {
-    if (!adminEnabled) return "";
-    return '<button type="button" class="ctrl-btn" data-requeue-id="' + esc(id) + '">Requeue</button>';
-  }
-
-  function retryBtn(id) {
-    if (!adminEnabled) return "";
-    return '<button type="button" class="ctrl-btn" data-retry-id="' + esc(id) + '">Retry</button>';
-  }
-
-  // ── Snapshot (live state) ──────────────────────────────────────────
-
-  function groupByRepo(entries, repoKey) {
-    var groups = {};
-    var order = [];
-    for (var i = 0; i < entries.length; i++) {
-      var r = entries[i][repoKey] || "(unknown)";
-      if (!groups[r]) { groups[r] = []; order.push(r); }
-      groups[r].push(entries[i]);
-    }
-    return { groups: groups, order: order };
-  }
-
-  function activeItemHtml(e) {
-    return '<li class="lamp-item"><span class="run-line"><span>' + esc(e.identifier) + '</span><span class="run-btns">' + logButton(e.identifier) + killBtn(e.identifier) + "</span></span></li>";
-  }
-
-  function renderActive(el, items) {
-    if (!items || items.length === 0) {
-      el.innerHTML = '<p class="empty">No active runs. Waiting for tickets.</p>';
-      return;
-    }
-    var g = groupByRepo(items, "repo");
-    var html = "";
-    if (g.order.length === 1 && g.order[0] === "(unknown)") {
-      html = "<ul>" + items.map(activeItemHtml).join("") + "</ul>";
-    } else {
-      for (var i = 0; i < g.order.length; i++) {
-        var repo = g.order[i];
-        html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
-        html += g.groups[repo].map(activeItemHtml).join("");
-        html += "</ul>";
-      }
-    }
-    el.innerHTML = html;
-  }
-
-  function queuedItemHtml(e) {
-    return '<li><span class="run-line"><span>' + esc(e.identifier) + '<span class="retries">(' + e.retries + ' retries)</span></span><span class="run-btns">' + logButton(e.identifier) + requeueBtn(e.identifier) + "</span></span></li>";
-  }
-
-  function renderQueued(el, items) {
-    if (!items || items.length === 0) {
-      el.innerHTML = '<p class="empty">No queued tickets.</p>';
-      return;
-    }
-    var g = groupByRepo(items, "repo");
-    var html = "";
-    if (g.order.length === 1 && g.order[0] === "(unknown)") {
-      html = "<ul>" + items.map(queuedItemHtml).join("") + "</ul>";
-    } else {
-      for (var i = 0; i < g.order.length; i++) {
-        var repo = g.order[i];
-        html += '<div class="repo-header">' + esc(repo) + "</div><ul>";
-        html += g.groups[repo].map(queuedItemHtml).join("");
-        html += "</ul>";
-      }
-    }
-    el.innerHTML = html;
-  }
-
-  function renderSkipped(el, items) {
-    if (!items || items.length === 0) {
-      el.innerHTML = '<li class="empty">No skipped tickets.</li>';
-      return;
-    }
-    el.innerHTML = items.map(function(id) {
-      return '<li><span class="run-line"><span>' + esc(id) + '</span><span class="run-btns">' + logButton(id) + retryBtn(id) + "</span></span></li>";
-    }).join("");
-  }
-
-  function renderBudget(el, b, paused) {
-    var rows = "";
-    if (paused) {
-      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-warn">Paused</span></div>';
-    } else {
-      rows += '<div class="stat-row"><span class="stat-label">Dispatch</span><span class="badge badge-ok">Running</span></div>';
-    }
-    rows += '<div class="stat-row"><span class="stat-label">Session tokens</span><span class="stat-value">' + formatTokens(b.SessionTokens || 0) + "</span></div>";
-    if (b.SessionCostUSD) {
-      rows += '<div class="stat-row"><span class="stat-label">Session cost</span><span class="stat-value">$' + b.SessionCostUSD.toFixed(2) + "</span></div>";
-    }
-    rows += '<div class="stat-row"><span class="stat-label">Daily tokens</span><span class="stat-value">' + formatTokens(b.DailyTokens || 0);
-    if (b.MaxDailyTokens > 0) rows += " / " + formatTokens(b.MaxDailyTokens);
-    rows += "</span></div>";
-    if (b.MaxDailyUSD > 0) {
-      rows += '<div class="stat-row"><span class="stat-label">Daily cost</span><span class="stat-value">$' + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2) + "</span></div>";
-    }
-    if (b.Paused && b.PauseReason) {
-      rows += '<div class="stat-row"><span class="stat-label">Pause reason</span><span>' + esc(b.PauseReason) + "</span></div>";
-    }
-    if (b.PausedUntil && b.PausedUntil !== "0001-01-01T00:00:00Z") {
-      var until = new Date(b.PausedUntil);
-      if (until > new Date()) {
-        rows += '<div class="stat-row"><span class="stat-label">Resumes</span><span class="stat-value">' + shortTime(b.PausedUntil) + "</span></div>";
-      }
-    }
-    el.innerHTML = rows;
-  }
-
-  function updateTopbar(snap) {
-    var dEl = document.getElementById("dispatch-status");
-    var bEl = document.getElementById("budget-tag");
-    var pBtn = document.getElementById("pause-toggle");
-    lastPaused = snap.paused;
-    if (snap.paused) {
-      dEl.textContent = "Paused";
-      dEl.style.color = "var(--warn)";
-    } else {
-      dEl.textContent = "Running";
-      dEl.style.color = "var(--ok)";
-    }
-    if (adminEnabled) {
-      pBtn.style.display = "";
-      pBtn.textContent = snap.paused ? "Resume" : "Pause";
-    }
-    var b = snap.budget || {};
-    if (b.MaxDailyUSD > 0) {
-      bEl.textContent = "$" + (b.DailyCostUSD || 0).toFixed(2) + " / $" + b.MaxDailyUSD.toFixed(2);
-    } else if (b.SessionCostUSD > 0) {
-      bEl.textContent = "$" + b.SessionCostUSD.toFixed(2);
-    } else {
-      bEl.textContent = formatTokens(b.SessionTokens || 0) + " tokens";
-    }
-  }
-
-  // ── Cost sparkline ────────────────────────────────────────────────
-
-  function renderSparkline(values, width, height) {
-    if (!values || values.length === 0) return "";
-    var max = Math.max.apply(null, values);
-    if (max === 0) max = 1;
-    var step = width / Math.max(values.length - 1, 1);
-    var points = values.map(function(v, i) {
-      var x = (i * step).toFixed(1);
-      var y = (height - (v / max) * (height - 4) - 2).toFixed(1);
-      return x + "," + y;
-    });
-    return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" style="max-width:100%;height:auto" role="img" aria-label="Cost sparkline">' +
-      '<polyline fill="none" stroke="var(--glow)" stroke-width="1.5" points="' + points.join(" ") + '"/>' +
-      "</svg>";
-  }
-
-  function renderCost(el, data) {
-    if (!data || !data.buckets || data.buckets.length === 0) {
-      el.innerHTML = '<span class="empty">No usage data yet.</span>';
-      return;
-    }
-    var buckets = data.buckets;
-    var totalCost = 0, totalTokens = 0, todayCost = 0, todayTokens = 0;
-    var today = new Date().toISOString().slice(0, 10);
-    var costs = [];
-    for (var i = 0; i < buckets.length; i++) {
-      totalCost += buckets[i].cost_usd;
-      totalTokens += buckets[i].total_tokens;
-      costs.push(buckets[i].cost_usd);
-      if (buckets[i].date === today) {
-        todayCost = buckets[i].cost_usd;
-        todayTokens = buckets[i].total_tokens;
-      }
-    }
-    var html = '<div class="stat-row"><span class="stat-label">Today</span><span class="stat-value">$' + todayCost.toFixed(2) + " / " + formatTokens(todayTokens) + " tokens</span></div>";
-    html += '<div class="stat-row"><span class="stat-label">30-day total</span><span class="stat-value">$' + totalCost.toFixed(2) + " / " + formatTokens(totalTokens) + " tokens</span></div>";
-    html += '<div class="sparkline-wrap">' + renderSparkline(costs, 500, 40) + "</div>";
-    el.innerHTML = html;
-  }
-
-  // ── Run history (grouped by repo with tab switching) ──────────────
-
-  var historyData = [];
-
-  function renderHistory(el, tabsEl, data) {
-    historyData = data || [];
-    if (historyData.length === 0) {
-      tabsEl.innerHTML = "";
-      el.innerHTML = '<span class="empty">No run history yet. Runs will appear here after completion.</span>';
-      return;
-    }
-    var repos = {};
-    var repoOrder = [];
-    for (var i = 0; i < historyData.length; i++) {
-      var r = historyData[i].repo || "(unknown)";
-      if (!repos[r]) { repos[r] = []; repoOrder.push(r); }
-      repos[r].push(historyData[i]);
-    }
-
-    var tabHtml = '<button class="tab active" data-repo="__all__">All</button>';
-    for (var j = 0; j < repoOrder.length; j++) {
-      tabHtml += '<button class="tab" data-repo="' + esc(repoOrder[j]) + '">' + esc(repoOrder[j]) + "</button>";
-    }
-    tabsEl.innerHTML = tabHtml;
-
-    tabsEl.querySelectorAll(".tab").forEach(function(tab) {
-      tab.addEventListener("click", function() {
-        tabsEl.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
-        tab.classList.add("active");
-        var repo = tab.getAttribute("data-repo");
-        renderHistoryTable(el, repo === "__all__" ? historyData : repos[repo] || []);
-      });
-    });
-
-    renderHistoryTable(el, historyData);
-  }
-
-  function renderHistoryTable(el, runs) {
-    if (runs.length === 0) {
-      el.innerHTML = '<span class="empty">No runs in this view.</span>';
-      return;
-    }
-    var html = "<table><thead><tr><th>Identifier</th><th>Repo</th><th>Type</th><th>Status</th><th>Duration</th><th>PR</th><th>Started</th><th>Log</th></tr></thead><tbody>";
-    for (var i = 0; i < runs.length; i++) {
-      var r = runs[i];
-      var idCell = r.linear_url ? link(r.linear_url, r.identifier) : '<span class="mono">' + esc(r.identifier) + "</span>";
-      var prCell = r.pr_url ? link(r.pr_url, "PR") : '<span class="dim">-</span>';
-      html += "<tr><td class='mono'>" + idCell + "</td><td class='mono'>" + esc(r.repo || "-") + "</td><td>" + typeBadge(r.run_type) + "</td><td>" + statusBadge(r.status) + "</td><td class='mono'>" + formatDuration(r.duration_s) + "</td><td>" + prCell + "</td><td class='mono'>" + shortTime(r.started_at) + "</td><td>" + logButton(r.identifier) + "</td></tr>";
-    }
-    html += "</tbody></table>";
-    el.innerHTML = html;
-  }
-
-  // ── PR auto-iterate panel ─────────────────────────────────────────
-
-  function renderPRs(el, data) {
-    if (!data || data.length === 0) {
-      el.innerHTML = '<span class="empty">No tracked PRs.</span>';
-      return;
-    }
-    var html = "<table><thead><tr><th>PR</th><th>Ticket</th><th>Iterations</th><th>CI</th><th>Reasoning</th></tr></thead><tbody>";
-    for (var i = 0; i < data.length; i++) {
-      var p = data[i];
-      var prLink = p.pr_url ? link(p.pr_url, p.pr_url.replace(/.*\/pull\//, "#")) : "-";
-      var ticketLink = p.linear_url ? link(p.linear_url, p.ticket_id) : esc(p.ticket_id || "-");
-      var iterText = p.iterations + " / " + p.max_iterations;
-      var iterBadge = p.capped ? '<span class="badge badge-bad">capped</span>' : '<span class="badge badge-ok">' + esc(iterText) + "</span>";
-      var ciCell = "-";
-      if (p.last_ci_sha) {
-        var shaText = p.last_ci_sha.substring(0, 7);
-        if (p.last_ci_run_url) {
-          ciCell = '<a href="' + esc(p.last_ci_run_url) + '" target="_blank" rel="noopener" class="mono" title="View CI run">' + esc(shaText) + '</a>';
-        } else {
-          ciCell = '<span class="mono">' + esc(shaText) + "</span>";
-        }
-      }
-      var reason = p.last_reasoning ? '<span class="truncate" title="' + esc(p.last_reasoning) + '">' + esc(p.last_reasoning.substring(0, 80)) + "</span>" : '<span class="dim">-</span>';
-      html += "<tr><td>" + prLink + "</td><td class='mono'>" + ticketLink + "</td><td>" + iterBadge + "</td><td>" + ciCell + "</td><td>" + reason + "</td></tr>";
-    }
-    html += "</tbody></table>";
-    el.innerHTML = html;
-  }
-
-  // ── Sweep panel ───────────────────────────────────────────────────
-
-  function renderSweeps(el, data) {
-    if (!data || data.length === 0) {
-      el.innerHTML = '<span class="empty">No sweep data.</span>';
-      return;
-    }
-    var html = "<table><thead><tr><th>Repo</th><th>Task</th><th>Status</th><th>Last Run</th></tr></thead><tbody>";
-    for (var i = 0; i < data.length; i++) {
-      var s = data[i];
-      var statusBdg;
-      if (s.eligible) {
-        statusBdg = '<span class="badge badge-ok">eligible</span>';
-      } else {
-        var left = s.cooldown_left_h;
-        var leftStr = left < 1 ? Math.round(left * 60) + "m" : Math.round(left) + "h";
-        statusBdg = '<span class="badge badge-warn">' + leftStr + " left</span>";
-      }
-      html += "<tr><td class='mono'>" + esc(s.repo) + "</td><td>" + esc(s.task) + "</td><td>" + statusBdg + "</td><td class='mono'>" + shortTime(s.last_run_at) + "</td></tr>";
-    }
-    html += "</tbody></table>";
-    el.innerHTML = html;
-  }
-
-  // ── Load data ─────────────────────────────────────────────────────
-
-  function fetchJSON(url) {
-    return fetch(url, { headers: headers }).then(function(r) {
+  function fetchJSON(path) {
+    return fetch(path, { headers: headers }).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     });
   }
 
-  function renderSnapshot(snap) {
-    updateTopbar(snap);
-    renderActive(document.getElementById("active"), snap.active);
-    renderQueued(document.getElementById("queued"), snap.queued);
-    renderSkipped(document.getElementById("skipped"), snap.skipped);
-    renderBudget(document.getElementById("budget"), snap.budget || {}, snap.paused);
+  // ── Admin control helpers ──────────────────────────────────────────────
+  function adminPost(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: adminHeaders,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) { return r.json().catch(function () { return {}; }); });
+  }
+  function showResult(el, ok, msg) {
+    var span = document.createElement("span");
+    span.className = "action-result " + (ok ? "action-ok" : "action-err");
+    span.textContent = msg;
+    el.parentNode.insertBefore(span, el.nextSibling);
+    setTimeout(function () { if (span.parentNode) span.parentNode.removeChild(span); }, 3000);
+  }
+  function killBtn(id) { return adminEnabled ? '<button type="button" class="ctrl-btn danger" data-kill-id="' + esc(id) + '">Kill</button>' : ""; }
+  function requeueBtn(id) { return adminEnabled ? '<button type="button" class="ctrl-btn" data-requeue-id="' + esc(id) + '">Requeue</button>' : ""; }
+  function retryBtn(id) { return adminEnabled ? '<button type="button" class="ctrl-btn" data-retry-id="' + esc(id) + '">Retry</button>' : ""; }
+
+  // ── Lookups ───────────────────────────────────────────────────────────
+  var AGENT = {
+    claude:      { name: "Claude",      color: "#B79BE8" },
+    codex:       { name: "Codex",       color: "#7FD8B0" },
+    copilot:     { name: "Copilot",     color: "#7FA8E8" },
+    antigravity: { name: "Antigravity", color: "#E8A66B" }
+  };
+  function agentInfo(id) {
+    if (!id) return { name: "—", color: "#828BA3" };
+    var key = String(id).toLowerCase();
+    if (AGENT[key]) return AGENT[key];
+    return { name: id.charAt(0).toUpperCase() + id.slice(1), color: "#828BA3" };
+  }
+  var OUT = {
+    merged:    { label: "merged",    color: "#6EE7A8", bg: "rgba(110,231,168,0.13)" },
+    pr_opened: { label: "PR opened",  color: "#8FB4FF", bg: "rgba(143,180,255,0.13)" },
+    blocked:   { label: "blocked",   color: "#F4B860", bg: "rgba(244,184,96,0.13)" },
+    failed:    { label: "failed",    color: "#FB7185", bg: "rgba(251,113,133,0.13)" },
+    no_change: { label: "no change", color: "#828BA3", bg: "rgba(130,139,163,0.13)" }
+  };
+  function outInfo(status) {
+    return OUT[status] || { label: status || "—", color: "#828BA3", bg: "rgba(130,139,163,0.13)" };
+  }
+  // Sweep task catalog → short column labels (matches internal/sweep/task_*.go).
+  var SWEEP_TASKS = [
+    { name: "lint-cleanup",  label: "lint" },
+    { name: "dead-code",     label: "dead-code" },
+    { name: "deps-update",   label: "deps" },
+    { name: "test-coverage", label: "test-cov" },
+    { name: "doc-drift",     label: "doc-drift" },
+    { name: "modernize",     label: "modernize" },
+    { name: "bug-scan",      label: "bug-scan" }
+  ];
+
+  // ── Formatting ────────────────────────────────────────────────────────
+  function esc(s) { var d = document.createElement("span"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function fmtTokens(n) {
+    n = n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1) + "K";
+    return String(Math.round(n));
+  }
+  function fmtMoney(n) { return "$" + (n || 0).toFixed(2); }
+  function fmtDur(secs) {
+    secs = Math.round(secs || 0);
+    if (secs <= 0) return "—";
+    var m = Math.floor(secs / 60), s = secs % 60;
+    if (m < 60) return m + "m " + pad2(s) + "s";
+    var h = Math.floor(m / 60); m = m % 60;
+    return h + "h " + pad2(m) + "m";
+  }
+  function fmtElapsed(secs) { secs = Math.max(0, Math.floor(secs)); return pad2(Math.floor(secs / 60)) + ":" + pad2(secs % 60); }
+  function fmtClock(secs) { secs = Math.max(0, Math.floor(secs)); return pad2(Math.floor(secs / 3600)) + ":" + pad2(Math.floor((secs % 3600) / 60)) + ":" + pad2(secs % 60); }
+  function fmtAgo(iso) {
+    if (!iso) return "—";
+    var then = new Date(iso).getTime();
+    if (isNaN(then)) return "—";
+    var s = Math.max(0, (Date.now() - then) / 1000);
+    if (s < 60) return Math.round(s) + "s ago";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m ago";
+    var h = Math.floor(m / 60); m = m % 60;
+    if (h < 24) return h + "h " + (m ? pad2(m) + "m " : "") + "ago";
+    return Math.floor(h / 24) + "d ago";
+  }
+  function fmtCooldown(hours) {
+    var min = Math.round((hours || 0) * 60);
+    if (min < 1) return "ready";
+    if (min < 60) return min + "m";
+    var h = Math.floor(min / 60), m = min % 60;
+    return m === 0 ? h + "h" : h + "h " + pad2(m) + "m";
+  }
+  function repoFromPR(url) {
+    var m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(url || "");
+    return m ? m[1] : "";
+  }
+  function todayKey() { return new Date().toISOString().slice(0, 10); }
+  function dayKey(d) { return d.toISOString().slice(0, 10); }
+
+  // ── State ─────────────────────────────────────────────────────────────
+  var snapshot = null, history = [], cost = { buckets: [] }, spend = [], sweeps = [], prs = [];
+
+  // ── KPI strip ─────────────────────────────────────────────────────────
+  function withinDays(iso, days) {
+    if (!iso) return false;
+    var t = new Date(iso).getTime();
+    return !isNaN(t) && (Date.now() - t) <= days * 86400000;
+  }
+  function renderKPIs() {
+    var b = (snapshot && snapshot.budget) || {};
+    var active = (snapshot && snapshot.active) || [];
+
+    var prsOpened = history.filter(function (r) { return r.status === "pr_opened" || r.status === "merged"; });
+    var prs14 = prsOpened.filter(function (r) { return withinDays(r.started_at, 14); });
+
+    var last7 = history.filter(function (r) { return withinDays(r.started_at, 7); });
+    var ok7 = last7.filter(function (r) { return r.status === "pr_opened" || r.status === "merged"; });
+    var rate = last7.length ? Math.round((ok7.length / last7.length) * 100) + "%" : "—";
+
+    var hist14 = history.filter(function (r) { return withinDays(r.started_at, 14); });
+    var repoSet = {};
+    hist14.forEach(function (r) { if (r.repo) repoSet[r.repo] = true; });
+    var repoCount = Object.keys(repoSet).length;
+
+    // tokens today + % vs prior-day average, from cost buckets
+    var tk = todayKey(), todayTokens = 0, prior = [];
+    cost.buckets.forEach(function (bk) {
+      if (bk.date === tk) todayTokens = bk.total_tokens || 0;
+      else prior.push(bk.total_tokens || 0);
+    });
+    var avg = prior.length ? prior.reduce(function (a, c) { return a + c; }, 0) / prior.length : 0;
+    var pctSub = "vs avg";
+    if (avg > 0) { var d = Math.round(((todayTokens - avg) / avg) * 100); pctSub = (d >= 0 ? "+" : "") + d + "% vs avg"; }
+
+    var agentName = active.length ? agentInfo(active[0].agent).name : "";
+    var activeSub = active.length === 0 ? "idle" : (active.length === 1 ? agentName + " live" : active.length + " agents live");
+
+    var costSub = b.MaxDailyUSD > 0 ? "of " + fmtMoney(b.MaxDailyUSD) + " cap" : "today";
+
+    var kpis = [
+      { label: "PRs opened",   value: String(prs14.length), sub: "last 14 days",   accent: "var(--blue)" },
+      { label: "Active runs",  value: String(active.length), sub: activeSub,        accent: "var(--lamp)" },
+      { label: "Success rate", value: rate,                  sub: "last 7 days",    accent: "var(--ok)" },
+      { label: "Tokens today", value: fmtTokens(todayTokens), sub: pctSub,          accent: "var(--moon)" },
+      { label: "Cost today",   value: fmtMoney(b.DailyCostUSD || 0), sub: costSub,  accent: "var(--lamp)" },
+      { label: "Repos active", value: String(repoCount),     sub: hist14.length + " runs / 14d", accent: "var(--moon)" }
+    ];
+    document.getElementById("kpis").innerHTML = kpis.map(function (k) {
+      return '<div class="kpi"><span class="kpi-label">' + esc(k.label) + '</span>' +
+        '<span class="kpi-value" style="color:' + k.accent + '">' + esc(k.value) + '</span>' +
+        '<span class="kpi-sub">' + esc(k.sub) + '</span></div>';
+    }).join("");
   }
 
-  function setConnection(state, text) {
-    var el = document.getElementById("connection-status");
-    el.className = "topbar-tag " + state;
-    el.textContent = text;
+  // ── Top bar ───────────────────────────────────────────────────────────
+  function renderTopbar() {
+    var b = (snapshot && snapshot.budget) || {};
+    document.getElementById("version").textContent = "v" + ((snapshot && snapshot.version) || "—");
+    var paused = snapshot && snapshot.paused;
+    var dEl = document.getElementById("dispatch-state");
+    dEl.textContent = paused ? "paused" : "running";
+    dEl.style.color = paused ? "var(--muted)" : "var(--lamp)";
+    document.getElementById("dispatch-dot").style.display = paused ? "none" : "inline-block";
+    document.getElementById("spent-value").textContent = fmtMoney(b.DailyCostUSD || 0);
+    document.getElementById("spent-cap").textContent = b.MaxDailyUSD > 0 ? "/ " + fmtMoney(b.MaxDailyUSD) : "";
+    var pBtn = document.getElementById("pause-toggle");
+    if (adminEnabled) {
+      pBtn.style.display = "";
+      pBtn.textContent = paused ? "Resume dispatch" : "Pause dispatch";
+    } else {
+      pBtn.style.display = "none";
+    }
   }
 
-  function scheduleAuxRefresh() {
-    if (auxRefreshTimer) return;
-    auxRefreshTimer = setTimeout(function() {
-      auxRefreshTimer = null;
-      loadAux();
-    }, 750);
+  // ── Active runs ───────────────────────────────────────────────────────
+  function renderActive() {
+    var active = (snapshot && snapshot.active) || [];
+    var panel = document.getElementById("active-panel");
+    var kicker = document.getElementById("active-kicker");
+    var headdot = document.getElementById("active-headdot");
+    var lit = active.length > 0;
+    panel.classList.toggle("lamp-glow", lit);
+    panel.classList.toggle("idle", !lit);
+    headdot.classList.toggle("lamp-dot", lit);
+    headdot.style.background = lit ? "var(--lamp)" : "#3A4356";
+    headdot.style.boxShadow = lit ? "0 0 12px 2px rgba(244,184,96,0.75)" : "none";
+    kicker.textContent = lit ? (active.length === 1 ? "one in flight" : active.length + " in flight") : "idle — waiting for tickets";
+
+    var el = document.getElementById("active-cards");
+    if (!lit) { el.innerHTML = '<div class="empty">No active runs. Waiting for tickets.</div>'; return; }
+    el.innerHTML = active.map(function (r) {
+      var ai = agentInfo(r.agent);
+      var type = (r.run_type || "run").toUpperCase();
+      return '<div class="run-card">' +
+        '<div class="run-card-top">' +
+          '<span class="run-id" data-log-id="' + esc(r.identifier) + '">' + esc(r.identifier) + '</span>' +
+          '<span class="type-pill">' + esc(type) + '</span>' +
+          '<span class="running-pill lamp-dot">running</span>' +
+        '</div>' +
+        '<div class="run-repo">' + esc(r.repo || "—") + '</div>' +
+        '<div class="run-card-foot">' +
+          '<span class="run-agent"><span class="agent-dot" style="background:' + ai.color + '"></span>' + esc(ai.name) + '</span>' +
+          killBtn(r.identifier) +
+          '<span class="run-elapsed" data-elapsed-from="' + esc(r.started_at || "") + '">' + (r.started_at ? fmtElapsed((Date.now() - new Date(r.started_at).getTime()) / 1000) : "—") + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join("");
   }
 
+  // ── Queue & skipped (only shown when non-empty) ───────────────────────
+  function renderQueue() {
+    var queued = (snapshot && snapshot.queued) || [];
+    var skipped = (snapshot && snapshot.skipped) || [];
+    var panel = document.getElementById("queue-panel");
+    if (!queued.length && !skipped.length) { panel.classList.remove("show"); return; }
+    panel.classList.add("show");
+
+    var qEl = document.getElementById("queue-col-queued");
+    if (queued.length) {
+      qEl.innerHTML = '<h4>Queued · ' + queued.length + '</h4>' + queued.map(function (e) {
+        return '<div class="queue-row"><span class="queue-id" data-log-id="' + esc(e.identifier) + '">' + esc(e.identifier) + '</span>' +
+          '<span class="queue-meta">' + (e.retries || 0) + ' ' + ((e.retries === 1) ? 'retry' : 'retries') + (e.repo ? ' · ' + esc(e.repo) : '') + '</span>' +
+          requeueBtn(e.identifier) + '</div>';
+      }).join("");
+    } else { qEl.innerHTML = ""; }
+
+    var sEl = document.getElementById("queue-col-skipped");
+    if (skipped.length) {
+      sEl.innerHTML = '<h4>Skipped · ' + skipped.length + '</h4>' + skipped.map(function (id) {
+        return '<div class="queue-row"><span class="queue-id" data-log-id="' + esc(id) + '">' + esc(id) + '</span>' + retryBtn(id) + '</div>';
+      }).join("");
+    } else { sEl.innerHTML = ""; }
+  }
+
+  // ── Run history (grouped by repo, last 12h) ───────────────────────────
+  function renderHistory() {
+    var rows = history.filter(function (r) { return withinDays(r.started_at, 0.5); });
+    var el = document.getElementById("history");
+    if (rows.length === 0) { el.innerHTML = '<div class="empty">No completed runs in the last 12 hours.</div>'; return; }
+    var groups = {}, order = [];
+    rows.forEach(function (r) {
+      var k = r.repo || "(unknown)";
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(r);
+    });
+    el.innerHTML = order.map(function (repo) {
+      var runs = groups[repo];
+      var head = '<div class="hist-grouphead"><span class="hist-repo">' + esc(repo) + '</span>' +
+        '<span class="hist-count">' + runs.length + (runs.length === 1 ? " run" : " runs") + '</span>' +
+        '<span class="hist-rule"></span></div>';
+      var body = runs.map(function (r) {
+        var ai = agentInfo(r.agent_backend), oi = outInfo(r.status);
+        var pr = r.pr_url ? '<a class="hist-pr" href="' + esc(r.pr_url) + '" target="_blank" rel="noopener">PR ' + esc(prNum(r.pr_url)) + '</a>'
+                          : '<span class="hist-pr" style="color:var(--faint3)">—</span>';
+        return '<div class="hist-row">' +
+          '<span class="hist-id" data-log-id="' + esc(r.identifier) + '">' + esc(r.identifier) + '</span>' +
+          '<span class="hist-agent"><span class="agent-dot" style="background:' + ai.color + '"></span>' + esc(ai.name) + '</span>' +
+          '<span class="outcome-pill" style="color:' + oi.color + ';background:' + oi.bg + '">' + esc(oi.label) + '</span>' +
+          '<span class="hist-dur">' + esc(fmtDur(r.duration_s)) + '</span>' +
+          '<span class="hist-ci" style="color:var(--faint3)">—</span>' +
+          pr +
+        '</div>';
+      }).join("");
+      return '<div class="hist-group">' + head + body + '</div>';
+    }).join("");
+  }
+  function prNum(url) { var m = /\/pull\/(\d+)/.exec(url || ""); return m ? "#" + m[1] : "#"; }
+
+  // ── Run outcomes donut (14d) ──────────────────────────────────────────
+  function renderDonut() {
+    var rows = history.filter(function (r) { return withinDays(r.started_at, 14); });
+    var counts = {}, order = ["merged", "pr_opened", "no_change", "blocked", "failed"];
+    rows.forEach(function (r) { counts[r.status] = (counts[r.status] || 0) + 1; });
+    var segs = order.filter(function (s) { return counts[s]; }).map(function (s) {
+      return { label: outInfo(s).label, color: outInfo(s).color, value: counts[s] };
+    });
+    Object.keys(counts).forEach(function (s) {
+      if (order.indexOf(s) === -1) segs.push({ label: outInfo(s).label, color: outInfo(s).color, value: counts[s] });
+    });
+    var total = segs.reduce(function (a, c) { return a + c.value; }, 0);
+    var el = document.getElementById("donut");
+    if (total === 0) { el.innerHTML = '<div class="empty">No runs in the last 14 days.</div>'; return; }
+
+    var R = 70, C = 2 * Math.PI * R, acc = 0;
+    var ring = '<circle cx="100" cy="100" r="70" fill="none" stroke="#1C2433" stroke-width="22"></circle>';
+    var arcs = segs.map(function (s) {
+      var portion = (s.value / total) * C;
+      var len = Math.max(0, portion - 2.5);
+      var c = '<circle cx="100" cy="100" r="70" fill="none" stroke="' + s.color + '" stroke-width="22" stroke-dasharray="' +
+        len.toFixed(2) + " " + (C - len).toFixed(2) + '" stroke-dashoffset="' + (-acc).toFixed(2) + '"></circle>';
+      acc += portion;
+      return c;
+    }).join("");
+    var svg = '<svg viewBox="0 0 200 200"><g transform="rotate(0 100 100)">' + ring +
+      '<g transform="rotate(-90 100 100)">' + arcs + '</g></g>' +
+      '<text x="100" y="94" text-anchor="middle" font-family="' + serifAttr() + '" font-size="34" fill="#E9EDF6">' + total + '</text>' +
+      '<text x="100" y="116" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" letter-spacing="2" fill="#828BA3">RUNS</text></svg>';
+    var legend = segs.map(function (s) {
+      return '<div class="legend-row"><span class="legend-sw" style="background:' + s.color + '"></span>' +
+        '<span class="legend-label">' + esc(s.label) + '</span>' +
+        '<span class="legend-pct">' + Math.round((s.value / total) * 100) + '%</span></div>';
+    }).join("");
+    el.innerHTML = '<div class="donut-wrap">' + svg + '<div class="donut-legend">' + legend + '</div></div>';
+  }
+  function serifAttr() { return "'Fraunces','Hoefler Text',Palatino,Georgia,serif"; }
+
+  // ── Token & cost over time (14d) ──────────────────────────────────────
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    var exp = Math.pow(10, Math.floor(Math.log10(v)));
+    var f = v / exp;
+    var nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+    return nice * exp;
+  }
+  function renderTokenCost() {
+    var bks = cost.buckets.slice(-14);
+    var el = document.getElementById("tokencost");
+    if (bks.length === 0) { el.innerHTML = '<div class="empty">No usage recorded yet.</div>'; return; }
+    var tok = bks.map(function (b) { return (b.total_tokens || 0) / 1e6; });
+    var dol = bks.map(function (b) { return b.cost_usd || 0; });
+    var n = bks.length;
+    var padL = 38, padR = 564, topY = 26, baseY = 184;
+    var maxTok = niceMax(Math.max.apply(null, tok.concat([0.0001])));
+    var maxCost = niceMax(Math.max.apply(null, dol.concat([0.0001])));
+    var TX = function (i) { return n === 1 ? (padL + padR) / 2 : padL + i * ((padR - padL) / (n - 1)); };
+    var YT = function (v) { return baseY - (v / maxTok) * (baseY - topY); };
+    var YC = function (v) { return baseY - (v / maxCost) * (baseY - topY); };
+
+    var area = "M " + TX(0).toFixed(1) + " " + baseY;
+    tok.forEach(function (v, i) { area += " L " + TX(i).toFixed(1) + " " + YT(v).toFixed(1); });
+    area += " L " + TX(n - 1).toFixed(1) + " " + baseY + " Z";
+    var line = "M " + TX(0).toFixed(1) + " " + YT(tok[0]).toFixed(1);
+    tok.forEach(function (v, i) { if (i) line += " L " + TX(i).toFixed(1) + " " + YT(v).toFixed(1); });
+    var costPts = dol.map(function (v, i) { return TX(i).toFixed(1) + "," + YC(v).toFixed(1); }).join(" ");
+
+    var grid = "";
+    for (var k = 1; k <= 4; k++) {
+      var val = maxTok * k / 5, y = YT(val).toFixed(1);
+      var lbl = val >= 1 ? (val % 1 === 0 ? val + "M" : val.toFixed(1) + "M") : (val * 1000).toFixed(0) + "K";
+      grid += '<line x1="38" y1="' + y + '" x2="564" y2="' + y + '" stroke="#1C2433" stroke-width="1"></line>' +
+        '<text x="30" y="' + y + '" text-anchor="end" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="9" fill="#5E677D">' + lbl + '</text>';
+    }
+    el.innerHTML = '<svg viewBox="0 0 600 210"><defs>' +
+      '<linearGradient id="tokFill" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#8FB4FF" stop-opacity="0.30"></stop>' +
+        '<stop offset="100%" stop-color="#8FB4FF" stop-opacity="0"></stop></linearGradient></defs>' +
+      grid +
+      '<path d="' + area + '" fill="url(#tokFill)"></path>' +
+      '<path d="' + line + '" fill="none" stroke="#8FB4FF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>' +
+      '<polyline points="' + costPts + '" fill="none" stroke="#F4B860" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="1 5"></polyline>' +
+      '<circle cx="' + TX(n - 1).toFixed(1) + '" cy="' + YC(dol[n - 1]).toFixed(1) + '" r="3.5" fill="#0B0E16" stroke="#F4B860" stroke-width="2"></circle>' +
+      '<text x="38" y="202" font-family="ui-monospace,monospace" font-size="9" fill="#5E677D">' + (n - 1) + 'd ago</text>' +
+      '<text x="564" y="202" text-anchor="end" font-family="ui-monospace,monospace" font-size="9" fill="#5E677D">today</text></svg>';
+  }
+
+  // ── Spend by agent (today) ────────────────────────────────────────────
+  function renderSpend() {
+    var el = document.getElementById("spend");
+    if (!spend.length) { el.innerHTML = '<div class="empty">No spend recorded today.</div>'; return; }
+    var rows = spend.slice().sort(function (a, b) { return b.total_tokens - a.total_tokens; });
+    var max = Math.max.apply(null, rows.map(function (r) { return r.total_tokens; }).concat([1]));
+    var barMax = 300, x0 = 116;
+    var inner = rows.map(function (a, i) {
+      var ai = agentInfo(a.agent);
+      var y = 22 + i * 46;
+      var w = (a.total_tokens / max) * barMax;
+      return '<g>' +
+        '<text x="0" y="' + y + '" dominant-baseline="hanging" font-family="ui-monospace,monospace" font-size="12" fill="#C7CEDF">' + esc(ai.name) + '</text>' +
+        '<rect x="' + x0 + '" y="' + y + '" width="' + barMax + '" height="14" rx="7" fill="#1C2433"></rect>' +
+        '<rect x="' + x0 + '" y="' + y + '" width="' + w.toFixed(1) + '" height="14" rx="7" fill="' + ai.color + '"></rect>' +
+        '<text x="424" y="' + y + '" dominant-baseline="hanging" font-family="ui-monospace,monospace" font-size="11" fill="#A6AFC4">' + fmtTokens(a.total_tokens) + '</text>' +
+        '<text x="424" y="' + y + '" dy="15" dominant-baseline="hanging" font-family="ui-monospace,monospace" font-size="11" fill="#F4B860">' + fmtMoney(a.cost_usd) + '</text>' +
+      '</g>';
+    }).join("");
+    var h = Math.max(60, 22 + rows.length * 46);
+    el.innerHTML = '<svg viewBox="0 0 510 ' + h + '">' + inner + '</svg>';
+  }
+
+  // ── Runs by repo (14d) ────────────────────────────────────────────────
+  function renderRunsByRepo() {
+    var rows = history.filter(function (r) { return withinDays(r.started_at, 14); });
+    var counts = {}, order = [];
+    rows.forEach(function (r) { var k = r.repo || "(unknown)"; if (!(k in counts)) { counts[k] = 0; order.push(k); } counts[k]++; });
+    order.sort(function (a, b) { return counts[b] - counts[a]; });
+    var el = document.getElementById("runsbyrepo");
+    if (!order.length) { el.innerHTML = '<div class="empty">No runs in the last 14 days.</div>'; return; }
+    var max = Math.max.apply(null, order.map(function (k) { return counts[k]; }).concat([1]));
+    var barMax = 320, x0 = 150;
+    var inner = order.slice(0, 6).map(function (k, i) {
+      var y = 20 + i * 40, w = (counts[k] / max) * barMax;
+      return '<g>' +
+        '<text x="0" y="' + y + '" dominant-baseline="hanging" font-family="ui-monospace,monospace" font-size="11.5" fill="#C7CEDF">' + esc(clip(k, 20)) + '</text>' +
+        '<rect x="' + x0 + '" y="' + y + '" width="' + barMax + '" height="13" rx="6.5" fill="#1C2433"></rect>' +
+        '<rect x="' + x0 + '" y="' + y + '" width="' + w.toFixed(1) + '" height="13" rx="6.5" fill="#8FB4FF"></rect>' +
+        '<text x="478" y="' + y + '" dominant-baseline="hanging" font-family="ui-monospace,monospace" font-size="12" fill="#A6AFC4">' + counts[k] + '</text>' +
+      '</g>';
+    }).join("");
+    var h = Math.max(60, 20 + Math.min(order.length, 6) * 40);
+    el.innerHTML = '<svg viewBox="0 0 510 ' + h + '">' + inner + '</svg>';
+  }
+  function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  // ── PR throughput (PRs opened / day, last 10 days) ────────────────────
+  function renderThroughput() {
+    var days = [], byDay = {};
+    for (var i = 9; i >= 0; i--) {
+      var d = new Date(Date.now() - i * 86400000);
+      var key = dayKey(d);
+      days.push({ key: key, label: String(d.getUTCDate()) });
+      byDay[key] = 0;
+    }
+    history.forEach(function (r) {
+      if (r.status !== "pr_opened" && r.status !== "merged") return;
+      var k = (r.started_at || "").slice(0, 10);
+      if (k in byDay) byDay[k]++;
+    });
+    var vals = days.map(function (d) { return byDay[d.key]; });
+    var el = document.getElementById("throughput");
+    var max = Math.max.apply(null, vals.concat([1]));
+    var base = 158, top = 24;
+    var inner = '<line x1="32" y1="158" x2="560" y2="158" stroke="#1C2433" stroke-width="1"></line>';
+    inner += days.map(function (d, i) {
+      var v = vals[i], h = (v / max) * (base - top), x = 38 + i * 53, y = base - h;
+      return '<g>' +
+        '<rect x="' + x + '" y="' + y.toFixed(1) + '" width="30" height="' + Math.max(0, h).toFixed(1) + '" rx="4" fill="#6EE7A8" fill-opacity="0.85"></rect>' +
+        '<text x="' + (x + 15) + '" y="' + (y - 6).toFixed(1) + '" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#8B93A8">' + v + '</text>' +
+        '<text x="' + (x + 15) + '" y="174" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#5E677D">' + d.label + '</text>' +
+      '</g>';
+    }).join("");
+    el.innerHTML = '<svg viewBox="0 0 570 180">' + inner + '</svg>';
+  }
+
+  // ── Budget ────────────────────────────────────────────────────────────
+  function renderBudget() {
+    var b = (snapshot && snapshot.budget) || {};
+    var rows = [
+      { scope: "Session", metric: "tokens", used: fmtTokens(b.SessionTokens || 0), capN: 0, money: false, val: b.SessionTokens || 0 },
+      { scope: "Session", metric: "spend",  used: fmtMoney(b.SessionCostUSD || 0), capN: 0, money: true,  val: b.SessionCostUSD || 0 },
+      { scope: "Daily",   metric: "tokens", used: fmtTokens(b.DailyTokens || 0), capN: b.MaxDailyTokens || 0, money: false, val: b.DailyTokens || 0 },
+      { scope: "Daily",   metric: "spend",  used: fmtMoney(b.DailyCostUSD || 0), capN: b.MaxDailyUSD || 0, money: true, val: b.DailyCostUSD || 0 }
+    ];
+    var html = rows.map(function (r) {
+      var hasCap = r.capN > 0;
+      var pct = hasCap ? Math.min(100, Math.round((r.val / r.capN) * 100)) : 0;
+      var color = pct >= 80 ? "var(--lamp)" : "var(--blue)";
+      var capTxt = hasCap ? "/ " + (r.money ? fmtMoney(r.capN) : fmtTokens(r.capN)) : "/ no cap";
+      var fill = hasCap ? '<div class="budget-fill" style="width:' + pct + '%;background:' + color + '"></div>' : "";
+      return '<div class="budget-row">' +
+        '<div class="budget-head"><span class="budget-label">' + r.scope + ' · ' + r.metric + '</span>' +
+        '<span class="budget-used">' + r.used + '</span><span class="budget-cap">' + capTxt + '</span></div>' +
+        '<div class="budget-track">' + fill + '</div></div>';
+    }).join("");
+
+    // Pause-countdown callout — only when actually paused with a future deadline.
+    var until = b.PausedUntil;
+    if (snapshot && snapshot.paused && until && until !== "0001-01-01T00:00:00Z") {
+      var ms = new Date(until).getTime() - Date.now();
+      if (ms > 0) {
+        html += '<div class="pause-callout">' +
+          '<div class="pause-l1"><span class="dot lamp-dot" style="width:7px;height:7px;background:var(--lamp)"></span>' +
+          '<span class="pause-title">dispatch paused</span></div>' +
+          '<div class="pause-l2"><span class="pause-label">resuming in</span>' +
+          '<span class="pause-clock" data-countdown-to="' + esc(until) + '">' + fmtClock(ms / 1000) + '</span></div></div>';
+      }
+    }
+    document.getElementById("budget").innerHTML = html;
+  }
+
+  // ── Repository cards ──────────────────────────────────────────────────
+  function renderRepoCards() {
+    var runs14 = history.filter(function (r) { return withinDays(r.started_at, 7); });
+    var stats = {}, order = [];
+    history.forEach(function (r) {
+      var k = r.repo; if (!k) return;
+      if (!(k in stats)) { stats[k] = { runs7: 0, openPrs: 0, last: null }; order.push(k); }
+      if (!stats[k].last || new Date(r.started_at) > new Date(stats[k].last)) stats[k].last = r.started_at;
+    });
+    runs14.forEach(function (r) { if (r.repo && stats[r.repo]) stats[r.repo].runs7++; });
+    prs.forEach(function (p) {
+      var rp = repoFromPR(p.pr_url);
+      // PR repos are owner/name; match by suffix against history repo slugs.
+      order.forEach(function (k) { if (rp && (rp === k || rp.split("/").pop() === k)) stats[k].openPrs++; });
+    });
+    order.sort(function (a, b) { return new Date(stats[b].last) - new Date(stats[a].last); });
+
+    var el = document.getElementById("repo-cards");
+    if (!order.length) { el.innerHTML = '<div class="empty">No repository activity yet.</div>'; return; }
+    el.innerHTML = order.map(function (k) {
+      var s = stats[k];
+      return '<div class="repo-card">' +
+        '<div class="repo-card-head"><span class="dot" style="width:7px;height:7px;background:var(--blue)"></span>' +
+        '<span class="repo-card-name">' + esc(k) + '</span></div>' +
+        '<div class="repo-stats">' +
+          '<div class="repo-stat"><span class="repo-stat-num">' + s.openPrs + '</span><span class="repo-stat-label">open PRs</span></div>' +
+          '<div class="repo-stat"><span class="repo-stat-num">' + s.runs7 + '</span><span class="repo-stat-label">runs / wk</span></div>' +
+        '</div>' +
+        '<div class="repo-card-foot"><span style="margin-left:auto">updated ' + esc(fmtAgo(s.last)) + '</span></div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // ── Sweep matrix ──────────────────────────────────────────────────────
+  function renderSweeps() {
+    var byRepo = {}, repoOrder = [];
+    sweeps.forEach(function (s) {
+      if (!(s.repo in byRepo)) { byRepo[s.repo] = {}; repoOrder.push(s.repo); }
+      byRepo[s.repo][s.task] = s;
+    });
+    // Include repos seen in history so a never-swept repo still shows (all ready).
+    history.forEach(function (r) {
+      if (r.repo && !(r.repo in byRepo)) { byRepo[r.repo] = {}; repoOrder.push(r.repo); }
+    });
+    var el = document.getElementById("sweeps");
+    if (!repoOrder.length) { el.innerHTML = '<div class="empty">No repositories tracked for sweeps yet.</div>'; return; }
+
+    var headCells = '<span></span>' + SWEEP_TASKS.map(function (t) {
+      return '<span class="sweep-task">' + esc(t.label) + '</span>';
+    }).join("");
+    var rows = repoOrder.map(function (repo) {
+      var cells = SWEEP_TASKS.map(function (t) {
+        var s = byRepo[repo][t.name];
+        var eligible = !s || s.eligible;
+        var color = eligible ? "#6EE7A8" : "#828BA3";
+        var dotColor = eligible ? "#6EE7A8" : "#3A4356";
+        var label = eligible ? "ready" : fmtCooldown(s.cooldown_left_h);
+        return '<span class="sweep-cell" style="color:' + color + '">' +
+          '<span class="sweep-celldot" style="background:' + dotColor + '"></span>' + esc(label) + '</span>';
+      }).join("");
+      return '<div class="sweep-datarow"><span class="sweep-repo">' + esc(clip(repo, 22)) + '</span>' + cells + '</div>';
+    }).join("");
+    el.innerHTML = '<div class="sweep-scroll"><div class="sweep-inner">' +
+      '<div class="sweep-headrow">' + headCells + '</div>' + rows + '</div></div>';
+  }
+
+  // ── Live timers (single 1s tick) ──────────────────────────────────────
+  setInterval(function () {
+    document.querySelectorAll("[data-elapsed-from]").forEach(function (n) {
+      var iso = n.getAttribute("data-elapsed-from");
+      if (iso) n.textContent = fmtElapsed((Date.now() - new Date(iso).getTime()) / 1000);
+    });
+    document.querySelectorAll("[data-countdown-to]").forEach(function (n) {
+      var iso = n.getAttribute("data-countdown-to");
+      var ms = new Date(iso).getTime() - Date.now();
+      n.textContent = fmtClock(Math.max(0, ms / 1000));
+    });
+  }, 1000);
+
+  // ── Data loading ──────────────────────────────────────────────────────
+  function renderAll() {
+    renderTopbar(); renderKPIs(); renderActive(); renderQueue(); renderHistory(); renderDonut();
+    renderTokenCost(); renderSpend(); renderRunsByRepo(); renderThroughput();
+    renderBudget(); renderRepoCards(); renderSweeps();
+  }
+
+  var auxTimer = null;
+  function scheduleAux() {
+    if (auxTimer) return;
+    auxTimer = setTimeout(function () { auxTimer = null; loadAux(); }, 750);
+  }
   function loadAux() {
-    var errEl = document.getElementById("error");
-
     Promise.all([
-      fetchJSON("/api/history?limit=100"),
-      fetchJSON("/api/prs"),
-      fetchJSON("/api/sweeps"),
-      fetchJSON("/api/cost?days=30")
-    ]).then(function(results) {
-      errEl.style.display = "none";
-      var history = results[0], prs = results[1], sweeps = results[2], cost = results[3];
-
-      renderCost(document.getElementById("cost-panel"), cost);
-      renderHistory(document.getElementById("history-panel"), document.getElementById("history-tabs"), history);
-      renderPRs(document.getElementById("pr-panel"), prs);
-      renderSweeps(document.getElementById("sweep-panel"), sweeps);
-    }).catch(function(e) {
-      errEl.textContent = "Failed to load dashboard: " + e.message;
+      fetchJSON(authURL("/api/history?limit=300")),
+      fetchJSON(authURL("/api/cost?days=14")),
+      fetchJSON(authURL("/api/spend")),
+      fetchJSON(authURL("/api/sweeps")),
+      fetchJSON(authURL("/api/prs"))
+    ]).then(function (res) {
+      document.getElementById("error").style.display = "none";
+      history = res[0] || [];
+      cost = res[1] || { buckets: [] };
+      spend = res[2] || [];
+      sweeps = res[3] || [];
+      prs = res[4] || [];
+      renderAll();
+    }).catch(function (e) {
+      var errEl = document.getElementById("error");
+      errEl.textContent = "Failed to load dashboard data: " + e.message;
       errEl.style.display = "block";
     });
   }
 
-  function connectEvents() {
-    if (events) events.close();
-    setConnection("reconnecting", "Connecting");
-    events = new EventSource(authURL("/api/events"));
-    events.addEventListener("open", function() {
-      setConnection("connected", "Live");
-    });
-    events.addEventListener("snapshot", function(ev) {
-      setConnection("connected", "Live");
-      renderSnapshot(JSON.parse(ev.data));
-      scheduleAuxRefresh();
-    });
-    events.addEventListener("error", function() {
-      setConnection("reconnecting", "Reconnecting");
-    });
+  function setConn(state, text) {
+    var el = document.getElementById("conn");
+    el.className = "conn " + state;
+    el.textContent = text;
   }
 
+  var events = null;
+  function connect() {
+    if (events) events.close();
+    setConn("reconnecting", "Connecting");
+    events = new EventSource(authURL("/api/events"));
+    events.addEventListener("open", function () { setConn("live", "Live"); });
+    events.addEventListener("snapshot", function (ev) {
+      setConn("live", "Live");
+      try { snapshot = JSON.parse(ev.data); } catch (e) { return; }
+      renderTopbar(); renderKPIs(); renderActive(); renderQueue(); renderBudget();
+      scheduleAux();
+    });
+    events.addEventListener("error", function () { setConn("reconnecting", "Reconnecting"); });
+  }
+
+  // ── Log overlay (live tail) ───────────────────────────────────────────
+  var logEvents = null;
   function openLog(id) {
     if (logEvents) logEvents.close();
-    var card = document.getElementById("log-card");
-    var out = document.getElementById("log-output");
-    document.getElementById("log-title").textContent = "Log: " + id;
+    var panel = document.getElementById("log-panel");
+    var out = document.getElementById("log-out");
+    document.getElementById("log-title").textContent = "Log · " + id;
     out.textContent = "";
-    card.style.display = "block";
+    panel.classList.add("open");
     logEvents = new EventSource(authURL("/api/logs/" + encodeURIComponent(id) + "?follow=1"));
-    logEvents.addEventListener("log", function(ev) {
-      out.textContent += JSON.parse(ev.data);
+    logEvents.addEventListener("log", function (ev) {
+      try { out.textContent += JSON.parse(ev.data); } catch (e) { return; }
       out.scrollTop = out.scrollHeight;
     });
-    logEvents.addEventListener("error", function() {
-      out.textContent += "\n[log stream reconnecting]\n";
-    });
+    logEvents.addEventListener("error", function () { out.textContent += "\n[log stream reconnecting]\n"; });
   }
-
-  // ── Event delegation for clicks ────────────────────────────────────
-
-  document.addEventListener("click", function(ev) {
-    var btn;
-
-    btn = ev.target.closest("[data-log-id]");
-    if (btn) {
-      openLog(btn.getAttribute("data-log-id"));
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-log-id]");
+    if (btn) { openLog(btn.getAttribute("data-log-id")); return; }
+    if (ev.target.id === "log-close") {
+      if (logEvents) { logEvents.close(); logEvents = null; }
+      document.getElementById("log-panel").classList.remove("open");
       return;
     }
 
-    if (ev.target.id === "close-log") {
-      if (logEvents) logEvents.close();
-      logEvents = null;
-      document.getElementById("log-card").style.display = "none";
-      return;
-    }
-
-    // Kill button
     btn = ev.target.closest("[data-kill-id]");
     if (btn) {
       var killId = btn.getAttribute("data-kill-id");
       if (!confirm("Kill run " + killId + "?")) return;
       btn.disabled = true;
-      adminPost("/api/kill/" + encodeURIComponent(killId)).then(function(r) {
+      adminPost("/api/kill/" + encodeURIComponent(killId)).then(function (r) {
         showResult(btn, !r.error, r.error || "Killed");
-      }).catch(function() { showResult(btn, false, "Request failed"); });
+      }).catch(function () { showResult(btn, false, "Request failed"); });
       return;
     }
 
-    // Requeue button
     btn = ev.target.closest("[data-requeue-id]");
     if (btn) {
       var reqId = btn.getAttribute("data-requeue-id");
-      var ctx = prompt("Requeue " + reqId + " with context (optional):");
+      var ctx = prompt("Requeue " + reqId + " with extra context (optional):");
       if (ctx === null) return;
       btn.disabled = true;
-      adminPost("/api/requeue/" + encodeURIComponent(reqId), { context: ctx }).then(function(r) {
+      adminPost("/api/requeue/" + encodeURIComponent(reqId), { context: ctx }).then(function (r) {
         showResult(btn, !r.error, r.error || "Requeued");
-      }).catch(function() { showResult(btn, false, "Request failed"); });
+      }).catch(function () { showResult(btn, false, "Request failed"); });
       return;
     }
 
-    // Retry button
     btn = ev.target.closest("[data-retry-id]");
     if (btn) {
       var retryId = btn.getAttribute("data-retry-id");
       if (!confirm("Retry " + retryId + "?")) return;
       btn.disabled = true;
-      adminPost("/api/retry/" + encodeURIComponent(retryId)).then(function(r) {
+      adminPost("/api/retry/" + encodeURIComponent(retryId)).then(function (r) {
         showResult(btn, !r.error, r.error || "Cleared");
-      }).catch(function() { showResult(btn, false, "Request failed"); });
+      }).catch(function () { showResult(btn, false, "Request failed"); });
       return;
     }
 
-    // Pause/Resume toggle
     if (ev.target.id === "pause-toggle") {
-      var action = lastPaused ? "resume" : "pause";
+      var action = (snapshot && snapshot.paused) ? "resume" : "pause";
       if (!confirm(action === "pause" ? "Pause dispatching?" : "Resume dispatching?")) return;
       ev.target.disabled = true;
-      adminPost("/api/" + action).then(function(r) {
+      adminPost("/api/" + action).then(function (r) {
         showResult(ev.target, !r.error, r.error || (action === "pause" ? "Paused" : "Resumed"));
         ev.target.disabled = false;
-      }).catch(function() {
-        showResult(ev.target, false, "Request failed");
-        ev.target.disabled = false;
-      });
+      }).catch(function () { showResult(ev.target, false, "Request failed"); ev.target.disabled = false; });
       return;
     }
   });
 
-  // ── Initialize ─────────────────────────────────────────────────────
-
-  fetchJSON("/api/admin-status").then(function(status) {
-    adminEnabled = status.admin_enabled && adminToken !== "";
-  }).catch(function() {});
-
-  connectEvents();
-  loadAux();
+  // Resolve admin gating first so controls render with the correct state.
+  fetchJSON(authURL("/api/admin-status")).then(function (s) {
+    adminEnabled = !!(s && s.admin_enabled) && adminToken !== "";
+  }).catch(function () {}).then(function () {
+    connect();
+    loadAux();
+  });
 })();
 </script>
 </body>
