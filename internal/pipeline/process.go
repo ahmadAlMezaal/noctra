@@ -186,7 +186,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	// BLOCKED / rate-limit checks only inspect this attempt's output.
 	offset := agent.OffsetBefore(logFile)
 
-	runErr := backend.Run(ctx, agent.RunOptions{
+	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -229,7 +229,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	output := agent.ReadAfter(logFile, offset)
 
 	// ── Record usage (ENG-217) ───────────────────────────────────────────────
-	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "ticket", id, "", backend)
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
@@ -428,7 +427,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 				logger.Info("asking the agent to fix review issues")
 				fixOffset := agent.OffsetBefore(logFile)
-				fixErr := backend.Run(ctx, agent.RunOptions{
+				fixUsage, fixErr := backend.Run(ctx, agent.RunOptions{
 					Workdir:       wt.Path,
 					Prompt:        fixPrompt,
 					LogFile:       logFile,
@@ -449,7 +448,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 				fixOutput := agent.ReadAfter(logFile, fixOffset)
 
-				fixUsage := agent.ParseUsage(fixOutput)
 				p.budget.Record(fixUsage.TotalTokens, fixUsage.CostUSD)
 				p.recordUsage(fixUsage, "ticket", id, "", backend)
 				if reason := p.budget.ExceededReason(); reason != "" {

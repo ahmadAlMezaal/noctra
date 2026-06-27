@@ -351,7 +351,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	headBefore := gitHead(ctx, wt.Path)
 
-	runErr := backend.Run(ctx, agent.RunOptions{
+	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
 		Prompt:        prompt,
 		LogFile:       logFile,
@@ -383,7 +383,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	output := agent.ReadAfter(logFile, offset)
 
 	// Record usage from the iteration (ENG-217).
-	usage := agent.ParseUsage(output)
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "iterate", identifier, ch.PR.URL, backend)
 	// Check budget caps immediately after recording — if exceeded, the pause

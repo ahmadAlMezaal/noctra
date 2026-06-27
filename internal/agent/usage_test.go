@@ -67,6 +67,44 @@ func TestParseUsage_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSON_ResultObject(t *testing.T) {
+	out := `{"type":"result","subtype":"success","result":"Done. BLOCKED: nothing.","total_cost_usd":0.4213,"usage":{"input_tokens":1200,"output_tokens":3400,"cache_creation_input_tokens":500,"cache_read_input_tokens":800}}`
+	u, result, ok := ParseClaudeJSON(out)
+	if !ok {
+		t.Fatal("expected ok=true for a JSON result object")
+	}
+	if result != "Done. BLOCKED: nothing." {
+		t.Errorf("result: got %q", result)
+	}
+	if u.OutputTokens != 3400 {
+		t.Errorf("OutputTokens: got %d, want 3400", u.OutputTokens)
+	}
+	if u.InputTokens != 1200+500+800 {
+		t.Errorf("InputTokens (incl cache): got %d, want 2500", u.InputTokens)
+	}
+	if u.TotalTokens != 2500+3400 {
+		t.Errorf("TotalTokens: got %d, want 5900", u.TotalTokens)
+	}
+	if u.CostUSD != 0.4213 {
+		t.Errorf("CostUSD: got %f, want 0.4213", u.CostUSD)
+	}
+}
+
+func TestParseClaudeJSON_NotJSON(t *testing.T) {
+	for _, out := range []string{"plain text output\n", "", "  ", "Error: rate limit exceeded"} {
+		if _, _, ok := ParseClaudeJSON(out); ok {
+			t.Errorf("expected ok=false for non-JSON output %q", out)
+		}
+	}
+}
+
+func TestParseClaudeJSON_WrongType(t *testing.T) {
+	// A stream event, not the final result object → fall back to regex parsing.
+	if _, _, ok := ParseClaudeJSON(`{"type":"assistant","message":{}}`); ok {
+		t.Error("expected ok=false for a non-result JSON object")
+	}
+}
+
 func TestParseCommaInt(t *testing.T) {
 	tests := []struct {
 		input string

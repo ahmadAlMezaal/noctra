@@ -28,8 +28,9 @@ func (copilotBackend) CoAuthor() string {
 
 // Run invokes `copilot --allow-all-tools --no-ask-user -p <prompt>` in opts.Workdir.
 // UseAgentTeams is Claude-only and is ignored here.
-func (b copilotBackend) Run(ctx context.Context, opts RunOptions) error {
-	return runCLI(ctx, b.CLI(), copilotArgs(opts), copilotEnv(ctx), opts)
+func (b copilotBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
+	out, err := runCLI(ctx, b.CLI(), copilotArgs(opts), copilotEnv(ctx), opts)
+	return ParseUsage(out), err
 }
 
 // copilotEnv bridges a GitHub token into the Copilot CLI's environment. Copilot

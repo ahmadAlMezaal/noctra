@@ -91,6 +91,10 @@ func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
 		t.Errorf("claudeArgs did not pass prompt after -p: %v", args)
 	}
+	// JSON output is required for usage/cost capture.
+	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "json" {
+		t.Errorf("claudeArgs must request --output-format json: %v", args)
+	}
 }
 
 func TestCodexArgs_UsesExecAndPositionalPrompt(t *testing.T) {
