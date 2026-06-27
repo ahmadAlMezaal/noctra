@@ -471,7 +471,9 @@
     if (min < 1) return "ready";
     if (min < 60) return min + "m";
     var h = Math.floor(min / 60), m = min % 60;
-    return m === 0 ? h + "h" : h + "h " + pad2(m) + "m";
+    if (h < 24) return m === 0 ? h + "h" : h + "h " + pad2(m) + "m";
+    var d = Math.floor(h / 24), rh = h % 24;
+    return rh === 0 ? d + "d" : d + "d " + rh + "h";
   }
   function repoFromPR(url) {
     var m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(url || "");
@@ -909,7 +911,7 @@
         return '<span class="sweep-cell" style="color:' + color + '">' +
           '<span class="sweep-celldot" style="background:' + dotColor + '"></span>' + esc(label) + '</span>';
       }).join("");
-      return '<div class="sweep-datarow"><span class="sweep-repo">' + esc(clip(repo, 22)) + '</span>' + cells + '</div>';
+      return '<div class="sweep-datarow"><span class="sweep-repo" title="' + esc(repo) + '">' + esc(clip(repo, 22)) + '</span>' + cells + '</div>';
     }).join("");
     el.innerHTML = '<div class="sweep-scroll"><div class="sweep-inner">' +
       '<div class="sweep-headrow">' + headCells + '</div>' + rows + '</div></div>';
