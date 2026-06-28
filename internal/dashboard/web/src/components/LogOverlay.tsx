@@ -6,9 +6,6 @@ interface Props {
   onClose: () => void
 }
 
-// The log tail is an append-only stream, not reactive state, so it's written
-// straight to the <pre> element (matching the original) rather than buffered in
-// component state.
 export function LogOverlay({ id, onClose }: Props) {
   const ref = useRef<HTMLPreElement>(null)
 

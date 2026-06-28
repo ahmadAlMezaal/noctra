@@ -53,7 +53,6 @@ export function App() {
         })
     }
 
-    // Coalesce the bursty SSE snapshots into at most one aux reload per 750ms.
     function scheduleAux() {
       if (auxTimer) return
       auxTimer = setTimeout(() => {
@@ -79,7 +78,6 @@ export function App() {
       es.addEventListener('error', () => setConn({ state: 'reconnecting', text: 'Reconnecting' }))
     }
 
-    // Resolve admin gating first so controls render with the correct state.
     fetchJSON<{ admin_enabled?: boolean }>(authURL('/api/admin-status'))
       .then((s) => setAdminEnabled(!!(s && s.admin_enabled) && adminToken !== ''))
       .catch(() => {})

@@ -1,8 +1,3 @@
-// Shapes mirror the JSON the Go dashboard emits. The /api/events SSE snapshot
-// is internal/pipeline.DashboardSnapshot; budget.Stats has no JSON tags so its
-// fields stay PascalCase. The aux endpoints are the typed structs in
-// internal/dashboard/dashboard.go.
-
 export interface Budget {
   SessionTokens: number
   SessionCostUSD: number

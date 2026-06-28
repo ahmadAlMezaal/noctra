@@ -1,7 +1,3 @@
-// Pure formatting + date helpers, ported verbatim from the original index.html.
-// (No esc() — Preact escapes text and attributes, which removes the manual-
-// escaping XSS surface the old innerHTML rendering carried.)
-
 export function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -100,6 +96,5 @@ export function niceMax(v: number): number {
   return nice * exp
 }
 
-// Used as an SVG font-family attribute for the donut's centred count.
 export const serifAttr = "'Fraunces','Hoefler Text',Palatino,Georgia,serif"
 export const monoAttr = 'ui-monospace,monospace'

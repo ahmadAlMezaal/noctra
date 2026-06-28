@@ -1,6 +1,3 @@
-// Agent / outcome / sweep-task lookup tables, ported from the original
-// index.html. SWEEP_TASKS mirrors the catalog in internal/sweep/task_*.go.
-
 export interface AgentInfo {
   name: string
   color: string
@@ -38,8 +35,7 @@ export function outInfo(status: string | undefined): OutcomeInfo {
   return OUT[status || ''] || { label: status || '—', color: '#828BA3', bg: 'rgba(130,139,163,0.13)' }
 }
 
-// Donut segment ordering.
-export const OUTCOME_ORDER = ['merged', 'pr_opened', 'no_change', 'blocked', 'failed']
+export const OUTCOME_ORDER =['merged', 'pr_opened', 'no_change', 'blocked', 'failed']
 
 export interface SweepTaskDef {
   name: string

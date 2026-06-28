@@ -17,7 +17,6 @@ export function SweepMatrix({ sweeps, history }: Props) {
     }
     byRepo[s.repo][s.task] = s
   })
-  // Include repos seen in history so a never-swept repo still shows (all ready).
   history.forEach((r) => {
     if (r.repo && !(r.repo in byRepo)) {
       byRepo[r.repo] = {}

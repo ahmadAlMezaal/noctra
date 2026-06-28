@@ -6,16 +6,12 @@ export interface ControlResult {
   msg: string
 }
 
-// A control thunk returns null to cancel (e.g. the user dismissed a confirm),
-// or a promise resolving to the transient result to flash beside the button.
 export type ControlAction = () => Promise<ControlResult> | null
 
 interface ControlProps {
   label: string
   cls?: string
   action: ControlAction
-  // Kill/requeue/retry leave the button disabled (their row re-renders on the
-  // next snapshot); the pause toggle re-enables itself.
   reenable?: boolean
 }
 

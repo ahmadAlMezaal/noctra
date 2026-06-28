@@ -330,13 +330,14 @@ noctra doctor --json
 
 Set `DASHBOARD_ADDR` (e.g. `:8080`) and `DASHBOARD_TOKEN` to serve a live operations dashboard — the night-shift/observatory UI showing active runs, run history, token/cost charts, per-repo activity, budget caps, and the maintenance-sweep cooldown matrix, all over SSE. Open `http://<host>:8080/?token=<DASHBOARD_TOKEN>`. Optionally set `DASHBOARD_ADMIN_TOKEN` to expose operator controls (kill / requeue / retry / pause); pass it as `&admin_token=<…>` and it travels only in the request header (never the query string). The page is gated by the read token; brand fonts under `/fonts/` are served unauthenticated.
 
-The frontend is a **Vite + Preact + TypeScript** app in `internal/dashboard/web/`, built into a **single self-contained `index.html`** that is committed to `internal/dashboard/static/` and embedded in the binary via `//go:embed` — so the dashboard stays fully offline and `go build`/`go test` need no Node toolchain. Building the binary requires nothing extra; only **changing the dashboard UI** does:
+The frontend is a **Preact + TypeScript** app in `internal/dashboard/web/`, bundled with **esbuild** into a **single self-contained `index.html`** that is committed to `internal/dashboard/static/` and embedded in the binary via `//go:embed` — so the dashboard stays fully offline and `go build`/`go test` need no Node toolchain. Building the binary requires nothing extra; only **changing the dashboard UI** does:
 
 ```bash
 cd internal/dashboard/web
 npm ci          # first time
 npm run build   # regenerates internal/dashboard/static/index.html (+ fonts/)
 # then commit the regenerated internal/dashboard/static/
+# (npm run watch rebuilds on change while you run the binary)
 ```
 
 Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. See `CLAUDE.md` → "Dashboard frontend" for the rationale.

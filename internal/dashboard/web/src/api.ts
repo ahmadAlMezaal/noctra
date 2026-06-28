@@ -1,7 +1,3 @@
-// Auth + transport. Read token via ?token= (also forwarded onto EventSource
-// URLs, which can't send headers); admin token via Authorization header only
-// (the server rejects it on the query string for CSRF safety).
-
 const params = new URLSearchParams(window.location.search)
 export const token = params.get('token') || ''
 export const adminToken = params.get('admin_token') || ''

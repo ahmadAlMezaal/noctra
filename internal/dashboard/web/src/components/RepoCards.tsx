@@ -30,7 +30,6 @@ export function RepoCards({ history, prs }: Props) {
   })
   prs.forEach((p) => {
     const rp = repoFromPR(p.pr_url)
-    // PR repos are owner/name; match by suffix against history repo slugs.
     order.forEach((k) => {
       if (rp && (rp === k || rp.split('/').pop() === k)) stats[k].openPrs++
     })

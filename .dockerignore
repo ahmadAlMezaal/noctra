@@ -8,6 +8,8 @@ logs/
 *.log
 .env
 .env.local
+# Dashboard frontend deps (the prebuilt static/ is committed and embedded)
+internal/dashboard/web/node_modules
 # Built artifacts (the image builds its own binary)
 noctra
 noctra.new
