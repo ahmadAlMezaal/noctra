@@ -8,6 +8,9 @@
 /noctra
 /dist/
 
+# Dashboard frontend deps (the built static/ output IS committed)
+node_modules/
+
 # macOS
 .DS_Store
 

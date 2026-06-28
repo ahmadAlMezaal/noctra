@@ -1,0 +1,22 @@
+{
+  "name": "noctra-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Noctra operations dashboard — Vite + Preact, built into a single self-contained index.html embedded in the Go binary.",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "preact": "^10.25.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-singlefile": "^2.1.0"
+  }
+}
