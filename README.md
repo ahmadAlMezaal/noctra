@@ -326,6 +326,25 @@ noctra doctor --json
 
 ---
 
+## Dashboard
+
+Set `DASHBOARD_ADDR` (e.g. `:8080`) and `DASHBOARD_TOKEN` to serve a live operations dashboard — the night-shift/observatory UI showing active runs, run history, token/cost charts, per-repo activity, budget caps, and the maintenance-sweep cooldown matrix, all over SSE. Open `http://<host>:8080/?token=<DASHBOARD_TOKEN>`. Optionally set `DASHBOARD_ADMIN_TOKEN` to expose operator controls (kill / requeue / retry / pause); pass it as `&admin_token=<…>` and it travels only in the request header (never the query string). The page is gated by the read token; brand fonts under `/fonts/` are served unauthenticated.
+
+The frontend is a **Preact + TypeScript** app in `internal/dashboard/web/`, bundled with **esbuild** into a **single self-contained `index.html`** that is committed to `internal/dashboard/static/` and embedded in the binary via `//go:embed` — so the dashboard stays fully offline and `go build`/`go test` need no Node toolchain. Building the binary requires nothing extra; only **changing the dashboard UI** does:
+
+```bash
+cd internal/dashboard/web
+yarn install    # first time
+yarn build      # regenerates internal/dashboard/static/index.html (+ fonts/)
+# then commit the regenerated internal/dashboard/static/
+```
+
+For a quick local preview with no backend or `.env`, run `yarn dev` — a zero-config dev server (esbuild watch + a mock API with sample data) at `http://localhost:8080/?token=dev&admin_token=dev`.
+
+Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. A CI job rebuilds the bundle and fails the PR if the committed `static/` is stale, so a forgotten `yarn build` can't slip through. See `CLAUDE.md` → "Dashboard frontend" for the rationale.
+
+---
+
 ## Control it from Telegram
 
 Set `TELEGRAM_ENABLED=true` with a bot token + chat ID (the wizard walks you through it) and Noctra both sends status updates **and** takes commands — a two-way control channel for when you're away from your desk:

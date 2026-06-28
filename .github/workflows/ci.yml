@@ -32,3 +32,31 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.5.0
+
+  dashboard-bundle:
+    name: dashboard bundle is fresh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: internal/dashboard/web/yarn.lock
+
+      - name: install deps
+        working-directory: internal/dashboard/web
+        run: yarn install --frozen-lockfile
+
+      - name: rebuild bundle
+        working-directory: internal/dashboard/web
+        run: yarn build
+
+      - name: verify committed bundle is up to date
+        run: |
+          if ! git diff --quiet -- internal/dashboard/static; then
+            echo "::error::internal/dashboard/static is stale. Run 'yarn build' in internal/dashboard/web and commit the result."
+            git diff --stat -- internal/dashboard/static
+            exit 1
+          fi

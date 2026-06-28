@@ -162,6 +162,23 @@ Keep comments minimal: explain *why* for a non-obvious decision, never narrate *
 
 ⚠️ **Do NOT add redundant comments.** This applies to humans AND any agent (Claude/Codex/Copilot) working in this repo. A comment that paraphrases the line below it, restates a clear variable/function name, or explains an obvious assignment is noise — delete it. Only write a comment when the code cannot explain *why* on its own (a non-obvious trade-off, a workaround, a subtle invariant). When in doubt, leave it out.
 
+## Dashboard frontend (Preact + esbuild)
+
+The operations dashboard lives in `internal/dashboard`. The UI is a **Preact + TypeScript** project under `internal/dashboard/web/` (`src/components/` = one component per panel: KPIs, active runs, queue, run history, donut, token/cost, spend, runs-by-repo, throughput, budget, repo cards, sweep matrix, log overlay), bundled with **esbuild** (`web/build.mjs`, ~3 deps — no Vite). It is **built into a single self-contained `index.html`** and committed to `internal/dashboard/static/`, which `dashboard.go` serves via `//go:embed static`.
+
+**Why a single inlined file** (`build.mjs` inlines the esbuild JS + CSS output into the HTML): the page is served behind a read token, and `@font-face`/`<script>`/`<link>` subrequests don't carry the page's `?token=` query param. The old dashboard sidestepped this by being one inline-everything HTML file, with `/fonts/` carved out of auth (`mux.Handle("/fonts/", …)`). Inlining all JS + CSS preserves that exact model: the only subresource is fonts, and they stay unauthenticated. **Do not change the build to emit separate `/assets/*.js|css` chunks** — they'd hit the token gate and 401, and the page would silently fail to boot. Fonts live in `web/public/fonts/` (source of truth) → copied to `static/fonts/` at build, referenced by the absolute `/fonts/` URL (marked `external: ['/fonts/*']` in `build.mjs` so esbuild leaves them alone).
+
+**Release pipeline — built output is committed (option B).** `go build ./...` embeds `static/`, so the directory must contain real files to compile, and `internal/dashboard/dashboard_test.go` serves the page under `go test ./...` with no Node. Building in CI only (option A) would require a Node step in front of every `go build`/`go test`, breaking the no-Node dev/build flow. Committing the build output keeps the release workflow (`tag-on-merge.yml` → GoReleaser) and the Dockerfile **pure Go — no Node step**. The trade-off: generated assets live in git, so **after changing anything under `web/`, rebuild and commit `static/`**. A CI job (`dashboard-bundle` in `.github/workflows/ci.yml`) guards against forgetting: it runs `yarn build` and fails if the committed `static/` differs from a fresh build. So CI doesn't regenerate the bundle for you, but it won't let a stale one merge:
+
+```bash
+cd internal/dashboard/web
+yarn install --frozen-lockfile   # first time / after dependency changes
+yarn build                       # type-checks, then writes internal/dashboard/static/index.html (+ fonts/)
+# commit the regenerated internal/dashboard/static/
+```
+
+For a quick local preview, `yarn dev` (`web/devserver.mjs`) runs a zero-config dev server — esbuild in watch mode plus a mock `/api` (sample data + SSE) — at `http://localhost:8080/?token=dev&admin_token=dev`, with no Go rebuild or `.env` needed. It builds to a gitignored `web/.dev/`, so it never dirties the committed `static/`. To test against the **real** backend instead, use `yarn watch` (rebuilds `static/` on change) and rebuild the Go binary — `//go:embed` bakes `static/` in at compile time, so an already-built binary won't reflect UI edits until you `go build` again. `web/node_modules/` is gitignored; the committed `static/index.html` is the build artifact and is marked `linguist-generated` in `.gitattributes` so its minified diff is collapsed. Keep the port faithful — the live `index.html` in git history is the source of truth for exact visuals/derivations.
+
 ## Running tests
 
 ```bash
