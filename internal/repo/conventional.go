@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// ccConfigFiles signal a repo uses a Conventional Commits / release tool
-// (commitlint, semantic-release, commitizen, standard-version).
+// ccConfigFiles signal a Conventional Commits / release tool (commitlint, semantic-release, commitizen, standard-version).
 var ccConfigFiles = []string{
 	".releaserc", ".releaserc.json", ".releaserc.yaml", ".releaserc.yml",
 	".releaserc.js", ".releaserc.cjs", "release.config.js", "release.config.cjs",
@@ -20,8 +19,7 @@ var ccConfigFiles = []string{
 // ccPackageRefs are package.json substrings indicating a CC/release tool.
 var ccPackageRefs = []string{"semantic-release", "commitlint", "commitizen", "standard-version"}
 
-// UsesConventionalCommits reports whether the repo uses Conventional Commits,
-// detected via a CC/release config file, package.json, or GoReleaser changelog.
+// UsesConventionalCommits reports whether the repo uses Conventional Commits, via a CC/release config file, package.json, or GoReleaser changelog.
 func UsesConventionalCommits(repoPath string) bool {
 	for _, name := range ccConfigFiles {
 		if _, err := os.Stat(filepath.Join(repoPath, name)); err == nil {
@@ -39,8 +37,7 @@ func UsesConventionalCommits(repoPath string) bool {
 	return goreleaserUsesConventional(repoPath)
 }
 
-// goreleaserUsesConventional reports whether a GoReleaser changelog is grouped
-// by conventional types. Both ^feat and ^fix are required so plain configs don't match.
+// goreleaserUsesConventional reports a GoReleaser changelog grouped by conventional types; both ^feat and ^fix required so plain configs don't match.
 func goreleaserUsesConventional(repoPath string) bool {
 	for _, name := range []string{".goreleaser.yaml", ".goreleaser.yml", "goreleaser.yaml", "goreleaser.yml"} {
 		data, err := os.ReadFile(filepath.Join(repoPath, name))

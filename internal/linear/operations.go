@@ -6,24 +6,20 @@ import (
 	"sort"
 )
 
-// StateIDs holds the resolved workflow-state IDs Noctra moves tickets
-// between for a given team.
+// StateIDs holds the resolved workflow-state IDs Noctra moves a team's tickets between.
 type StateIDs struct {
 	Trigger  string
 	InReview string
 	Done     string
 }
 
-// WorkflowStateID is a Linear workflow state with the fields Noctra needs for
-// resolving user-supplied state names.
+// WorkflowStateID is a Linear workflow state's ID and name, for resolving user-supplied state names.
 type WorkflowStateID struct {
 	ID   string
 	Name string
 }
 
-// ResolveStateIDs resolves trigger, in-review, and done state IDs for a team.
-// triggerName empty (label mode) skips the trigger lookup; doneName is optional
-// (empty ids.Done if not found). Only in-review is required.
+// ResolveStateIDs resolves a team's trigger/in-review/done state IDs; empty triggerName (label mode) and missing doneName are optional, in-review is required.
 func (c *Client) ResolveStateIDs(ctx context.Context, teamKey, triggerName, inReviewName, doneName string) (StateIDs, error) {
 	states, err := c.TeamWorkflowStates(ctx, teamKey)
 	if err != nil {
@@ -87,8 +83,7 @@ func (c *Client) TeamWorkflowStates(ctx context.Context, teamKey string) ([]Work
 	return nil, fmt.Errorf("team %q not found (available: %v)", teamKey, teams)
 }
 
-// ResolveStateID looks up a single workflow state ID by exact name and returns
-// the available state names for a helpful caller-facing error.
+// ResolveStateID looks up one workflow state ID by exact name, also returning the available names for error context.
 func (c *Client) ResolveStateID(ctx context.Context, teamKey, stateName string) (string, []string, error) {
 	states, err := c.TeamWorkflowStates(ctx, teamKey)
 	if err != nil {
@@ -106,9 +101,7 @@ func (c *Client) ResolveStateID(ctx context.Context, teamKey, stateName string) 
 	return "", available, fmt.Errorf("state %q not found in team %q", stateName, teamKey)
 }
 
-// FetchTriggerIssues returns every issue currently in the named state, across
-// all teams the API key can see. The caller can filter by team key in code if
-// needed.
+// FetchTriggerIssues returns every issue in the named state across all visible teams.
 func (c *Client) FetchTriggerIssues(ctx context.Context, stateName string) ([]Issue, error) {
 	query := `query($state: String!) {
 	  teams { nodes { issues(filter: { state: { name: { eq: $state } } }, orderBy: updatedAt, first: 20) {
@@ -137,9 +130,7 @@ func (c *Client) FetchTriggerIssues(ctx context.Context, stateName string) ([]Is
 	return out, nil
 }
 
-// StateCount is the number of issues sitting in one workflow state for a
-// project, with the state's type ("backlog", "started", "completed", …) and
-// board position so callers can render the states in workflow order.
+// StateCount is a project's issue count for one workflow state, with its type and board position for ordered rendering.
 type StateCount struct {
 	State    string
 	Type     string
@@ -147,10 +138,7 @@ type StateCount struct {
 	Count    int
 }
 
-// ProjectIssueCounts returns, for the named Linear project, how many issues sit
-// in each workflow state — ordered by board position (Backlog → Done). It pages
-// through every issue in the project. An unknown project, or one with no
-// issues, yields an empty slice and no error.
+// ProjectIssueCounts returns the project's issue count per workflow state, ordered by board position; unknown/empty projects yield an empty slice, no error.
 func (c *Client) ProjectIssueCounts(ctx context.Context, projectName string) ([]StateCount, error) {
 	query := `query($project: String!, $after: String) {
 	  issues(filter: { project: { name: { eq: $project } } }, first: 250, after: $after) {
@@ -218,8 +206,7 @@ func (c *Client) ProjectIssueCounts(ctx context.Context, projectName string) ([]
 	return out, nil
 }
 
-// sortStateCounts orders states by board position (ascending), falling back to
-// state name so the output is deterministic when positions collide.
+// sortStateCounts orders by board position, then name for deterministic ties.
 func sortStateCounts(s []StateCount) {
 	sort.SliceStable(s, func(i, j int) bool {
 		if s[i].Position != s[j].Position {
@@ -289,9 +276,7 @@ func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 	return nil
 }
 
-// GetIssueByIdentifier fetches a single issue by its human-readable
-// identifier (e.g. "ENG-42"). Linear's API accepts identifiers in addition
-// to UUIDs for the `issue(id:)` argument.
+// GetIssueByIdentifier fetches one issue by its identifier (e.g. "ENG-42"); Linear's issue(id:) accepts identifiers as well as UUIDs.
 func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (Issue, error) {
 	query := `query($id: String!) {
 	  issue(id: $id) { id identifier title description url project { name } team { key } state { name type } assignee { name } labels { nodes { name } } }
@@ -309,10 +294,7 @@ func (c *Client) GetIssueByIdentifier(ctx context.Context, identifier string) (I
 	return *resp.Issue, nil
 }
 
-// ListProjectIssues returns up to limit issues in the named project, most
-// recently updated first, optionally restricted to a single workflow state.
-// stateName is matched exactly (case-sensitive, as Linear stores it); an empty
-// stateName lists every state.
+// ListProjectIssues returns up to limit project issues (newest first), optionally restricted to an exact stateName (empty = all states).
 func (c *Client) ListProjectIssues(ctx context.Context, projectName, stateName string, limit int) ([]Issue, error) {
 	if limit <= 0 {
 		limit = 25
@@ -344,8 +326,7 @@ func (c *Client) ListProjectIssues(ctx context.Context, projectName, stateName s
 	return resp.Issues.Nodes, nil
 }
 
-// SearchIssues returns up to limit issues whose title or description contains
-// the given term (case-insensitive), most recently updated first.
+// SearchIssues returns up to limit issues whose title/description contains term (case-insensitive), newest first.
 func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Issue, error) {
 	if limit <= 0 {
 		limit = 15
@@ -367,9 +348,7 @@ func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Is
 	return resp.Issues.Nodes, nil
 }
 
-// FetchLabeledIssues returns every issue carrying the named label, across all
-// teams the API key can see. This is the label-mode counterpart of
-// FetchTriggerIssues.
+// FetchLabeledIssues returns every issue carrying the named label across all visible teams (label-mode counterpart of FetchTriggerIssues).
 func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Issue, error) {
 	query := `query($label: String!) {
 	  teams { nodes { issues(filter: { labels: { name: { eq: $label } } }, orderBy: updatedAt, first: 20) {
@@ -398,8 +377,7 @@ func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Is
 	return out, nil
 }
 
-// ResolveLabelID looks up the ID for a label by name. Returns an error listing
-// available labels if the name is not found.
+// ResolveLabelID looks up a label ID by name, erroring with the available labels if not found.
 func (c *Client) ResolveLabelID(ctx context.Context, labelName string) (string, error) {
 	query := `{ issueLabels(first: 250) { nodes { id name } } }`
 
@@ -425,8 +403,7 @@ func (c *Client) ResolveLabelID(ctx context.Context, labelName string) (string, 
 	return "", fmt.Errorf("label %q not found (available: %v)", labelName, available)
 }
 
-// RemoveLabel removes a single label from an issue. It fetches the issue's
-// current labels, filters out the target, and writes the remaining set back.
+// RemoveLabel drops one label from an issue by writing back its current set minus the target.
 func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error {
 	fetchQ := `query($id: String!) {
 	  issue(id: $id) { labels { nodes { id } } }
@@ -471,9 +448,7 @@ func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error
 	return nil
 }
 
-// AddLabel adds a single label to an issue. It fetches the issue's current
-// labels, appends the target if not already present, and writes the full set
-// back. No-ops if the issue already has the label.
+// AddLabel adds one label to an issue (no-op if already present) by writing back its current set plus the target.
 func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	fetchQ := `query($id: String!) {
 	  issue(id: $id) { labels { nodes { id } } }
@@ -497,7 +472,7 @@ func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	ids := make([]string, 0, len(fetchResp.Issue.Labels.Nodes)+1)
 	for _, l := range fetchResp.Issue.Labels.Nodes {
 		if l.ID == labelID {
-			return nil // already labelled
+			return nil
 		}
 		ids = append(ids, l.ID)
 	}
@@ -520,9 +495,7 @@ func (c *Client) AddLabel(ctx context.Context, issueID, labelID string) error {
 	return nil
 }
 
-// FetchIssueComments returns the most recent comments on an issue (up to 50).
-// Used by the plan-confirm flow (ENG-221) to check for approval comments
-// posted after the plan was submitted.
+// FetchIssueComments returns an issue's most recent comments (up to 50); the plan-confirm flow (ENG-221) uses it to scan for approvals.
 func (c *Client) FetchIssueComments(ctx context.Context, issueID string) ([]Comment, error) {
 	query := `query($id: String!) {
 	  issue(id: $id) { comments(last: 50) { nodes { body user { name } } } }
@@ -544,8 +517,7 @@ func (c *Client) FetchIssueComments(ctx context.Context, issueID string) ([]Comm
 	return resp.Issue.Comments.Nodes, nil
 }
 
-// Ping verifies the API key works by fetching the authenticated viewer.
-// Returns the viewer's display name on success.
+// Ping verifies auth by fetching the viewer, returning its display name.
 func (c *Client) Ping(ctx context.Context) (string, error) {
 	var resp struct {
 		Viewer struct {

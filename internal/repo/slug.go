@@ -1,16 +1,9 @@
-// Package repo resolves which git repository a Linear ticket targets and
-// manages the per-ticket worktree lifecycle.
+// Package repo resolves which git repository a Linear ticket targets and manages the per-ticket worktree lifecycle.
 package repo
 
 import "strings"
 
-// Slug turns a Linear project name into a filesystem-safe directory name used
-// when cloning the repo. Non-alphanumeric characters become single dashes;
-// leading and trailing dashes are stripped.
-//
-//	"Auth Service" → "auth-service"
-//	"My API   v2"  → "my-api-v2"
-//	"Noctra!"  → "noctra"
+// Slug turns a project name into a filesystem-safe clone directory name: non-alphanumerics collapse to single dashes, edges trimmed (e.g. "My API  v2" → "my-api-v2").
 func Slug(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))

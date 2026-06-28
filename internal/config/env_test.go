@@ -63,8 +63,6 @@ func TestLoadEnvFile_InvalidLine(t *testing.T) {
 	}
 }
 
-// ── PatchEnvFile tests ─────────────────────────────────────────────────────
-
 func TestPatchEnvFile_UpsertsExistingKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")
@@ -239,8 +237,6 @@ LINEAR_TEAM_KEY="ENG"
 	}
 }
 
-// containsLine reports whether the text contains the given line (after
-// trimming whitespace from each line).
 func containsLine(text, line string) bool {
 	for _, l := range splitLines(text) {
 		if l == line {

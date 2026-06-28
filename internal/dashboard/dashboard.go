@@ -1,6 +1,4 @@
-// Package dashboard serves the HTTP dashboard showing a point-in-time
-// snapshot of the pipeline. Read requests require the dashboard token;
-// mutating control endpoints require the admin token.
+// Package dashboard serves the HTTP pipeline-snapshot dashboard: reads require the dashboard token, mutating controls the admin token.
 package dashboard
 
 import (
@@ -37,8 +35,7 @@ type Controls interface {
 	ClearSkipped(identifier string) error
 }
 
-// Providers supplies the data sources the dashboard reads from.
-// All fields are optional — nil gracefully degrades to empty responses.
+// Providers supplies the dashboard's data sources; all fields optional — nil degrades to empty responses.
 type Providers struct {
 	Store           *state.Store
 	SweepTasks      []sweep.Task
@@ -164,9 +161,7 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 
 	staticSub, _ := fs.Sub(staticFiles, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
-	// Fonts are public assets (no secrets). They must load without a token:
-	// @font-face url() subrequests don't carry the page's ?token= query param,
-	// so gating them would silently break the brand fonts behind a token.
+	// Fonts are public (no secrets) and must load unauthenticated: @font-face url() subrequests don't carry the page's ?token=, so gating them silently breaks the brand fonts.
 	mux.Handle("/fonts/", fileServer)
 	mux.Handle("/", s.requireAuth(fileServer))
 
@@ -669,9 +664,7 @@ type spendEntry struct {
 	CostUSD     float64 `json:"cost_usd"`
 }
 
-// handleSpend aggregates usage events into per-agent token/cost totals. The
-// window defaults to the current UTC day (the dashboard's "spend by agent /
-// today" panel); ?days=N widens it.
+// handleSpend aggregates usage events into per-agent token/cost totals; window defaults to the current UTC day, widened by ?days=N.
 func (s *Server) handleSpend(w http.ResponseWriter, r *http.Request, store *state.Store) {
 	if store == nil {
 		writeJSON(w, []spendEntry{})

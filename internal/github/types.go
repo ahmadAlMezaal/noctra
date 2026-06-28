@@ -1,14 +1,9 @@
-// Package github wraps the `gh` CLI for the operations Noctra's watcher
-// needs: listing PRs Noctra authored, fetching their comments, reviews and
-// check-run status, and pulling failed-check logs. Stays thin — types mirror
-// what `gh` returns under --json, so decoding is JSON unmarshal onto these.
+// Package github wraps the `gh` CLI for the watcher: listing Noctra-authored PRs, fetching comments/reviews/check status, and pulling failed-check logs. Types mirror `gh --json` so decoding is plain unmarshal.
 package github
 
 import "time"
 
-// Actor is the GitHub user/bot that authored a comment or review. `gh`
-// returns `type: "User"|"Bot"` — Noctra treats bots specially in the
-// trusted-reviewer filter.
+// Actor is the user/bot that authored a comment or review (`type: "User"|"Bot"`); bots are gated by the trusted-reviewer filter.
 type Actor struct {
 	Login string `json:"login"`
 	Type  string `json:"type"`
@@ -25,16 +20,11 @@ type PR struct {
 	HeadRefName string `json:"headRefName"`
 	Body        string `json:"body"`
 
-	// RepoURL is the git remote URL of the clone this PR was discovered from
-	// (set by ListNoctraPRs, not from gh's JSON). It preserves the clone's
-	// original scheme — e.g. an SSH `git@…` URL — so the auto-iterate path can
-	// re-resolve the repo over the same transport instead of synthesizing an
-	// HTTPS URL from owner/name, which would fail on SSH-only private repos.
+	// RepoURL is the discovering clone's remote URL (set by ListNoctraPRs, not gh JSON); preserves the scheme (e.g. SSH) so auto-iterate re-resolves over the same transport — synthesizing HTTPS from owner/name would fail on SSH-only private repos.
 	RepoURL string `json:"-"`
 }
 
-// Comment is a top-level PR conversation comment (not an inline review
-// comment). `gh pr view --json comments` returns these.
+// Comment is a top-level PR conversation comment (not inline), from `gh pr view --json comments`.
 type Comment struct {
 	ID        string    `json:"id"`
 	Author    Actor     `json:"author"`
@@ -43,8 +33,7 @@ type Comment struct {
 	URL       string    `json:"url"`
 }
 
-// Review is a submitted PR review. State is one of APPROVED,
-// CHANGES_REQUESTED, COMMENTED, DISMISSED.
+// Review is a submitted PR review; State is APPROVED|CHANGES_REQUESTED|COMMENTED|DISMISSED.
 type Review struct {
 	ID          string    `json:"id"`
 	Author      Actor     `json:"author"`
@@ -53,11 +42,7 @@ type Review struct {
 	SubmittedAt time.Time `json:"submittedAt"`
 }
 
-// ReviewComment is an inline review-thread comment attached to a specific
-// file + line in the PR diff (e.g. a "Suggested change"). These are NOT
-// returned by `gh pr view`; they come from the REST API
-// repos/{owner}/{repo}/pulls/{n}/comments, hence the snake_case tags and the
-// nested `user` object instead of `author`.
+// ReviewComment is an inline review-thread comment on a file+line; from the REST API (not `gh pr view`), hence snake_case tags and `user` instead of `author`.
 type ReviewComment struct {
 	ID        int64     `json:"id"`
 	Author    Actor     `json:"user"`
@@ -68,10 +53,7 @@ type ReviewComment struct {
 	Line      int       `json:"line"`
 }
 
-// Check is one entry in a PR's status-check rollup. `gh pr view --json
-// statusCheckRollup` returns a union of CheckRun (GitHub Actions etc.) and
-// StatusContext (legacy commit statuses); this struct captures both shapes —
-// the helpers below normalise across them.
+// Check is one status-check-rollup entry; `statusCheckRollup` unions CheckRun (Actions) and StatusContext (legacy statuses) — this captures both, helpers normalise.
 type Check struct {
 	Typename string `json:"__typename"`
 	// CheckRun fields.
@@ -102,13 +84,12 @@ func (c Check) URL() string {
 	return c.TargetURL
 }
 
-// IsComplete reports whether the check has finished running (so its result is
-// final and worth acting on). Checks still in flight should be left alone.
+// IsComplete reports whether the check has finished (result final, worth acting on); in-flight checks are left alone.
 func (c Check) IsComplete() bool {
 	if c.Status != "" { // CheckRun
 		return c.Status == "COMPLETED"
 	}
-	// StatusContext has no status; PENDING/EXPECTED mean still in flight.
+	// StatusContext has no status; PENDING/EXPECTED mean in flight.
 	return c.State != "" && c.State != "PENDING" && c.State != "EXPECTED"
 }
 
@@ -125,8 +106,7 @@ func (c Check) IsFailure() bool {
 	return false
 }
 
-// Details is the full view of a PR Noctra needs to decide whether to
-// re-engage and how. Mirrors the JSON shape `gh pr view --json ...` returns.
+// Details is the full PR view Noctra uses to decide whether/how to re-engage; mirrors `gh pr view --json ...`.
 type Details struct {
 	URL               string    `json:"url"`
 	Number            int       `json:"number"`
@@ -135,8 +115,7 @@ type Details struct {
 	Comments          []Comment `json:"comments"`
 	Reviews           []Review  `json:"reviews"`
 	StatusCheckRollup []Check   `json:"statusCheckRollup"`
-	// ReviewComments are inline review-thread comments, fetched separately
-	// from the REST API and merged in by GetPR (gh pr view omits them).
+	// ReviewComments are inline review-thread comments, fetched from REST and merged in by GetPR (gh pr view omits them).
 	ReviewComments []ReviewComment `json:"-"`
 }
 

@@ -9,8 +9,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 )
 
-// HandlerFunc processes a command and returns a reply message. An empty reply
-// means no message is sent back.
+// HandlerFunc processes a command and returns a reply; empty means no reply sent.
 type HandlerFunc func(ctx context.Context, args string) string
 
 // Dispatcher routes incoming text messages to registered command handlers.
@@ -23,8 +22,7 @@ type command struct {
 	description string
 }
 
-// NewDispatcher creates a Dispatcher with the built-in /help and /ping
-// commands pre-registered.
+// NewDispatcher creates a Dispatcher with built-in /help and /ping pre-registered.
 func NewDispatcher() *Dispatcher {
 	d := &Dispatcher{
 		commands: make(map[string]command),
@@ -34,10 +32,7 @@ func NewDispatcher() *Dispatcher {
 	return d
 }
 
-// Register adds a command handler. The name should not include the leading
-// slash — it's stripped during dispatch. Registering the same name twice
-// overwrites the previous handler. Leading slashes and surrounding whitespace
-// are stripped from name for robustness.
+// Register adds a command handler, overwriting any existing one; leading slash and surrounding whitespace are stripped from name.
 func (d *Dispatcher) Register(name, description string, handler HandlerFunc) {
 	name = strings.TrimSpace(name)
 	name = strings.TrimPrefix(name, "/")
@@ -47,11 +42,8 @@ func (d *Dispatcher) Register(name, description string, handler HandlerFunc) {
 	}
 }
 
-// Dispatch parses the message text, extracts the command keyword and args,
-// and routes to the matching handler. Returns the reply text (empty means
-// no reply).
+// Dispatch parses text into command + args and routes to the handler; empty reply means none.
 func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
-	// Strip leading slash if present (Telegram sends "/status" for commands).
 	text = strings.TrimPrefix(text, "/")
 
 	parts := strings.SplitN(text, " ", 2)
@@ -61,7 +53,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 		args = strings.TrimSpace(parts[1])
 	}
 
-	// Strip @botname suffix that Telegram appends in groups (e.g. "/ping@mybot").
+	// Strip @botname suffix Telegram appends in groups (e.g. "/ping@mybot").
 	if i := strings.Index(name, "@"); i > 0 {
 		name = name[:i]
 	}
@@ -73,7 +65,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 	return cmd.handler(ctx, args)
 }
 
-// unknownReply returns a helpful message listing available commands.
+// unknownReply points the user at /help.
 func (d *Dispatcher) unknownReply(name string) string {
 	return fmt.Sprintf("Unknown command: *%s*\n\nType /help to see available commands.",
 		notify.EscapeMarkdown(name))

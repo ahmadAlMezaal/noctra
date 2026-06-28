@@ -6,29 +6,22 @@ import (
 	"strings"
 )
 
-// Notifier sends status messages to a chat platform. Implementations are
-// safe for concurrent use and nil-safe (a disabled notifier no-ops).
+// Notifier sends status messages to a chat platform. Concurrency- and nil-safe (a disabled notifier no-ops).
 type Notifier interface {
-	// Send posts a message asynchronously (fire-and-forget). Errors are
-	// intentionally swallowed — notifications should never block ticket
-	// processing.
+	// Send posts asynchronously (fire-and-forget); errors are swallowed so notifications never block processing.
 	Send(ctx context.Context, message string)
 
-	// SendSync posts a message synchronously and returns any error. Used
-	// by the setup wizard to verify credentials before saving.
+	// SendSync posts synchronously, returning any error. Used by the setup wizard to verify credentials.
 	SendSync(ctx context.Context, message string) error
 }
 
-// Multi fans out notifications to zero or more backends. All methods are
-// safe to call on a nil or empty Multi (no-op).
+// Multi fans out notifications to zero or more backends; all methods are nil-safe.
 type Multi struct {
 	backends []Notifier
 	labels   []string
 }
 
-// NewMulti returns a Multi notifier that fans out to the given backends.
-// Each backend is paired with a label (e.g. "Telegram", "Slack"). Nil
-// backends are silently ignored.
+// NewMulti returns a Multi fanning out to the given backends, each paired with a label (nil backends ignored).
 func NewMulti(backends []Notifier, labels []string) *Multi {
 	var (
 		filtered       []Notifier
@@ -56,8 +49,7 @@ func (m *Multi) Send(ctx context.Context, message string) {
 	}
 }
 
-// SendSync fans out to every backend's SendSync. Returns the first error
-// encountered (best-effort — later backends still run).
+// SendSync fans out to every backend's SendSync, returning the first error (later backends still run).
 func (m *Multi) SendSync(ctx context.Context, message string) error {
 	if m == nil {
 		return fmt.Errorf("notifier is nil")
@@ -71,8 +63,7 @@ func (m *Multi) SendSync(ctx context.Context, message string) error {
 	return firstErr
 }
 
-// Labels returns the display labels for every active backend (e.g.
-// ["Telegram", "Slack"]). Used by the startup banner.
+// Labels returns the display labels for every active backend, for the startup banner.
 func (m *Multi) Labels() []string {
 	if m == nil {
 		return nil
@@ -80,8 +71,7 @@ func (m *Multi) Labels() []string {
 	return m.labels
 }
 
-// String returns a comma-separated summary of active backends, or
-// "Disabled" when none are configured.
+// String returns a comma-separated summary of active backends, or "Disabled" if none.
 func (m *Multi) String() string {
 	if m == nil || len(m.labels) == 0 {
 		return "Disabled"

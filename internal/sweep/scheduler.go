@@ -10,16 +10,13 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// RepoResolver is the subset of *repo.Resolver the scheduler needs: discover
-// already-cloned repos, or resolve an explicit one (cloning on demand).
+// RepoResolver is the subset of *repo.Resolver the scheduler needs: discover cloned repos, or resolve an explicit one (cloning on demand).
 type RepoResolver interface {
 	AllRepoPaths() []string
 	ResolveDirect(ctx context.Context, ref, branch string) (repo.Resolved, error)
 }
 
-// Scheduler determines when the next sweep should fire and which tasks are
-// eligible on which repos. It is side-effect-free: the pipeline drives
-// actual execution.
+// Scheduler decides when the next sweep fires and which tasks are eligible on which repos; side-effect-free (the pipeline executes).
 type Scheduler struct {
 	store      *state.Store
 	resolver   RepoResolver
@@ -58,13 +55,10 @@ type Job struct {
 	Task       Task
 	RepoPath   string // local clone path
 	RepoSlug   string // slug for branch/identifier naming
-	MainBranch string // base branch
+	MainBranch string
 }
 
-// DueIn returns how long until the next sweep should fire. Returns 0 if
-// a sweep is already due. With a cron schedule it waits for the next matching
-// time (no immediate sweep on startup); otherwise it uses the fixed interval
-// (which does fire immediately on startup, since lastSweep is zero).
+// DueIn returns time until the next sweep (0 if due now). Cron waits for the next matching time; interval fires immediately on startup (lastSweep is zero).
 func (s *Scheduler) DueIn() time.Duration {
 	now := s.now()
 	if s.schedule != nil {
@@ -100,8 +94,7 @@ func (s *Scheduler) MarkSwept() {
 	s.lastSweep = s.now()
 }
 
-// repoPaths returns the repos to sweep: the explicit SWEEP_REPOS list
-// (resolved/cloned on demand) when set, otherwise every cloned repo.
+// repoPaths returns the explicit SWEEP_REPOS list (resolved/cloned on demand) when set, else every cloned repo.
 func (s *Scheduler) repoPaths(ctx context.Context) []string {
 	if len(s.sweepRepos) == 0 {
 		return s.resolver.AllRepoPaths()
@@ -123,9 +116,7 @@ func (s *Scheduler) repoPaths(ctx context.Context) []string {
 	return paths
 }
 
-// Plan scans all known repos and returns the list of eligible (repo, task)
-// jobs — at most maxTasks total. A task is eligible if its cooldown on the
-// repo has expired.
+// Plan returns eligible (repo, task) jobs (≤ maxTasks); a task is eligible once its per-repo cooldown has expired.
 func (s *Scheduler) Plan(ctx context.Context) []Job {
 	repoPaths := s.repoPaths(ctx)
 	if len(repoPaths) == 0 {
@@ -181,10 +172,7 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 	return jobs
 }
 
-// roundRobin interleaves items across groups — one per group per pass — and
-// returns at most limit items, so the budget spreads across groups instead of
-// being exhausted by the first. Order within each group is preserved; inputs
-// are not mutated.
+// roundRobin interleaves groups one-per-pass, ≤ limit items, so the budget spreads across groups; preserves intra-group order, doesn't mutate inputs.
 func roundRobin[T any](groups [][]T, limit int) []T {
 	if limit <= 0 {
 		return nil

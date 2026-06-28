@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// ErrTimedOut is returned when the coding agent is killed because the
-// per-attempt timeout fires.
+// ErrTimedOut is returned when the agent is killed on per-attempt timeout.
 var ErrTimedOut = errors.New("agent timed out")
 
 // RunOptions configures one invocation of a coding-agent CLI.
@@ -22,48 +21,27 @@ type RunOptions struct {
 	Prompt  string
 	LogFile string
 	Timeout time.Duration
-	// UseAgentTeams is Claude-specific (enables CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).
-	// Backends that don't support it ignore it.
+	// UseAgentTeams is Claude-specific (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS); other backends ignore it.
 	UseAgentTeams bool
 }
 
-// Backend abstracts the underlying coding-agent CLI Noctra shells out to.
-// Four implementations exist — Claude Code (default), OpenAI Codex, GitHub
-// Copilot, and Google Antigravity — selected by AGENT_BACKEND.
-//
-// Everything else in this package is backend-agnostic on purpose: the prompt
-// builders ask the agent to print "BLOCKED: <reason>" so BlockedLine works
-// regardless of CLI, and the log/offset/summary helpers don't care which
-// binary produced the bytes. Only two things actually differ per backend —
-// the CLI invocation (flags + how the prompt is passed) and the phrasing of
-// usage/rate-limit errors (HasRateLimit).
+// Backend abstracts the coding-agent CLI Noctra shells out to (Claude/Codex/Copilot/Antigravity, by AGENT_BACKEND). The rest of the package is backend-agnostic; only CLI invocation and usage/rate-limit phrasing (HasRateLimit) differ per backend.
 type Backend interface {
 	// Name is the canonical backend identifier ("claude" / "codex" / "copilot" / "antigravity").
 	Name() string
-	// Label is the human-friendly backend name for banners / logs
-	// (e.g. "Claude Code", "OpenAI Codex").
+	// Label is the human-friendly backend name for banners/logs (e.g. "Claude Code").
 	Label() string
 	// CLI is the executable Noctra requires on PATH for this backend.
 	CLI() string
-	// CoAuthor returns the "Name <email>" value for a Co-authored-by git
-	// trailer attributing commits to this backend. Backends with a real
-	// GitHub account behind the email (e.g. Copilot) get an avatar and
-	// Contributors-graph entry; others render as a plain name on the commit.
-	// Returns "" if no trailer should be added.
+	// CoAuthor returns the "Name <email>" Co-authored-by trailer for this backend ("" for none); a real GitHub account (e.g. Copilot) gets an avatar + Contributors entry.
 	CoAuthor() string
-	// Run invokes the CLI in opts.Workdir, writing output to opts.LogFile, and
-	// returns the run's token/cost Usage (zero-valued when the CLI reports
-	// none). It returns ErrTimedOut (wrapped) on per-attempt timeout and the
-	// underlying error on any other non-zero exit.
+	// Run invokes the CLI in opts.Workdir, writes output to opts.LogFile, and returns the run's Usage (zero when unreported); ErrTimedOut (wrapped) on timeout, else the underlying error.
 	Run(ctx context.Context, opts RunOptions) (Usage, error)
-	// HasRateLimit reports whether output contains this backend's usage /
-	// rate-limit markers.
+	// HasRateLimit reports whether output contains this backend's usage/rate-limit markers.
 	HasRateLimit(output string) bool
 }
 
-// New returns the Backend selected by name. An empty name defaults to Claude,
-// matching DefaultAgentBackend in internal/config. An unknown name is an
-// error — config.Validate rejects it up front, so this is a defensive guard.
+// New returns the Backend selected by name (empty defaults to Claude); unknown names error as a defensive guard (config.Validate rejects them up front).
 func New(name string) (Backend, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "claude":
@@ -79,8 +57,7 @@ func New(name string) (Backend, error) {
 	}
 }
 
-// runCLI applies the timeout, writes the DEBUG header, streams output to the
-// log, and returns it. For backends whose CLIs print usage in their text output.
+// runCLI applies the timeout, writes the DEBUG header, streams output to the log, and returns it (for backends that print usage in their text output).
 func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions) (string, error) {
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -115,8 +92,7 @@ func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions
 	return buf.String(), nil
 }
 
-// runCLICapture captures stdout/stderr without streaming to the log, for
-// backends that must unwrap their output before writing it (Claude JSON mode).
+// runCLICapture captures stdout/stderr without streaming to the log, for backends that unwrap output before writing it (Claude JSON mode).
 func runCLICapture(ctx context.Context, bin string, args, env []string, opts RunOptions) (stdout, stderr string, err error) {
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc

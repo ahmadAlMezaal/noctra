@@ -1,10 +1,4 @@
-// Package sweep implements autonomous maintenance sweeps for Noctra (ENG-222).
-// A scheduled sweep scans every known repo, selects eligible tasks from the
-// task catalog (respecting per-task cooldowns), runs the coding agent with a
-// task-specific prompt, and opens a PR for each change — all under the same
-// budget caps and worker pool as ticket-driven work.
-//
-// Fully opt-in via SWEEP_ENABLED=true in .env; off by default.
+// Package sweep runs autonomous maintenance sweeps (ENG-222): scan known repos, pick eligible catalog tasks (per-task cooldowns), run the agent, open a PR per change — same budget caps and worker pool as ticket work. Opt-in via SWEEP_ENABLED=true; off by default.
 package sweep
 
 import (
@@ -14,19 +8,14 @@ import (
 
 // Task describes a maintenance task in the catalog.
 type Task struct {
-	// Name is the unique identifier (e.g. "lint-cleanup", "dead-code").
-	Name string
+	Name string // unique identifier (e.g. "lint-cleanup")
 	// Description is a short human-readable summary shown in logs and PR bodies.
 	Description string
-	// Cooldown is the minimum duration between runs of this task on the same
-	// repo. Prevents the same sweep from re-running nightly.
+	// Cooldown is the minimum gap between runs of this task on the same repo — stops nightly re-runs.
 	Cooldown time.Duration
-	// Prompt returns the full agent prompt for this task. repoPath is the
-	// local checkout path so prompts can reference it.
+	// Prompt returns the agent prompt; repoPath is the local checkout so prompts can reference it.
 	Prompt func(repoPath string) string
-	// BranchSuffix is appended to the sweep branch identity (e.g.
-	// "lint-cleanup" → "noctra/sweep-<repo>-lint-cleanup"). Must be unique
-	// across tasks.
+	// BranchSuffix names the sweep branch ("lint-cleanup" → "noctra/sweep-<repo>-lint-cleanup"); must be unique across tasks.
 	BranchSuffix string
 	// CommitPrefix is the conventional-commit prefix (e.g. "chore", "fix").
 	CommitPrefix string
@@ -37,8 +26,7 @@ type Task struct {
 // catalog is the built-in set of maintenance tasks, registered at init time.
 var catalog []Task
 
-// Register adds a task to the global catalog. Called from task_*.go init()
-// functions.
+// Register adds a task to the global catalog (called from task_*.go init funcs).
 func Register(t Task) {
 	catalog = append(catalog, t)
 }
@@ -50,8 +38,7 @@ func Catalog() []Task {
 	return out
 }
 
-// FilterTasks returns the subset of catalog tasks whose names appear in
-// enabled. If enabled is nil/empty, all tasks are returned (default: all).
+// FilterTasks returns catalog tasks whose names are in enabled; nil/empty returns all.
 func FilterTasks(enabled []string) []Task {
 	if len(enabled) == 0 {
 		return Catalog()
@@ -69,17 +56,12 @@ func FilterTasks(enabled []string) []Task {
 	return out
 }
 
-// SweepBranchName returns the branch Noctra creates for a sweep task on a
-// repo (e.g. "noctra/sweep-myrepo-lint-cleanup"). This is distinct from the
-// ticket-driven "noctra/<identifier>" and includes the repo slug so the
-// auto-iterate watcher can reconstruct the same identifier.
+// SweepBranchName returns the sweep branch (e.g. "noctra/sweep-myrepo-lint-cleanup") — distinct from ticket "noctra/<identifier>"; embeds the repo slug so the watcher can reconstruct the identifier.
 func SweepBranchName(repoSlug, taskSuffix string) string {
 	return "noctra/" + strings.ToLower(SweepIdentifier(repoSlug, taskSuffix))
 }
 
-// SweepIdentifier returns the worktree identifier for a sweep task on a
-// repo slug (e.g. "SWEEP-MYREPO-LINT-CLEANUP"). Used as the worktree
-// directory name and the key for the active-set dedup.
+// SweepIdentifier returns the worktree identifier (e.g. "SWEEP-MYREPO-LINT-CLEANUP") — the worktree dir name and active-set dedup key.
 func SweepIdentifier(repoSlug, taskSuffix string) string {
 	return strings.ToUpper("SWEEP-" + sanitizeRepoSlug(repoSlug) + "-" + taskSuffix)
 }

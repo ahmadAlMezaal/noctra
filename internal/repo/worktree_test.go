@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// TestCreateAndCleanupWorktree drives the real git binary against a temp
-// repo, mirroring the bash-era test_worktree suite.
+// TestCreateAndCleanupWorktree drives real git against a temp repo.
 func TestCreateAndCleanupWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -69,10 +68,7 @@ func TestCreateWorktree_BadRepoPath(t *testing.T) {
 	}
 }
 
-// TestResumeWorktree_PicksUpExistingBranchCommits creates a fresh worktree,
-// commits a "marker" file to the branch, pushes it, then runs ResumeWorktree
-// — the resumed worktree should carry the marker forward instead of being
-// recreated from main.
+// TestResumeWorktree_PicksUpExistingBranchCommits: after committing+pushing a marker on the branch, ResumeWorktree carries it forward instead of recreating from main.
 func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -105,8 +101,7 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	base := t.TempDir()
 	ctx := context.Background()
 
-	// Round 1 — fresh ticket: create worktree from main, add a commit on the
-	// branch, push.
+	// Round 1 — fresh ticket: worktree from main, commit, push.
 	wt1, err := CreateWorktree(ctx, base, "ENG-300", repo, "main")
 	if err != nil {
 		t.Fatalf("CreateWorktree: %v", err)
@@ -128,8 +123,7 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	runInWt("commit", "-m", "attempt-1", "--quiet")
 	runInWt("push", "-u", "origin", wt1.Branch, "--quiet")
 
-	// Tear it down between rounds — mirrors a real lifecycle where the
-	// initial worktree is cleaned up after the first PR was created.
+	// Tear down between rounds, as in a real lifecycle (cleanup after the first PR).
 	CleanupWorktree(ctx, repo, base, "ENG-300")
 
 	// Round 2 — resume: should bring back the marker, NOT start fresh.
@@ -147,10 +141,7 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	CleanupWorktree(ctx, repo, base, "ENG-300")
 }
 
-// TestResumeWorktree_OverStaleWorktree resumes while a previous worktree for
-// the same branch is STILL checked out (e.g. a crash skipped cleanup). git
-// refuses to delete a branch checked out in a worktree, so cleanup must remove
-// the worktree before deleting the branch — otherwise `worktree add -b` fails.
+// TestResumeWorktree_OverStaleWorktree resumes while a stale worktree for the branch is still checked out (e.g. a crash skipped cleanup): cleanup must remove the worktree before the branch, else `worktree add -b` fails.
 func TestResumeWorktree_OverStaleWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

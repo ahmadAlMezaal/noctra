@@ -2,8 +2,7 @@ package pipeline
 
 import "fmt"
 
-// conventionalType maps a semver bump to a Conventional Commits type and
-// whether it's breaking. Returns ("", false) for an empty/"none" bump.
+// conventionalType maps a semver bump to a Conventional Commits type + breaking flag; ("", false) for an empty/"none" bump.
 func conventionalType(bump string) (typ string, breaking bool) {
 	switch bump {
 	case "patch":
@@ -17,8 +16,7 @@ func conventionalType(bump string) (typ string, breaking bool) {
 	}
 }
 
-// conventionalSubject formats a Conventional Commits subject, keeping the
-// ticket ID as a suffix, e.g. "feat: add X (ENG-42)" / "feat!: drop Y (ENG-42)".
+// conventionalSubject formats a CC subject with the ticket ID suffixed, e.g. "feat: add X (ENG-42)" / "feat!: drop Y (ENG-42)".
 func conventionalSubject(typ string, breaking bool, title, id string) string {
 	bang := ""
 	if breaking {

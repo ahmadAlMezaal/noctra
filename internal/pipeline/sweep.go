@@ -19,9 +19,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
 
-// runSweepLoop is the sweep-scheduler loop, started by Run when
-// cfg.SweepEnabled is true. It runs on the same WaitGroup as the main
-// Linear poll loop so shutdown drains in-flight sweep tasks.
+// runSweepLoop is the sweep-scheduler loop, started by Run when cfg.SweepEnabled is on; shares the WaitGroup so shutdown drains in-flight tasks.
 func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -47,8 +45,7 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Check budget pause before sweeping — wait for the pause to
-		// expire rather than skipping the entire sweep interval.
+		// Wait for a budget pause to expire rather than skipping the whole sweep interval.
 		if paused, until, reason := p.budget.IsPaused(); paused {
 			slog.Debug("sweep: paused, waiting for resume", "reason", reason, "until", until)
 			retryIn := time.Until(until)
@@ -91,7 +88,6 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Check budget before each task.
 		if paused, _, _ := p.budget.IsPaused(); paused {
 			slog.Info("sweep: stopping (paused)")
 			return
@@ -101,7 +97,6 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Respect worker pool capacity.
 		p.mu.Lock()
 		if len(p.active) >= p.cfg.MaxConcurrent {
 			p.mu.Unlock()
@@ -131,8 +126,7 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-// processSweepTask is one sweep task's full lifecycle: create worktree →
-// run agent with task-specific prompt → check output → commit/push → PR.
+// processSweepTask runs one sweep task's full lifecycle: worktree → agent → check output → commit/push → PR.
 func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifier string) {
 	startedAt := time.Now()
 	logger := slog.With("sweep_task", job.Task.Name, "repo", job.RepoSlug, "id", identifier)
@@ -213,7 +207,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	if runErr != nil {
 		logger.Warn("sweep agent exited with error", "err", runErr)
-		// Record the run even on failure so cooldown is respected.
+		// Record even on failure so the cooldown is respected.
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}

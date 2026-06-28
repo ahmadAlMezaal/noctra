@@ -1,5 +1,4 @@
-// Package cleanup implements `noctra cleanup` — pruning stale branches,
-// worktrees, and old agent logs across every registered repo.
+// Package cleanup implements `noctra cleanup` — prunes stale branches, worktrees, and old agent logs across every registered repo.
 package cleanup
 
 import (
@@ -128,8 +127,7 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 	return nil
 }
 
-// merged returns local branches fully reachable from mainBranch, excluding
-// the current and protected branches (main/master/staging).
+// merged returns local branches reachable from mainBranch, minus protected ones (main/master/staging).
 func merged(ctx context.Context, repoPath, mainBranch string) []string {
 	out, err := outputOf(ctx, repoPath, "git", "branch", "--merged", mainBranch)
 	if err != nil {
@@ -144,8 +142,7 @@ func merged(ctx context.Context, repoPath, mainBranch string) []string {
 	})
 }
 
-// unmergedNoctra returns branches under noctra/* that have NOT been
-// merged into mainBranch.
+// unmergedNoctra returns noctra/* branches not yet merged into mainBranch.
 func unmergedNoctra(ctx context.Context, repoPath, mainBranch string) []string {
 	out, err := outputOf(ctx, repoPath, "git", "branch", "--no-merged", mainBranch)
 	if err != nil {

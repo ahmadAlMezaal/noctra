@@ -34,7 +34,6 @@ func isolateEnv(t *testing.T) {
 	}
 }
 
-// writeFile is a small helper used in tests below.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -59,7 +58,6 @@ AGENT_TIMEOUT_MINUTES="60"
 		t.Fatalf("Load: %v", err)
 	}
 
-	// From .env
 	if cfg.LinearAPIKey != "lin_xyz" {
 		t.Errorf("LinearAPIKey: %q", cfg.LinearAPIKey)
 	}
@@ -76,7 +74,6 @@ AGENT_TIMEOUT_MINUTES="60"
 		t.Errorf("AgentTimeout: %v", cfg.AgentTimeout)
 	}
 
-	// Defaults (not in .env)
 	if cfg.LinearTeamKey != DefaultLinearTeamKey {
 		t.Errorf("LinearTeamKey: %q", cfg.LinearTeamKey)
 	}
@@ -170,8 +167,7 @@ REPO_PATH="`+initBareRepo(t)+`"
 func TestValidate_OAuthTokenSatisfiesLinearAuth(t *testing.T) {
 	isolateEnv(t)
 
-	// An app-actor OAuth token alone (no personal API key) is a valid Linear
-	// auth — Noctra posts under its app identity instead.
+	// An OAuth token alone (no personal API key) is valid auth.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY=""
 LINEAR_OAUTH_TOKEN="lin_oauth_app_token"`)
@@ -190,8 +186,7 @@ LINEAR_OAUTH_TOKEN="lin_oauth_app_token"`)
 func TestValidate_AllowsDirectiveOnlySetup(t *testing.T) {
 	isolateEnv(t)
 
-	// No REPO_PATH is valid: repos are routed per-ticket from each Linear
-	// project's "Repo:" directive. Validate must not fail on this.
+	// No REPO_PATH is valid: repos route per-ticket from "Repo:" directives.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	cfg, err := Load(dir)
@@ -596,7 +591,6 @@ func TestAllCandidateCLIs_ContainsAllBackends(t *testing.T) {
 	}
 
 	clis := cfg.AllCandidateCLIs()
-	// Must contain the base CLIs (git, gh) and all agent CLIs.
 	want := map[string]bool{"git": false, "gh": false, "claude": false, "codex": false, "copilot": false}
 	for _, c := range clis {
 		if _, ok := want[c]; ok {
@@ -608,7 +602,6 @@ func TestAllCandidateCLIs_ContainsAllBackends(t *testing.T) {
 			t.Errorf("AllCandidateCLIs() missing %q", k)
 		}
 	}
-	// No duplicates.
 	seen := map[string]bool{}
 	for _, c := range clis {
 		if seen[c] {

@@ -66,7 +66,6 @@ esac
 	const pr2 = "https://github.com/owner/repo/pull/2"
 	const pr3 = "https://github.com/owner/repo/pull/3"
 
-	// Merged, has last pushed SHA
 	if err := store.Update(pr1, func(r *state.PRState) {
 		r.TicketID = "ENG-1"
 		r.LastPushedSHA = "abc123"
@@ -75,7 +74,6 @@ esac
 		t.Fatal(err)
 	}
 
-	// Closed, not merged
 	if err := store.Update(pr2, func(r *state.PRState) {
 		r.TicketID = "ENG-2"
 		r.LastPushedSHA = "abc123"
@@ -84,7 +82,6 @@ esac
 		t.Fatal(err)
 	}
 
-	// Open
 	if err := store.Update(pr3, func(r *state.PRState) {
 		r.TicketID = "ENG-3"
 		r.LastPushedSHA = "abc123"

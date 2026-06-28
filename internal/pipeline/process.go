@@ -22,15 +22,10 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// maxReviewDiffBytes caps the diff sent to the optional Gemini review gate.
-// Review prompts only need enough context to catch obvious issues; an
-// unbounded diff can make the gate slow, expensive, or exceed model limits.
+// maxReviewDiffBytes caps the diff sent to the Gemini review gate (avoids slow/expensive/over-limit prompts).
 const maxReviewDiffBytes = 60000
 
-// resolveBackend returns the coding-agent backend for a ticket. If the issue
-// carries an "agent:<name>" label, that backend is used; otherwise the
-// pipeline's default (p.agent) is returned. An unknown label value degrades
-// to the default with a warning — never a hard failure.
+// resolveBackend returns a ticket's coding-agent backend — its "agent:<name>" label if any, else p.agent; an unknown label degrades to the default with a warning.
 func (p *Pipeline) resolveBackend(issue source.Ticket) agent.Backend {
 	label := issue.BackendLabel()
 	if label == "" {
@@ -47,25 +42,16 @@ func (p *Pipeline) resolveBackend(issue source.Ticket) agent.Backend {
 	return b
 }
 
-// process is one ticket's full lifecycle: resolve repo → worktree → run
-// Claude → check output → (optional) Gemini review → commit/push → create PR
-// → update the ticket source. Each failure mode posts a source comment and
-// moves the ticket back to the trigger state where the source supports that.
+// process runs a ticket's full lifecycle (resolve repo → worktree → agent → review → commit/push → PR → update source); each failure posts a comment and moves the ticket back to trigger.
 func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	id := issue.Identifier
 	startedAt := time.Now()
 	logger := slog.With("id", id)
 	logger.Info("starting", "title", issue.Title)
 
-	// Select the coding-agent backend for this ticket — an "agent:<name>"
-	// label overrides the configured default.
 	backend := p.resolveBackend(issue)
 
-	// ── Plan-confirm gate (ENG-221) ──────────────────────────────────────────
-	// When plan-confirm is active for this ticket and no approved plan is
-	// queued, run a plan-only pass instead of implementing. The plan is posted
-	// as a Linear comment and the ticket stays in the trigger state until a
-	// human approves.
+	// Plan-confirm gate (ENG-221): if active and no approved plan is queued, run a plan-only pass instead of implementing.
 	p.mu.Lock()
 	_, hasApprovedPlan := p.approvedPlans[id]
 	p.mu.Unlock()
@@ -84,9 +70,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		logger.Warn("could not write attempt header", "err", err)
 	}
 
-	// ── Resolve target repo ──────────────────────────────────────────────────
-	// A "Repo:" directive on the ticket's Linear project is the primary route;
-	// otherwise fall back to the REPO_PATH single-repo setting (if configured).
+	// Resolve target repo: the ticket's "Repo:" directive, else the REPO_PATH fallback.
 	var (
 		resolved repo.Resolved
 		err      error
@@ -102,10 +86,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 		var nte *repo.NonTransientError
 		if errors.As(err, &nte) {
-			// Deterministic config error — will never succeed without
-			// human intervention. Skip on future polls and refund the
-			// dispatch so config mistakes don't burn the budget or shut
-			// the agent down. Only one comment + notification is posted.
+			// Deterministic config error: skip future polls + refund the dispatch so it doesn't burn the budget.
 			p.skipPermanently(id)
 			if cerr := p.ticketComment(ctx, issue,
 				fmt.Sprintf("❌ **Noctra: No repo for this ticket**\n\n%s\n\nAdd a `Repo: owner/name` directive to this ticket's source metadata (optionally a `Branch:` line). Then move it back to **%s**.",
@@ -136,7 +117,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	p.mu.Unlock()
 	p.publishDashboardChange()
 
-	// ── Create worktree ──────────────────────────────────────────────────────
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {
 		logger.Error("worktree creation failed", "err", err)
@@ -155,7 +135,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		}
 	}
 
-	// ── Run Claude ───────────────────────────────────────────────────────────
 	promptInput := agent.BuildPromptInput{
 		Identifier:       id,
 		Title:            issue.Title,
@@ -182,8 +161,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		"timeout", p.cfg.AgentTimeout,
 		"agent_teams", p.cfg.UseAgentTeams)
 
-	// CRITICAL: record the log size BEFORE the agent runs so subsequent
-	// BLOCKED / rate-limit checks only inspect this attempt's output.
+	// CRITICAL: record log size BEFORE the agent runs so BLOCKED/rate-limit checks inspect only this attempt's output.
 	offset := agent.OffsetBefore(logFile)
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
@@ -194,21 +172,18 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		UseAgentTeams: p.cfg.UseAgentTeams,
 	})
 
-	// ── Killed via /kill ────────────────────────────────────────────────────
 	if p.isKilled(id) {
 		logger.Info("run killed by user")
 		repo.CleanupWorktree(context.Background(), resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
 
-	// ── Context cancelled (graceful shutdown) ────────────────────────────────
 	if ctx.Err() != nil {
 		logger.Info("run cancelled (shutdown)", "reason", ctx.Err())
 		repo.CleanupWorktree(context.Background(), resolved.Path, p.cfg.WorktreeBase, id)
 		return
 	}
 
-	// ── Timeout ──────────────────────────────────────────────────────────────
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("timed out", "timeout", p.cfg.AgentTimeout)
 		p.bumpFailed(id)
@@ -228,15 +203,14 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 	output := agent.ReadAfter(logFile, offset)
 
-	// ── Record usage (ENG-217) ───────────────────────────────────────────────
+	// Record usage (ENG-217).
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "ticket", id, "", backend)
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
 		logger.Info("usage recorded",
 			"tokens", usage.TotalTokens, "cost_usd", usage.CostUSD)
 	}
-	// Check budget caps after recording. If exceeded, the pause takes effect
-	// on the next poll tick (in-flight work drains naturally).
+	// Budget pause takes effect on the next poll tick; in-flight work drains.
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
 		p.notifier.Send(ctx, fmt.Sprintf(
@@ -244,12 +218,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 			notify.EscapeMarkdown(reason)))
 	}
 
-	// ── Rate limit ───────────────────────────────────────────────────────────
-	// Only ever classified on a FAILED run (see rateLimited): scanning the
-	// transcript of a *successful* run caused false positives where an agent
-	// legitimately writing the words "rate limit" into a file got its completed
-	// work discarded (ENG-178 — Codex built the Noctra landing page, whose
-	// copy advertises "rate-limit detection"; three good runs were thrown away).
+	// Classified only on a FAILED run (see rateLimited): a successful run mentioning "rate limit" in its output isn't a real limit (ENG-178 discarded good work).
 	if rateLimited(backend, runErr, output) {
 		logger.Warn("usage/rate limit detected")
 		p.bumpFailed(id)
@@ -277,7 +246,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── Non-zero exit ────────────────────────────────────────────────────────
 	if runErr != nil {
 		attempts := p.bumpFailed(id)
 		logger.Warn("agent exited with error",
@@ -296,7 +264,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── NO_CHANGES — agent reports the ticket is already satisfied ────────────
+	// NO_CHANGES — agent reports the ticket is already satisfied.
 	if nc := agent.NoChangesLine(output); nc != "" {
 		logger.Info("no changes needed", "reason", nc)
 		p.resolveNoChanges(ctx, issue, fmt.Sprintf(
@@ -311,10 +279,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── BLOCKED ──────────────────────────────────────────────────────────────
-	// Count the attempt: the ticket is left in the trigger state, so without a
-	// retry cap it would be re-dispatched every poll until the dispatch budget
-	// is gone. After MaxRetries it's skipped until restart / human input.
+	// BLOCKED: count the attempt — the ticket stays in trigger, so the retry cap stops it being re-dispatched every poll.
 	if blocked := agent.BlockedLine(output); blocked != "" {
 		attempts := p.bumpFailed(id)
 		logger.Info("blocked", "line", blocked, "attempt", attempts, "max", p.cfg.MaxRetries)
@@ -331,11 +296,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── Any changes to commit? ───────────────────────────────────────────────
-	// Claude may leave edits uncommitted OR commit them itself, so "did it do
-	// anything" means a dirty worktree OR commits ahead of the base branch.
-	// Checking only the worktree would bounce a perfectly good self-committed
-	// implementation as "no changes made" (ENG-182).
+	// "Did anything change" = dirty worktree OR commits ahead of base — the agent may self-commit, so worktree-only would bounce a valid implementation (ENG-182).
 	dirty, err := workingTreeChanged(ctx, wt.Path)
 	if err != nil {
 		logger.Error("git status failed", "err", err)
@@ -349,8 +310,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 	if !dirty && !committed {
-		// Empty diff with no NO_CHANGES line: resolve as a no-op (archive) instead
-		// of re-queuing every poll until MaxRetries.
+		// Empty diff with no NO_CHANGES line: archive as a no-op rather than re-queue every poll.
 		logger.Info("no changes made; archiving", "issue", id)
 		p.resolveNoChanges(ctx, issue,
 			"💭 **Noctra: No code changes made**\n\nThe agent completed without modifying any files — usually the ticket is already done, too vague, or its Linear project points at the wrong repo. It was archived automatically.\n\nIf work is still required, add detail (or fix the project's `Repo:` directive) and restore it from the archive.")
@@ -370,7 +330,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── Gemini review gate (optional) ────────────────────────────────────────
+	// Gemini review gate (optional).
 	reviewPassed := true
 	reviewSkipped := false
 	var reviewBody string
@@ -487,15 +447,8 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		}
 	}
 
-	// ── Commit and push ──────────────────────────────────────────────────────
-	// Commit only if there's staged work — if Claude already committed its own
-	// changes, the staged set is empty and a plain `git commit` would fail with
-	// "nothing to commit" and bounce a valid implementation (ENG-182).
-	// In Conventional Commits repos, derive the commit type from the agent's
-	// release bump so subject + PR title drive release tooling. When no bump is
-	// available (e.g. AUTO_RELEASE_LABEL off), fall back to DefaultReleaseBump
-	// so a CC repo still gets a valid conventional type (else commitlint/CI
-	// rejects the title). bump is reused for the release label below.
+	// Commit and push (commit only if staged — a self-committing agent leaves an empty index, ENG-182).
+	// In CC repos, derive the commit type from the agent's release bump (falling back to DefaultReleaseBump so commitlint accepts the title); bump is reused for the release label below.
 	bump := agent.ReleaseBump(output)
 	usesCC := repo.UsesConventionalCommits(resolved.Path)
 	if bump == "" && usesCC {
@@ -539,13 +492,10 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 	logger.Info("pushed", "branch", wt.Branch)
 
-	// ── PR body ──────────────────────────────────────────────────────────────
 	rawLog, _ := os.ReadFile(logFile)
 	summary := agent.ExtractSummary(string(rawLog))
 
-	// Persist Gemini's verdict to the log so its quality is inspectable even on
-	// PASS, where the PR body only shows a collapsed summary. Written after the
-	// summary is extracted so it can't leak into the PR's "what was implemented".
+	// Persist Gemini's verdict to the log (inspectable even on PASS); written after summary extraction so it can't leak into the PR body.
 	if p.review.Enabled() && strings.TrimSpace(reviewBody) != "" {
 		if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 			fmt.Fprintf(f, "\n--- Gemini review (%s via %s) ---\n%s\n", p.review.Model, p.review.Mode, reviewBody)
@@ -587,7 +537,6 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
 		id, issue.Title, issue.URL, summary, backend.Label(), github.NoctraPRBodyMarker)
 
-	// ── gh pr create ─────────────────────────────────────────────────────────
 	prURL, err := ghCreatePR(ctx, resolved.Path,
 		prTitle,
 		prBody, resolved.MainBranch, wt.Branch)
@@ -600,13 +549,12 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// ── Auto-release label (ENG-231) ────────────────────────────────────────
+	// Auto-release label (ENG-231).
 	if p.cfg.AutoReleaseLabel {
 		label := agent.ReleaseLabel(bump, p.cfg.DefaultReleaseBump)
 		if label != "" {
 			if err := ghAddLabel(ctx, resolved.Path, prURL, label); err != nil {
-				// Degrade gracefully: label failure never blocks the PR.
-				logger.Warn("could not apply release label", "label", label, "err", err)
+				logger.Warn("could not apply release label", "label", label, "err", err) // label failure never blocks the PR
 			} else {
 				logger.Info("applied release label", "label", label, "agent_bump", bump)
 			}
@@ -644,8 +592,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — %s\nPR ready (via %s): %s",
 		id, notify.EscapeMarkdown(issue.Title), notify.EscapeMarkdown(backend.Label()), prURL))
 
-	// Persist the chosen backend so auto-iterate uses the same one for
-	// follow-up commits on this PR.
+	// Persist the chosen backend so auto-iterate reuses it for follow-up commits.
 	if p.store != nil {
 		headSHA := gitHead(ctx, wt.Path)
 		if err := p.store.Update(prURL, func(r *state.PRState) {
@@ -659,7 +606,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		}
 	}
 
-	// ── Move to In Review + remove trigger label ────────────────────────────
+	// Move to In Review + remove trigger label.
 	if err := p.ticketSource(issue).MarkReady(ctx, issue, source.ReadyInfo{
 		PRURL:        prURL,
 		BackendLabel: backend.Label(),
@@ -672,8 +619,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 }
 
-// ticketBackToTrigger moves a ticket back to the trigger state where the
-// source supports that, then posts the given comment.
+// ticketBackToTrigger moves a ticket back to trigger (where supported) and posts the given comment.
 func (p *Pipeline) ticketBackToTrigger(ctx context.Context, ticket source.Ticket, body string) {
 	if err := p.ticketSource(ticket).BackToTrigger(ctx, ticket, body); err != nil {
 		slog.Warn("ticket source back-to-trigger failed", "issue_id", ticket.ID, "source", ticket.Source, "err", err)
@@ -684,9 +630,7 @@ func (p *Pipeline) ticketComment(ctx context.Context, ticket source.Ticket, body
 	return p.ticketSource(ticket).Comment(ctx, ticket, body)
 }
 
-// resolveNoChanges comments, then archives a no-op ticket (falling back to a
-// Done transition, then to skip-for-session) so it leaves the trigger state and
-// isn't re-dispatched.
+// resolveNoChanges comments, then archives a no-op ticket (falling back to Done, then skip-for-session) so it leaves trigger.
 func (p *Pipeline) resolveNoChanges(ctx context.Context, ticket source.Ticket, body string) {
 	if err := p.ticketComment(ctx, ticket, body); err != nil {
 		slog.Warn("no-changes comment failed", "issue_id", ticket.ID, "err", err)
@@ -738,26 +682,22 @@ func workingTreeChanged(ctx context.Context, workdir string) (bool, error) {
 	return len(bytes.TrimSpace(out)) > 0, nil
 }
 
-// hasStagedChanges reports whether the index has anything to commit. Used so we
-// only commit when there's staged work — Claude sometimes commits its own
-// changes, in which case a `git commit` would fail with "nothing to commit".
+// hasStagedChanges reports whether the index has anything to commit (a self-committing agent leaves it empty).
 func hasStagedChanges(ctx context.Context, workdir string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
 	cmd.Dir = workdir
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		return false, nil // exit 0: index clean
+		return false, nil // exit 0: clean
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && ee.ExitCode() == 1 {
-		return true, nil // exit 1: staged changes present
+		return true, nil // exit 1: staged changes
 	}
 	return false, fmt.Errorf("git diff --cached: %w (%s)", err, strings.TrimSpace(string(out)))
 }
 
-// branchAhead reports whether HEAD has commits not present in upstream (e.g.
-// origin/main, or origin/<branch>). This is how we detect work to push even
-// when Claude committed it itself, leaving a clean working tree.
+// branchAhead reports whether HEAD has commits not in upstream — detects work to push even when the agent self-committed.
 func branchAhead(ctx context.Context, workdir, upstream string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", upstream+"..HEAD")
 	cmd.Dir = workdir
@@ -769,8 +709,7 @@ func branchAhead(ctx context.Context, workdir, upstream string) (bool, error) {
 	return n != "" && n != "0", nil
 }
 
-// gitDiff returns the staged diff (or the working-tree diff against HEAD if
-// nothing is staged), used as input to the Gemini review gate.
+// gitDiff returns the staged diff, or the working-tree diff against HEAD if nothing is staged.
 func gitDiff(ctx context.Context, workdir string) string {
 	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
 	cmd.Dir = workdir
@@ -854,9 +793,7 @@ func ghCreatePR(ctx context.Context, repoPath, title, body, base, head string) (
 	return strings.TrimSpace(string(out)), nil
 }
 
-// ghAddLabel applies a label to an existing PR via `gh pr edit --add-label`.
-// prURL is the PR URL returned by ghCreatePR. Errors are returned to the
-// caller for logging but never block the PR.
+// ghAddLabel applies a label to an existing PR; errors are returned for logging but never block the PR.
 func ghAddLabel(ctx context.Context, repoPath, prURL, label string) error {
 	apiPath, err := prLabelsAPIPath(prURL)
 	if err != nil {
@@ -915,10 +852,7 @@ func runIn(ctx context.Context, dir, name string, args ...string) error {
 	return nil
 }
 
-// appendCoAuthorTrailer appends a Co-authored-by trailer to a commit message
-// body when the backend declares one. The trailer is separated from the body
-// by a blank line, following git's trailer convention. Returns the message
-// unchanged when coAuthor is empty.
+// appendCoAuthorTrailer appends a blank-line-separated Co-authored-by trailer, or returns msg unchanged when coAuthor is empty.
 func appendCoAuthorTrailer(msg, coAuthor string) string {
 	if coAuthor == "" {
 		return msg
@@ -926,8 +860,7 @@ func appendCoAuthorTrailer(msg, coAuthor string) string {
 	return strings.TrimRight(msg, " \t\n\r") + "\n\nCo-authored-by: " + coAuthor
 }
 
-// recordUsage persists a usage_events row beside the in-memory budget counter.
-// Best-effort: a failed insert is logged and never blocks the run.
+// recordUsage persists a usage_events row beside the budget counter; best-effort.
 func (p *Pipeline) recordUsage(usage agent.Usage, source, ticketID, prURL string, backend agent.Backend) {
 	if p.store == nil {
 		return
@@ -947,8 +880,7 @@ func (p *Pipeline) recordUsage(usage agent.Usage, source, ticketID, prURL string
 	}
 }
 
-// recordRun persists a run_history row at a lifecycle's terminal point.
-// Best-effort: a failed insert is logged and never blocks the run.
+// recordRun persists a run_history row at a lifecycle's terminal point; best-effort.
 func (p *Pipeline) recordRun(rec state.RunHistory) {
 	if p.store == nil {
 		return

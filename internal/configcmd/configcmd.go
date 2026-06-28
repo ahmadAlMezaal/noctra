@@ -1,13 +1,4 @@
-// Package configcmd implements `noctra config` — read, edit, and surgically
-// update individual .env settings without a full wizard re-run.
-//
-// Subcommands:
-//
-//	noctra config path          print the resolved .env path
-//	noctra config list          print all KEY=VALUE pairs (secrets masked)
-//	noctra config edit          open .env in $EDITOR
-//	noctra config get KEY       print one value (exit 1 if unset)
-//	noctra config set KEY=VALUE upsert one key (atomic, comment-preserving)
+// Package configcmd implements `noctra config` (path/list/edit/get/set) — read and surgically update .env settings without a full wizard re-run.
 package configcmd
 
 import (
@@ -22,8 +13,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 )
 
-// Run dispatches the config subcommand. scriptDir is resolved the same way
-// as everywhere else (resolveScriptDir / config.DefaultConfigDir).
+// Run dispatches the config subcommand.
 func Run(scriptDir string, args []string) error {
 	if len(args) == 0 {
 		printUsage()
@@ -79,10 +69,7 @@ func runPath(envFile string) error {
 	return nil
 }
 
-// runList prints every KEY=VALUE pair from .env, sorted by key. Secret-looking
-// values (tokens, keys, passwords, webhook URLs) are masked by default so the
-// output is safe to paste or screenshot; --reveal prints them verbatim. An
-// empty/missing .env is reported rather than printing nothing.
+// runList prints every KEY=VALUE from .env sorted by key, masking secret-looking values unless reveal is set; an empty/missing .env is reported.
 func runList(envFile string, reveal bool) error {
 	env, err := config.LoadEnvFile(envFile)
 	if err != nil {
@@ -128,8 +115,7 @@ func isSecretKey(key string) bool {
 	return false
 }
 
-// maskSecret hides a sensitive value, keeping the last 4 characters as a hint
-// when the value is long enough to spare them without exposing the whole secret.
+// maskSecret hides a value, keeping the last 4 chars as a hint when it's long enough to spare them.
 func maskSecret(val string) string {
 	if len(val) <= 8 {
 		return "••••••"
@@ -137,12 +123,7 @@ func maskSecret(val string) string {
 	return "••••••" + val[len(val)-4:]
 }
 
-// runEdit opens the resolved .env in the user's $EDITOR. Falls back to vi,
-// then nano. Mirrors how `noctra logs` execs journalctl — stdin/stdout/stderr
-// wired through.
-//
-// $EDITOR may contain arguments (e.g. "code --wait", "nano -w"), so we
-// split on whitespace and resolve only the first field as the binary.
+// runEdit opens .env in $EDITOR (falling back to vi then nano); $EDITOR may carry args, so only the first field is resolved as the binary.
 func runEdit(envFile string) error {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -155,8 +136,7 @@ func runEdit(envFile string) error {
 		}
 	}
 
-	// Ensure the config directory exists so the editor doesn't fail on a
-	// brand-new install where ~/.noctra/ hasn't been created yet.
+	// Create the config dir so the editor doesn't fail on a brand-new install.
 	if err := os.MkdirAll(filepath.Dir(envFile), 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -172,13 +152,11 @@ func runEdit(envFile string) error {
 	argv = append(argv, parts...)
 	argv = append(argv, envFile)
 
-	// exec replaces the current process — cleaner than cmd.Run for an
-	// interactive editor (no double-process, signal handling is simpler).
+	// exec replaces this process — cleaner than cmd.Run for an interactive editor (no double-process, simpler signals).
 	return syscall.Exec(bin, argv, os.Environ())
 }
 
-// runGet prints the current value of a single key from the .env file.
-// Exits non-zero (returns error) when the key is not set.
+// runGet prints one key's value from .env, erroring (exit non-zero) when unset.
 func runGet(envFile, key string) error {
 	env, err := config.LoadEnvFile(envFile)
 	if err != nil {
@@ -201,9 +179,7 @@ func runSet(envFile string, args []string) error {
 	return config.PatchEnvFile(envFile, map[string]string{key: val})
 }
 
-// parseKeyValue extracts a key-value pair from the arguments. It supports
-// two forms: ["KEY=VALUE"] and ["KEY", "VALUE"]. Extra arguments are
-// rejected to avoid silent data loss (e.g. unquoted multi-word values).
+// parseKeyValue extracts a pair from ["KEY=VALUE"] or ["KEY","VALUE"], rejecting extra args to avoid silently losing unquoted multi-word values.
 func parseKeyValue(args []string) (key, value string, err error) {
 	if len(args) == 0 {
 		return "", "", fmt.Errorf("usage: noctra config set KEY=VALUE (or KEY VALUE)")

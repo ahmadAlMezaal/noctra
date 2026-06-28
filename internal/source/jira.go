@@ -22,8 +22,7 @@ type JiraConfig struct {
 	TriggerLabel   string // optional: label that triggers dispatch instead of status
 }
 
-// JiraSource polls Jira Cloud for issues matching a status or label using the
-// REST API v3 with basic auth (email + API token).
+// JiraSource polls Jira Cloud for issues by status or label via REST API v3 with basic auth (email + API token).
 type JiraSource struct {
 	cfg    JiraConfig
 	client *http.Client
@@ -54,7 +53,6 @@ func (s *JiraSource) Prepare(context.Context) error {
 	if strings.TrimSpace(s.cfg.InReviewStatus) == "" {
 		return fmt.Errorf("JIRA_IN_REVIEW_STATUS is required when jira is an active ticket source")
 	}
-	// Trim trailing slash from base URL for consistent path joining.
 	s.cfg.BaseURL = strings.TrimRight(s.cfg.BaseURL, "/")
 	return nil
 }
@@ -93,10 +91,7 @@ func (s *JiraSource) RemovePlanLabel(context.Context, Ticket) error {
 }
 
 func (s *JiraSource) BackToTrigger(ctx context.Context, ticket Ticket, body string) error {
-	// Jira status transitions are complex (workflow-dependent), so
-	// BackToTrigger only posts a comment. The issue stays in whatever state
-	// it's in — the JQL trigger query won't re-fetch it unless it's still
-	// in the trigger status.
+	// Status transitions are workflow-dependent, so only post a comment; the JQL trigger won't re-fetch unless still in trigger status.
 	return s.Comment(ctx, ticket, body)
 }
 
@@ -134,7 +129,7 @@ func (s *JiraSource) buildFetchJQL() string {
 		s.cfg.Project, s.cfg.TriggerStatus)
 }
 
-// ticket converts a Jira API issue response to the source-neutral Ticket shape.
+// ticket converts a Jira issue to the source-neutral Ticket shape.
 func (s *JiraSource) ticket(issue jiraIssue) Ticket {
 	desc := issue.descriptionText()
 	repoRef, repoBranch := ParseRepoDirective(desc)
@@ -210,8 +205,7 @@ type jiraUser struct {
 	DisplayName string `json:"displayName"`
 }
 
-// jiraADFDocument is a minimal representation of Atlassian Document Format. We
-// flatten it to plain text for the agent prompt / Repo: directive parsing.
+// jiraADFDocument is a minimal Atlassian Document Format tree, flattened to plain text for the prompt / Repo: parsing.
 type jiraADFDocument struct {
 	Type    string           `json:"type"`
 	Content []jiraADFContent `json:"content"`
@@ -368,9 +362,7 @@ func (s *JiraSource) getComments(ctx context.Context, key string) ([]Comment, er
 }
 
 func (s *JiraSource) addComment(ctx context.Context, key, text string) error {
-	// Jira Cloud API v3 expects ADF (Atlassian Document Format) for comments.
-	// Newlines are not allowed in ADF text nodes, so we split by newline and
-	// insert hardBreak nodes.
+	// API v3 expects ADF; text nodes can't contain newlines, so split on "\n" and insert hardBreak nodes.
 	lines := strings.Split(text, "\n")
 	content := make([]any, 0, len(lines)*2)
 	for i, line := range lines {
@@ -417,10 +409,7 @@ func (s *JiraSource) addComment(ctx context.Context, key, text string) error {
 }
 
 func (s *JiraSource) transitionTo(ctx context.Context, key, targetStatus string) error {
-	// Jira transitions are workflow-dependent. We need to:
-	// 1. List available transitions for the issue.
-	// 2. Find the one whose "to" status name matches targetStatus.
-	// 3. Execute that transition.
+	// Transitions are workflow-dependent: list available transitions, match one whose "to" status is targetStatus, then execute it.
 	resp, err := s.doRequest(ctx, http.MethodGet,
 		fmt.Sprintf("/rest/api/3/issue/%s/transitions", key), nil)
 	if err != nil {
@@ -464,7 +453,7 @@ func (s *JiraSource) transitionTo(ctx context.Context, key, targetStatus string)
 		return fmt.Errorf("jira execute transition %s: %w", key, err)
 	}
 	defer resp2.Body.Close()
-	// Jira returns 204 No Content on successful transition.
+	// 204 No Content on success.
 	if resp2.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(resp2.Body)
 		return fmt.Errorf("jira execute transition %s: HTTP %d: %s", key, resp2.StatusCode, string(respBody))
@@ -490,7 +479,7 @@ func (s *JiraSource) removeLabel(ctx context.Context, key, label string) error {
 		return fmt.Errorf("jira remove label %s: %w", key, err)
 	}
 	defer resp.Body.Close()
-	// Jira returns 204 No Content on successful update.
+	// 204 No Content on success.
 	if resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("jira remove label %s: HTTP %d: %s", key, resp.StatusCode, string(respBody))

@@ -44,8 +44,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/setup"
 )
 
-// version is the build version. Defaults to a dev marker for `go build`/`go
-// run`; release builds stamp the real tag via -ldflags "-X main.version=...".
+// version defaults to a dev marker; release builds stamp the tag via -ldflags "-X main.version=...".
 var version = "0.4.0-dev"
 
 // ANSI escape codes for the startup banner.
@@ -55,8 +54,7 @@ const (
 	ansiReset = "\033[0m"
 )
 
-// bannerArt is the figlet "standard" font rendering of "Noctra".
-// Defined as a regular string (not raw) because the font uses backticks.
+// bannerArt is the figlet "standard" rendering of "Noctra" (non-raw string since the font uses backticks).
 var bannerArt = "" +
 	" _   _            _             \n" +
 	"| \\ | | ___   ___| |_ _ __ __ _ \n" +
@@ -139,8 +137,7 @@ func realMain() error {
 	case "uninstall":
 		purge, force, help, err := parseUninstallArgs(os.Args[2:])
 		if err != nil {
-			// Unknown/typo'd flag (e.g. "--pruge"): refuse rather than silently
-			// fall through to removing the service + binary.
+			// Typo'd flag: refuse rather than fall through to the destructive uninstall.
 			fmt.Fprint(os.Stderr, uninstallUsage)
 			return err
 		}
@@ -193,9 +190,7 @@ func realMain() error {
 	}
 }
 
-// printBanner prints a styled ASCII "Noctra" banner with a moon emoji,
-// the version, and a tagline. TTY-aware: skipped when stdout is not a
-// terminal (systemd, cron, piped) so service logs stay clean.
+// printBanner prints the styled ASCII banner + version; skipped when stdout isn't a TTY so service logs stay clean.
 func printBanner() {
 	if !isCharDevice(os.Stdout) {
 		return
@@ -204,9 +199,7 @@ func printBanner() {
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
 }
 
-// printUpdateNotice prints a non-fatal hint when a newer release exists. Best-
-// effort: silent on any failure and on dev/snapshot builds, with a short
-// timeout so `noctra version` stays fast and works offline.
+// printUpdateNotice hints when a newer release exists; best-effort, silent on failure/dev builds, short timeout so it stays fast offline.
 func printUpdateNotice() {
 	if version == "" || strings.Contains(version, "dev") || strings.Contains(version, "snapshot") {
 		return
@@ -220,10 +213,7 @@ func printUpdateNotice() {
 	fmt.Printf("\n🆙 A newer version is available: %s (run `noctra update` to upgrade)\n", latest)
 }
 
-// parseUninstallArgs interprets the flags for the destructive `uninstall`
-// subcommand. help reports that usage was requested (a no-op); an unrecognized
-// flag returns an error so a typo never falls through to the uninstall. Pure,
-// so the flag handling is unit-testable.
+// parseUninstallArgs parses the destructive uninstall flags; an unrecognized flag errors so a typo never falls through. Pure, so it's unit-testable.
 func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
 	for _, a := range args {
 		switch a {
@@ -240,9 +230,7 @@ func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
 	return purge, force, help, nil
 }
 
-// uninstallUsage is the help text for the destructive `uninstall` subcommand,
-// shown on `--help` and on an unrecognized flag (so a typo never falls through
-// to removing the service + binary).
+// uninstallUsage is the uninstall help text, shown on --help and on an unrecognized flag.
 const uninstallUsage = `Usage: noctra uninstall [--purge] [--force|-y]
 
 Remove the systemd --user service and the installed binary. State is kept
@@ -283,10 +271,7 @@ func printUsage() {
 	fmt.Printf("Config dir: %s (override by running from a checkout with .env)\n", config.DefaultConfigDir())
 }
 
-// resolveScriptDir picks the directory Noctra treats as its "home" —
-// where .env and logs/ live. We prefer the current working directory when it
-// looks like a Noctra checkout (for `go run`), and otherwise fall back to
-// the per-user config dir (~/.noctra/).
+// resolveScriptDir picks Noctra's home (.env + logs/): cwd when it looks like a checkout (for `go run`), else ~/.noctra/.
 func resolveScriptDir() (string, error) {
 	if cwd, err := os.Getwd(); err == nil {
 		for _, marker := range []string{".env", ".env.example", "go.mod"} {
@@ -333,25 +318,19 @@ func runCleanup(scriptDir string, force bool) error {
 	return cleanup.Run(ctx, cfg, force)
 }
 
-// logsArgs returns the journalctl arguments for `noctra logs`. Extracted
-// as a pure function so the flag logic is unit-testable.
+// logsArgs returns the journalctl arguments for `noctra logs`; pure, so it's unit-testable.
 func logsArgs(follow bool) []string {
 	args := []string{"--user-unit=noctra.service"}
 	if follow {
 		args = append(args, "-f")
 	} else {
-		// --no-pager dumps straight to stdout (newest line last) instead of
-		// opening the journalctl pager at the TOP of the 200 lines, which forces
-		// scrolling to reach the latest entry.
+		// --no-pager dumps to stdout (newest last) instead of opening the pager at the top.
 		args = append(args, "--no-pager", "-n", "200")
 	}
 	return args
 }
 
-// runLogs tails Noctra's own service logs. On a systemd host it execs
-// journalctl for the user unit (optionally following). When journalctl isn't
-// available (macOS dev box, Docker), it points the user at where logs actually
-// live instead of failing cryptically.
+// runLogs tails the service logs via journalctl; on a non-systemd host it points at where logs live instead of failing.
 func runLogs(scriptDir string, follow bool) error {
 	jctl, err := exec.LookPath("journalctl")
 	if err != nil {
@@ -369,11 +348,7 @@ func runLogs(scriptDir string, follow bool) error {
 	return cmd.Run()
 }
 
-// runService is a thin wrapper over `systemctl --user <verb> noctra.service`
-// for the start/stop/restart/status subcommands. stdout/stderr stream through.
-// On a non-systemd host (macOS dev box, Docker) systemctl isn't on PATH, so we
-// print a clear hint instead of crashing — mirroring runLogs. For `status` we
-// also print the installed binary version after the systemctl output.
+// runService wraps `systemctl --user <verb> noctra.service` for start/stop/restart/status; on a non-systemd host it hints instead of crashing. status also prints the binary version.
 func runService(verb string) error {
 	sctl, err := exec.LookPath("systemctl")
 	if err != nil {
@@ -391,8 +366,7 @@ func runService(verb string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	// `systemctl status` exits non-zero for inactive/dead units; that's
-	// informational, not an error we want to surface as a failed command.
+	// `systemctl status` exits non-zero for inactive units — informational, not a failure.
 	runErr := cmd.Run()
 	if verb == "status" {
 		fmt.Println("noctra", version)
@@ -401,16 +375,13 @@ func runService(verb string) error {
 	return runErr
 }
 
-// subcommands is the list completion offers. Kept in one place so the help
-// text, the completion script, and tests stay in sync.
+// subcommands is the completion list, kept in one place so help, the completion script, and tests stay in sync.
 var subcommands = []string{
 	"run", "setup", "dashboard", "config", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 
-// completionScript returns a static shell-completion script for the given
-// shell ("bash" or "zsh") completing the subcommand list. It's a pure function
-// (no I/O) so it can be unit-tested. An unknown shell returns an error.
+// completionScript returns a static bash/zsh completion script for the subcommand list; pure, so it's unit-testable. Unknown shell errors.
 func completionScript(shell string) (string, error) {
 	cmds := strings.Join(subcommands, " ")
 	switch shell {
@@ -437,10 +408,7 @@ func completionScript(shell string) (string, error) {
 	}
 }
 
-// ensureValidConfig loads + validates config. If validation fails and we're
-// running interactively, it offers to launch the setup wizard inline so first-
-// run users don't get a cryptic error and walk away. Non-interactive runs
-// (systemd, cron) just get the validation error.
+// ensureValidConfig loads + validates config; on failure it offers the setup wizard inline if interactive, else returns the validation error.
 func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	cfg, err := config.Load(scriptDir)
 	if err != nil {
@@ -470,7 +438,6 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	if err := setup.Run(scriptDir); err != nil {
 		return nil, err
 	}
-	// Reload after the wizard wrote the files
 	cfg, err = config.Load(scriptDir)
 	if err != nil {
 		return nil, err
@@ -481,9 +448,7 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// requireCLIs fails fast if any of the external commands Noctra needs
-// (git/gh + the selected agent backend's CLI) aren't on PATH. Surfaces all
-// missing ones at once so the user can install them in a single round.
+// requireCLIs fails fast if any needed external command (git/gh + the backend CLI) is off PATH, surfacing all missing ones at once.
 func requireCLIs(cfg *config.Config) error {
 	missing := cfg.CheckCLIs()
 	if len(missing) == 0 {
@@ -493,14 +458,7 @@ func requireCLIs(cfg *config.Config) error {
 		strings.Join(missing, ", "))
 }
 
-// isInteractive reports whether the user is likely sitting at a terminal.
-// Used to decide whether it's safe to auto-launch the setup wizard inline.
-//
-// We require BOTH stdin and stdout to be character devices. Checking only
-// stdin would treat `< /dev/null` (also a char device) as interactive; under
-// systemd, stdout is a journald socket (not a char device), so requiring both
-// correctly classifies that case as non-interactive even though stdin happens
-// to be /dev/null.
+// isInteractive reports whether a user is at a terminal (gates auto-launching the wizard). Requires BOTH stdin and stdout to be char devices, so `< /dev/null` and systemd's journald-socket stdout count as non-interactive.
 func isInteractive() bool {
 	return isCharDevice(os.Stdin) && isCharDevice(os.Stdout)
 }

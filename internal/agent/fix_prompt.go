@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// FeedbackItem is one piece of feedback rendered into a fix prompt — a
-// conversation comment or a review body. Kept stringly-typed so the agent
-// package doesn't have to depend on internal/github or internal/watch.
+// FeedbackItem is one piece of feedback rendered into a fix prompt (a comment or review body). Stringly-typed so agent needn't depend on internal/github or internal/watch.
 type FeedbackItem struct {
 	// Kind is "comment" or "review" — controls the section heading.
 	Kind string
@@ -15,14 +13,11 @@ type FeedbackItem struct {
 	Author string
 	// Body is the markdown body.
 	Body string
-	// State is "" for comments; for reviews it's APPROVED /
-	// CHANGES_REQUESTED / COMMENTED — rendered alongside the author for
-	// extra context.
+	// State is "" for comments; APPROVED/CHANGES_REQUESTED/COMMENTED for reviews.
 	State string
 	// URL points back to the comment on GitHub (optional, comments only).
 	URL string
-	// Path / Line locate an inline review comment in the diff. Empty for
-	// conversation comments and reviews.
+	// Path / Line locate an inline review comment in the diff (empty otherwise).
 	Path string
 	Line int
 }
@@ -33,13 +28,11 @@ type CIItem struct {
 	Name string
 	// URL links to the check run (optional).
 	URL string
-	// Logs is the truncated failed-step log tail (may be empty if the logs
-	// couldn't be fetched — Claude can still reproduce locally).
+	// Logs is the truncated failed-step log tail (may be empty; the agent can reproduce locally).
 	Logs string
 }
 
-// FixPromptInput is everything BuildFixPrompt needs to assemble a prompt the
-// implementing agent can act on without re-reading the PR.
+// FixPromptInput is everything BuildFixPrompt needs to assemble a prompt the agent can act on without re-reading the PR.
 type FixPromptInput struct {
 	Identifier  string
 	Title       string
@@ -49,16 +42,11 @@ type FixPromptInput struct {
 	Feedback    []FeedbackItem
 	CI          []CIItem
 	RepoLessons string // per-repo lessons
-	// PriorReasoning is the agent's summary from the previous re-engagement on
-	// this PR, so it doesn't re-litigate feedback it already decided on.
+	// PriorReasoning is the agent's summary from the previous re-engagement, so it doesn't re-litigate settled feedback.
 	PriorReasoning string
 }
 
-// BuildFixPrompt renders a fix prompt for Claude when reviewers (or bots in
-// the trust list) have left actionable feedback on the PR for this ticket.
-// The prompt explicitly instructs Claude to address ONLY the listed feedback
-// and not to do unrelated work — the goal is a tight follow-up commit, not
-// a do-over.
+// BuildFixPrompt renders a fix prompt for actionable PR feedback/CI, instructing the agent to address ONLY the listed items — a tight follow-up commit, not a do-over.
 func BuildFixPrompt(in FixPromptInput) string {
 	desc := in.Description
 	if desc == "" {

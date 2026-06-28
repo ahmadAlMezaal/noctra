@@ -1,6 +1,4 @@
-// Package linear is a small Linear GraphQL client that covers the operations
-// Noctra needs: fetching tickets in a trigger state, moving a ticket
-// between states, and posting comments.
+// Package linear is a small Linear GraphQL client: fetch trigger-state tickets, move states, post comments.
 package linear
 
 import (
@@ -9,15 +7,12 @@ import (
 	"strings"
 )
 
-// Project is the Linear project a ticket belongs to. Noctra routes the
-// ticket to a repo by a "Repo:" directive in the project's content/description.
+// Project is a ticket's Linear project; a "Repo:" directive in its content/description routes the repo.
 type Project struct {
 	Name string `json:"name"`
-	// Description is Linear's SHORT project description (GraphQL `description`).
+	// Description is Linear's short project description (GraphQL `description`).
 	Description string `json:"description,omitempty"`
-	// Content is the project's markdown BODY (GraphQL `content`) — this is where
-	// a human writes the multi-line `Repo:` directive, so it's the field
-	// RepoDirective reads first.
+	// Content is the project's markdown body (GraphQL `content`) where the `Repo:` directive lives; RepoDirective reads it first.
 	Content string `json:"content,omitempty"`
 }
 
@@ -26,16 +21,12 @@ var (
 	branchDirectiveRe = regexp.MustCompile(`(?im)^\s*Branch:\s*(.+?)\s*$`)
 )
 
-// RepoDirective parses a "Repo: <owner/name | url>" line (and an optional
-// "Branch: <name>" line) from the project content/description, letting a Linear
-// project declare its target repo. Returns ("","") when no Repo line is
-// present. branch is ignored unless a repo is also given.
+// RepoDirective parses a "Repo: <owner/name | url>" line (+ optional "Branch:") from content/description; returns ("","") if absent. branch is ignored without a repo.
 func (p *Project) RepoDirective() (string, string) {
 	if p == nil {
 		return "", ""
 	}
-	// The directive lives in the project's markdown body (GraphQL `content`);
-	// fall back to the short `description` in case it was written there instead.
+	// Prefer the markdown body (content); fall back to the short description.
 	for _, src := range []string{p.Content, p.Description} {
 		m := repoDirectiveRe.FindStringSubmatch(src)
 		if m == nil {
@@ -54,8 +45,7 @@ func (p *Project) RepoDirective() (string, string) {
 	return "", ""
 }
 
-// WorkflowState is the column a ticket sits in (e.g. "Next", "In Review") and
-// its type ("backlog", "started", "completed", …).
+// WorkflowState is a ticket's column (e.g. "Next") and its type ("backlog", "started", "completed", …).
 type WorkflowState struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
@@ -76,29 +66,23 @@ type Label struct {
 	Name string `json:"name"`
 }
 
-// LabelConnection is the GraphQL connection wrapper around an issue's labels.
+// LabelConnection wraps an issue's labels (GraphQL connection).
 type LabelConnection struct {
 	Nodes []Label `json:"nodes"`
 }
 
-// Comment is a single Linear comment. Body is Markdown; User is the author
-// (nil for app/integration comments). Only populated by queries that request
-// comments — the trigger fetches — and empty otherwise.
+// Comment is a single Linear comment (Markdown body; User nil for app/integration comments); only populated by the trigger fetches.
 type Comment struct {
 	Body string `json:"body"`
 	User *User  `json:"user,omitempty"`
 }
 
-// CommentConnection is the GraphQL connection wrapper around an issue's comments.
+// CommentConnection wraps an issue's comments (GraphQL connection).
 type CommentConnection struct {
 	Nodes []Comment `json:"nodes"`
 }
 
-// Issue is the subset of a Linear issue Noctra acts on. State and Assignee
-// are only populated by the read queries that request them (e.g.
-// GetIssueByIdentifier); they are nil otherwise. Comments is only populated by
-// the trigger fetches (FetchTriggerIssues / FetchLabeledIssues). Labels is
-// populated by the trigger fetches and GetIssueByIdentifier.
+// Issue is the subset of a Linear issue Noctra acts on; State/Assignee/Comments/Labels are nil unless the query requested them.
 type Issue struct {
 	ID          string            `json:"id"`
 	Identifier  string            `json:"identifier"`
@@ -113,30 +97,17 @@ type Issue struct {
 	Labels      LabelConnection   `json:"labels,omitempty"`
 }
 
-// systemCommentMarkers identify comments that Noctra (or the Linear↔GitHub
-// sync) posted automatically. They must never be fed back to the agent as human
-// clarification — otherwise the agent's own BLOCKED notice would be echoed
-// straight back at it. Every Noctra status comment is bold-prefixed with
-// "**Noctra", which a human reply would not be.
-//
-// "**Nightshift" is retained for backward compatibility: tickets that were
-// active before the Noctra rename (ENG-204) still carry automated comments
-// with the old prefix, and those must keep being filtered so a re-dispatched
-// ticket doesn't feed the agent its own pre-rename BLOCKED/status notices.
+// systemCommentMarkers identify auto-posted comments (Noctra status / Linear↔GitHub sync) so they aren't fed back to the agent as clarification.
+// "**Nightshift" stays for backward compat: pre-rename (ENG-204) tickets carry the old prefix and must keep being filtered.
 var systemCommentMarkers = []string{
 	"**Noctra",
 	"**Nightshift",
 	"This comment thread is synced",
 }
 
-// IsSystemComment reports whether a comment body was posted automatically by
-// Noctra (or the Linear↔GitHub sync) and should be excluded from human
-// clarifications.
+// IsSystemComment reports whether a comment body was auto-posted (and so excluded from human clarifications).
 func IsSystemComment(body string) bool {
-	// Classify only by the first non-empty line. A human who quotes one of our
-	// notifications (a "> 🚧 **Noctra…" block) and then adds their own reply
-	// must still count as a clarification — so a leading ">" quote is never a
-	// system comment, and a marker buried later in the body doesn't trip it.
+	// Classify only by the first non-empty line: a leading ">" quote (a human quoting our notice, then replying) is never a system comment.
 	firstLine := ""
 	for _, line := range strings.Split(body, "\n") {
 		if s := strings.TrimSpace(line); s != "" {
@@ -155,11 +126,7 @@ func IsSystemComment(body string) bool {
 	return false
 }
 
-// ClarificationComments returns the human-authored comments on the issue,
-// formatted as "Author: body", with Noctra's own automated notifications
-// and the GitHub-sync notice filtered out. The implement prompt includes these
-// so a human can unblock a ticket by replying in the comments — which is exactly
-// what the BLOCKED notification instructs them to do.
+// ClarificationComments returns human-authored comments as "Author: body" (auto-posted notices filtered) so a human reply can unblock a ticket via the implement prompt.
 func (i Issue) ClarificationComments() []string {
 	var out []string
 	for _, c := range i.Comments.Nodes {
@@ -176,8 +143,7 @@ func (i Issue) ClarificationComments() []string {
 	return out
 }
 
-// ProjectName returns the issue's project name, or "" if the ticket has no
-// project attached.
+// ProjectName returns the issue's project name, or "" if unattached.
 func (i Issue) ProjectName() string {
 	if i.Project == nil {
 		return ""
@@ -193,7 +159,7 @@ func (i Issue) StateName() string {
 	return i.State.Name
 }
 
-// AssigneeName returns the issue's assignee name, or "" if unassigned/not loaded.
+// AssigneeName returns the assignee name, or "" if unassigned/not loaded.
 func (i Issue) AssigneeName() string {
 	if i.Assignee == nil {
 		return ""
@@ -201,12 +167,10 @@ func (i Issue) AssigneeName() string {
 	return i.Assignee.Name
 }
 
-// PlanConfirmCommentPrefix identifies Noctra's plan-confirm comments so they
-// can be distinguished from other system comments by the approval scanner.
+// PlanConfirmCommentPrefix marks Noctra's plan-confirm comments so the approval scanner can spot them.
 const PlanConfirmCommentPrefix = "📋 **Noctra: Implementation plan**"
 
-// HasLabel reports whether the issue carries a label with the given name
-// (case-insensitive, trimmed).
+// HasLabel reports whether the issue carries the named label (case-insensitive, trimmed).
 func (i Issue) HasLabel(name string) bool {
 	target := strings.ToLower(strings.TrimSpace(name))
 	for _, l := range i.Labels.Nodes {
@@ -217,9 +181,7 @@ func (i Issue) HasLabel(name string) bool {
 	return false
 }
 
-// IsApprovalComment reports whether a comment body constitutes human approval
-// of a pending plan. Recognized signals: "go", "lgtm", "approved", "approve",
-// "👍", or the standard GitHub/Slack emoji shortcodes for thumbs-up.
+// IsApprovalComment reports whether a comment body approves a pending plan ("go"/"lgtm"/"approve(d)"/👍/thumbs-up shortcodes).
 func IsApprovalComment(body string) bool {
 	s := strings.ToLower(strings.TrimSpace(body))
 	switch s {
@@ -229,13 +191,10 @@ func IsApprovalComment(body string) bool {
 	return false
 }
 
-// BackendLabelPrefix is the label-name prefix that selects a per-ticket
-// coding-agent backend (e.g. "agent:codex" → backend "codex").
+// BackendLabelPrefix is the label prefix selecting a per-ticket agent backend ("agent:codex" → "codex").
 const BackendLabelPrefix = "agent:"
 
-// BackendLabel extracts the backend name from the issue's labels by looking
-// for one prefixed with "agent:" (e.g. "agent:codex" → "codex"). Returns ""
-// when no such label is present or the suffix is empty/whitespace-only.
+// BackendLabel returns the backend from an "agent:<name>" label, or "" if none/empty.
 func (i Issue) BackendLabel() string {
 	for _, l := range i.Labels.Nodes {
 		name := strings.ToLower(strings.TrimSpace(l.Name))

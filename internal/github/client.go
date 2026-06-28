@@ -13,9 +13,7 @@ import (
 	"strings"
 )
 
-// ErrNotActionsRun is returned by CheckLogs when a check's details URL is not
-// a GitHub Actions run (e.g. CircleCI, Vercel). Callers can errors.Is on it to
-// skip such checks quietly rather than logging a failure.
+// ErrNotActionsRun is returned by CheckLogs when a check's details URL isn't a GitHub Actions run (e.g. CircleCI, Vercel); errors.Is to skip quietly.
 var ErrNotActionsRun = errors.New("not a GitHub Actions run")
 
 // Client is a `gh`-CLI wrapper. Stateless — safe to use concurrently.
@@ -24,12 +22,10 @@ type Client struct{}
 // New returns a ready-to-use Client.
 func New() *Client { return &Client{} }
 
-// NoctraPRBodyMarker is a hidden marker embedded in every PR body Noctra
-// generates (ticket and sweep alike), used to identify its own PRs.
+// NoctraPRBodyMarker is the hidden marker in every Noctra-generated PR body (ticket and sweep), used to identify its own PRs.
 const NoctraPRBodyMarker = "<!-- noctra-authored -->"
 
-// legacyNoctraPRBodyMarker matches PRs created before the hidden marker
-// existed; both old footers contain it.
+// legacyNoctraPRBodyMarker matches PRs from before the hidden marker existed (both old footers contain it).
 const legacyNoctraPRBodyMarker = "by [Noctra]"
 
 // NoctraReplyMarker tags replies Noctra posts so the watcher skips its own.
@@ -45,14 +41,7 @@ func IsNoctraAuthoredBody(body string) bool {
 		strings.Contains(body, legacyNoctraPRBodyMarker)
 }
 
-// ListNoctraPRs returns every open PR that Noctra created across the
-// given repositories (authored by the current `gh` user, with a `noctra/`
-// branch and Noctra's generated PR body marker).
-//
-// repoURLs are the git URLs of the repos Noctra has cloned (plus the
-// REPO_PATH fallback). Each is reduced to `owner/name` before being passed to
-// `gh`. Per-repo errors are logged (not returned) so a single unreachable repo
-// doesn't kill the whole sweep.
+// ListNoctraPRs returns every open PR Noctra created across repoURLs (authored by the current `gh` user, `noctra/` branch + body marker); per-repo errors are logged, not fatal.
 func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, error) {
 	var out []PR
 	for _, raw := range repoURLs {
@@ -87,8 +76,7 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 				continue
 			}
 			if IsNoctraAuthoredBody(pr.Body) {
-				// Remember the remote this PR was found through so the iterate
-				// path can re-resolve over the same transport (e.g. SSH).
+				// Remember the remote so the iterate path re-resolves over the same transport (e.g. SSH).
 				pr.RepoURL = raw
 				out = append(out, pr)
 			} else {
@@ -100,8 +88,7 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 	return out, nil
 }
 
-// GetPR fetches the full view of a PR — comments, reviews, state — used by
-// the watcher to diff against the state cursor.
+// GetPR fetches a PR's full view — comments, reviews, state — for the watcher to diff against the cursor.
 func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 	var stderr strings.Builder
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL,
@@ -117,9 +104,7 @@ func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
 		return nil, fmt.Errorf("decode gh pr view %s: %w", prURL, err)
 	}
 
-	// Inline review-thread comments aren't returned by `gh pr view`; pull
-	// them from the REST API. Non-fatal: on failure we degrade to
-	// conversation comments + review summaries rather than skipping the PR.
+	// gh pr view omits inline review-thread comments; pull them from REST. Non-fatal: degrade to conversation comments + review summaries.
 	if rc, err := c.listReviewComments(ctx, prURL); err != nil {
 		slog.Warn("github: fetch inline review comments failed", "url", prURL, "err", err)
 	} else {
@@ -233,8 +218,7 @@ func decodeAuthorPage(data []byte, field string) (nodes []authorTypename, hasNex
 	return nodes, conn.PageInfo.HasNextPage, conn.PageInfo.EndCursor, nil
 }
 
-// listReviewComments fetches the inline review-thread comments for a PR via
-// the REST API (paginated — bots can leave many on one review).
+// listReviewComments fetches a PR's inline review-thread comments via the REST API (paginated — bots leave many).
 func (c *Client) listReviewComments(ctx context.Context, prURL string) ([]ReviewComment, error) {
 	apiPath, err := reviewCommentsAPIPath(prURL)
 	if err != nil {
@@ -254,9 +238,7 @@ func (c *Client) listReviewComments(ctx context.Context, prURL string) ([]Review
 	return comments, nil
 }
 
-// decodeReviewComments parses the output of `gh api --paginate`. Depending on
-// the gh version this is either a single merged JSON array or several arrays
-// concatenated (one per page); a streaming decoder handles both.
+// decodeReviewComments parses `gh api --paginate` output — one merged array or several concatenated (per gh version); a streaming decoder handles both.
 func decodeReviewComments(stdout []byte) ([]ReviewComment, error) {
 	dec := json.NewDecoder(bytes.NewReader(stdout))
 	var comments []ReviewComment
@@ -270,14 +252,10 @@ func decodeReviewComments(stdout []byte) ([]ReviewComment, error) {
 	return comments, nil
 }
 
-// maxCheckLogBytes caps how much of a failed check's log we feed back to
-// Claude — the tail almost always holds the actual error, and an unbounded
-// log would blow up the prompt.
+// maxCheckLogBytes caps the failed-check log fed to the agent — the tail holds the error; unbounded would blow up the prompt.
 const maxCheckLogBytes = 6000
 
-// CheckLogs returns the failed-step logs for a check, truncated to the tail.
-// Only GitHub Actions runs are supported; other check kinds (whose details
-// URL isn't an Actions run) return an error the caller treats as best-effort.
+// CheckLogs returns a check's failed-step logs (tail-truncated); only GitHub Actions runs are supported — others return an error treated as best-effort.
 func (c *Client) CheckLogs(ctx context.Context, ch Check) (string, error) {
 	owner, repo, runID, ok := parseActionsRunURL(ch.URL())
 	if !ok {
@@ -294,31 +272,26 @@ func (c *Client) CheckLogs(ctx context.Context, ch Check) (string, error) {
 	return tailString(string(stdout), maxCheckLogBytes), nil
 }
 
-// tailString returns the last max bytes of s, prefixed with a truncation
-// marker when it had to cut.
+// tailString returns the last max bytes of s, prefixed with a truncation marker when it had to cut.
 func tailString(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
 	start := len(s) - max
-	// Don't slice mid-rune: skip past any UTF-8 continuation bytes (top two
-	// bits == 10) so the result stays valid UTF-8.
+	// Skip UTF-8 continuation bytes (top bits 10) so we don't slice mid-rune.
 	for start < len(s) && s[start]&0xC0 == 0x80 {
 		start++
 	}
 	return "...(truncated)\n" + s[start:]
 }
 
-// parseActionsRunURL extracts owner, repo and run ID from a GitHub Actions
-// check details URL like
-// https://github.com/owner/repo/actions/runs/123/job/456.
+// parseActionsRunURL extracts owner, repo and run ID from an Actions check URL like https://github.com/owner/repo/actions/runs/123/job/456.
 func parseActionsRunURL(raw string) (owner, repo, runID string, ok bool) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", "", "", false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	// owner / repo / actions / runs / <id> [...]
 	if len(parts) < 5 || parts[2] != "actions" || parts[3] != "runs" {
 		return "", "", "", false
 	}
@@ -328,9 +301,7 @@ func parseActionsRunURL(raw string) (owner, repo, runID string, ok bool) {
 	return parts[0], parts[1], parts[4], true
 }
 
-// reviewCommentsAPIPath turns a PR URL into the REST path for its inline
-// review comments: https://github.com/owner/name/pull/12 →
-// repos/owner/name/pulls/12/comments.
+// reviewCommentsAPIPath turns a PR URL into its inline-review-comments REST path (…/pull/12 → repos/owner/name/pulls/12/comments).
 func reviewCommentsAPIPath(prURL string) (string, error) {
 	u, err := url.Parse(prURL)
 	if err != nil {
@@ -343,13 +314,7 @@ func reviewCommentsAPIPath(prURL string) (string, error) {
 	return fmt.Sprintf("repos/%s/%s/pulls/%s/comments", parts[0], parts[1], parts[3]), nil
 }
 
-// ExtractOwnerRepo reduces a git remote URL (SSH or HTTPS) to its `owner/name`
-// form, which is what `gh --repo` wants. An already-reduced "owner/name" is
-// returned as-is.
-//
-//	git@github.com:me/auth.git   → me/auth
-//	https://github.com/me/auth   → me/auth
-//	me/auth                      → me/auth
+// ExtractOwnerRepo reduces a git remote URL (SSH/HTTPS) to `owner/name` for `gh --repo`; an already-reduced "owner/name" passes through.
 func ExtractOwnerRepo(raw string) (string, error) {
 	s := strings.TrimSuffix(strings.TrimSpace(raw), ".git")
 
@@ -389,12 +354,11 @@ func looksLikeOwnerRepo(s string) bool {
 
 // reviewThread is an unresolved review thread on a PR, fetched via GraphQL.
 type reviewThread struct {
-	ID                     string // GraphQL node ID (used to resolve the thread)
-	FirstCommentDatabaseID int64  // REST API ID of the first comment (used to reply)
+	ID                     string // GraphQL node ID (to resolve)
+	FirstCommentDatabaseID int64  // REST ID of first comment (to reply)
 }
 
-// PostComment posts a top-level conversation comment on a PR, carrying
-// NoctraReplyMarker so the watcher skips Noctra's own reply.
+// PostComment posts a top-level PR conversation comment, carrying NoctraReplyMarker so the watcher skips its own reply.
 func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	body += "\n\n" + NoctraReplyMarker
 	var stderr strings.Builder
@@ -412,9 +376,7 @@ type ThreadReply struct {
 	Resolve bool
 }
 
-// ReplyToThreadsByComment replies to each unresolved thread keyed by its first
-// comment's database ID, resolving only those flagged; others are left
-// untouched. Best-effort: failures are logged.
+// ReplyToThreadsByComment replies to each unresolved thread keyed by its first comment's database ID, resolving only those flagged; best-effort, failures logged.
 func (c *Client) ReplyToThreadsByComment(ctx context.Context, prURL string, replies map[int64]ThreadReply) {
 	if len(replies) == 0 {
 		return
@@ -454,8 +416,7 @@ func (c *Client) ReplyToThreadsByComment(ctx context.Context, prURL string, repl
 	slog.Info("github: review threads replied", "url", prURL, "replied", replied, "resolved", resolved)
 }
 
-// fetchUnresolvedThreads queries the GitHub GraphQL API for all unresolved
-// review threads on a PR. Returns only threads that are not yet resolved.
+// fetchUnresolvedThreads returns a PR's unresolved review threads via the GraphQL API.
 func (c *Client) fetchUnresolvedThreads(ctx context.Context, owner, repo string, number int) ([]reviewThread, error) {
 	query := `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -491,8 +452,7 @@ func (c *Client) fetchUnresolvedThreads(ctx context.Context, owner, repo string,
 	return decodeReviewThreads(stdout)
 }
 
-// decodeReviewThreads parses the GraphQL response for review threads and
-// returns only the unresolved ones.
+// decodeReviewThreads parses the GraphQL review-threads response, returning only the unresolved ones.
 func decodeReviewThreads(data []byte) ([]reviewThread, error) {
 	var resp struct {
 		Data struct {
@@ -541,10 +501,7 @@ type InlineComment struct {
 	Body string
 }
 
-// PostInlineComments posts each comment as an independent inline review comment
-// on commitSHA. Best-effort: a comment whose line isn't in the diff (GitHub 422)
-// is skipped, not fatal. Each body carries NoctraReplyMarker so the watcher
-// won't re-read Noctra's own comments as feedback. Returns the number posted.
+// PostInlineComments posts each as an inline review comment on commitSHA, carrying NoctraReplyMarker; out-of-diff lines (422) are skipped. Returns the count posted.
 func (c *Client) PostInlineComments(ctx context.Context, prURL, commitSHA string, comments []InlineComment) int {
 	owner, repo, number, err := parsePRURL(prURL)
 	if err != nil {
@@ -595,9 +552,7 @@ func pullCommentReactionAPIPath(prURL, commentID string) (string, error) {
 	return fmt.Sprintf("repos/%s/%s/pulls/comments/%s/reactions", parts[0], parts[1], commentID), nil
 }
 
-// AddEyesReaction posts a best-effort 👀 reaction on a comment to acknowledge
-// feedback. inline picks the API: REST reactions (numeric ID) vs the GraphQL
-// addReaction mutation, since conversation comments only give us a node ID.
+// AddEyesReaction posts a best-effort 👀 reaction to acknowledge feedback; inline picks REST reactions (numeric ID) vs the GraphQL mutation (conversation comments give only a node ID).
 func (c *Client) AddEyesReaction(ctx context.Context, prURL, commentID string, inline bool) error {
 	if strings.TrimSpace(commentID) == "" {
 		return nil

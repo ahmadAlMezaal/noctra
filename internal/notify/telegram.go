@@ -1,6 +1,4 @@
-// Package notify pushes status messages to Telegram. Pipeline sends are fire-
-// and-forget — a failure here never blocks ticket processing. The setup
-// wizard uses SendSync to validate credentials before they're saved.
+// Package notify pushes status messages to chat platforms. Sends are fire-and-forget so a failure never blocks processing; SendSync validates credentials in the setup wizard.
 package notify
 
 import (
@@ -21,8 +19,7 @@ type Telegram struct {
 	HTTP     *http.Client
 }
 
-// New returns a Telegram notifier. It's safe to call Send on a disabled
-// instance — it just no-ops.
+// New returns a Telegram notifier; Send on a disabled instance no-ops.
 func New(enabled bool, botToken, chatID string) *Telegram {
 	return &Telegram{
 		Enabled:  enabled && botToken != "" && chatID != "",
@@ -32,23 +29,18 @@ func New(enabled bool, botToken, chatID string) *Telegram {
 	}
 }
 
-// Send posts a Markdown message in a background goroutine and returns
-// immediately. Errors are intentionally swallowed — notifications are
-// best-effort and shouldn't gate ticket processing.
+// Send posts a Markdown message in a background goroutine and returns immediately; errors are swallowed (best-effort).
 func (t *Telegram) Send(ctx context.Context, message string) {
 	if t == nil || !t.Enabled {
 		return
 	}
 	go func() {
-		// Detach from the caller's context — the caller may return (and
-		// cancel ctx) before the HTTP round-trip completes.
+		// Detach from ctx — the caller may cancel it before the round-trip completes.
 		_ = t.post(context.Background(), message)
 	}()
 }
 
-// SendSync posts a Markdown message synchronously and returns any error. The
-// setup wizard uses this to verify a bot token + chat ID actually work before
-// writing them to .env.
+// SendSync posts synchronously, returning any error; the setup wizard uses it to verify the bot token + chat ID.
 func (t *Telegram) SendSync(ctx context.Context, message string) error {
 	if t == nil {
 		return fmt.Errorf("telegram client is nil")
@@ -59,16 +51,7 @@ func (t *Telegram) SendSync(ctx context.Context, message string) error {
 	return t.post(ctx, message)
 }
 
-// EscapeMarkdown backslash-escapes the characters Telegram's legacy Markdown
-// parser is strict about: `_`, `*`, backtick, and `[`. Use it on any
-// dynamic value (ticket titles, Claude's BLOCKED reason, user-configured
-// state names) before interpolating into a message template — leave the
-// template's own `*bold*` scaffolding alone so it still renders bold.
-//
-// Without this, a Linear title like `snake_case_thing` makes Telegram return
-// 400 Bad Request and the notification gets silently dropped — pipeline keeps
-// running, user wonders why nothing pinged. Flagged by gemini-code-assist on
-// PR #52.
+// EscapeMarkdown backslash-escapes Telegram's strict legacy-Markdown chars (_ * ` [). Apply to dynamic values (ticket titles, BLOCKED reasons) before interpolating, leaving the template's own *bold* alone — else a title like snake_case_thing returns 400 and the notification is silently dropped (PR #52).
 func EscapeMarkdown(s string) string {
 	return mdEscaper.Replace(s)
 }

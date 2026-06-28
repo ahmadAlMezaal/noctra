@@ -5,14 +5,7 @@ import (
 	"regexp"
 )
 
-// codexBackend runs OpenAI's Codex CLI (`codex`) in its non-interactive
-// automation mode (`codex exec`). It authenticates via a one-time `codex login`
-// on the host (ChatGPT subscription or an OPENAI_API_KEY in the environment);
-// Noctra does not manage those credentials.
-//
-// NOTE: the exact `codex exec` flags are pinned to the documented CLI surface
-// at the time of writing — Codex isn't introspectable from this environment.
-// If a future Codex release renames flags, only codexArgs needs to change.
+// codexBackend runs OpenAI's Codex CLI (`codex exec`); auth is a one-time host `codex login` or OPENAI_API_KEY. Flags are pinned to the documented surface — if a release renames them, only codexArgs changes.
 type codexBackend struct{}
 
 func (codexBackend) Name() string     { return "codex" }
@@ -20,20 +13,14 @@ func (codexBackend) Label() string    { return "OpenAI Codex" }
 func (codexBackend) CLI() string      { return "codex" }
 func (codexBackend) CoAuthor() string { return "Codex <noreply@openai.com>" }
 
-// Run invokes `codex exec` in opts.Workdir. UseAgentTeams is Claude-only and
-// is ignored here.
+// Run invokes `codex exec` in opts.Workdir; UseAgentTeams is Claude-only and ignored.
 func (b codexBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
 	// nil env → inherit os.Environ (so OPENAI_API_KEY / login state flow through).
 	out, err := runCLI(ctx, b.CLI(), codexArgs(opts), nil, opts)
 	return ParseUsage(out), err
 }
 
-// codexArgs builds the argv for a Codex run. `exec` is Codex's non-interactive
-// subcommand; the bypass flag is the autonomous-run analogue of Claude's
-// --dangerously-skip-permissions (no approval prompts, full filesystem access)
-// since Noctra runs unattended in a throwaway worktree. The prompt is
-// passed as the positional argument. Split out from Run so the flag set is
-// unit-testable without executing the CLI.
+// codexArgs builds the argv for a Codex run: the bypass flag is the autonomous-run analogue of Claude's --dangerously-skip-permissions (Noctra runs unattended in a throwaway worktree); prompt is positional. Split out so the flag set is unit-testable.
 func codexArgs(opts RunOptions) []string {
 	return []string{
 		"exec",
@@ -42,9 +29,7 @@ func codexArgs(opts RunOptions) []string {
 	}
 }
 
-// codexRateLimitRe matches the usage / rate-limit / quota markers Codex and the
-// OpenAI backend emit. Superset of the Claude phrasings plus "quota" and the
-// underscored API error code (rate_limit_exceeded).
+// codexRateLimitRe matches Codex/OpenAI usage/rate-limit/quota markers — Claude's phrasings plus "quota" and rate_limit_exceeded.
 var codexRateLimitRe = regexp.MustCompile(`(?i)rate.?limit|usage.?limit|quota|exceeded.*limit|too many requests`)
 
 func (codexBackend) HasRateLimit(output string) bool {

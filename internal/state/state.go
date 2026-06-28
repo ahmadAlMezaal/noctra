@@ -1,14 +1,4 @@
-// Package state persists Noctra's view of PRs it has created and how far it
-// has caught up on each: last-seen comment / review cursors, CI cursor, and
-// the per-PR iteration counter. The watcher reads this on startup so a restart
-// does not re-react to comments that pre-date the cursor.
-//
-// It also tracks sweep task cooldowns (ENG-222): per-repo, per-task last-run
-// timestamps so the same maintenance task is not re-run before its cooldown
-// expires.
-//
-// The active store is SQLite. A legacy JSON state file can be migrated once at
-// startup via OpenMigrating.
+// Package state persists Noctra's PR cursors (comment/review/CI + iteration count) so a restart doesn't re-react to pre-cursor feedback, plus sweep task cooldowns (ENG-222). SQLite-backed; a legacy JSON file migrates once via OpenMigrating.
 package state
 
 import (
@@ -29,79 +19,59 @@ import (
 
 // PRState is the per-PR record stored in the state database.
 type PRState struct {
-	// TicketID is the Linear identifier the PR was opened for (e.g. ENG-42).
-	// Used to route comments on Linear when re-engaging or capping.
+	// TicketID is the Linear identifier (e.g. ENG-42), used to route Linear comments on re-engage/cap.
 	TicketID string `json:"ticket_id,omitempty"`
 
-	// AgentBackend is the coding-agent backend the PR was created with
-	// (e.g. "claude", "codex", "copilot", "antigravity"). Persisted so the auto-iterate
-	// path uses the same backend for follow-up commits on this PR.
+	// AgentBackend is the backend the PR was created with, so follow-up commits reuse it.
 	AgentBackend string `json:"agent_backend,omitempty"`
 
-	// LastCommentAt is the createdAt of the most recent issue-conversation
-	// comment the watcher has already processed for this PR. Anything with
-	// a later timestamp is "new" and worth acting on. Tracking by timestamp
-	// rather than ID because `gh` returns GraphQL node IDs (strings without
-	// natural ordering), whereas timestamps sort cleanly.
+	// LastCommentAt is the createdAt of the last processed conversation comment; later = new. By timestamp not ID since gh returns unordered GraphQL node IDs.
 	LastCommentAt time.Time `json:"last_comment_at,omitempty"`
 
-	// LastReviewAt is the submittedAt of the most recent review already
-	// processed.
+	// LastReviewAt is the submittedAt of the last processed review.
 	LastReviewAt time.Time `json:"last_review_at,omitempty"`
 
-	// LastCISHA is the head commit SHA whose failing CI Noctra has already
-	// re-engaged on. CI is keyed by SHA (not timestamp) so a failure is acted on
-	// once per commit; pushing a fix changes the SHA, making a fresh failure
-	// eligible again, bounded by Iterations.
+	// LastCISHA is the head SHA whose failing CI was acted on. Keyed by SHA so each commit acts once; a fix changes the SHA, re-eligible (bounded by Iterations).
 	LastCISHA string `json:"last_ci_sha,omitempty"`
 
-	// Iterations counts how many times Noctra has re-engaged on this PR. Capped
-	// by config.MaxPRIterations.
+	// Iterations counts re-engagements, capped by config.MaxPRIterations.
 	Iterations int `json:"iterations,omitempty"`
 
-	// LastIteratedAt is the timestamp of the most recent re-engage. Mostly for
-	// telemetry; also useful for spotting stuck iteration loops.
+	// LastIteratedAt is the most recent re-engage time (telemetry; spots stuck loops).
 	LastIteratedAt time.Time `json:"last_iterated_at,omitempty"`
 
-	// LastPushedSHA is the git commit SHA that Noctra last pushed to this PR's branch.
+	// LastPushedSHA is the SHA Noctra last pushed to this PR's branch.
 	LastPushedSHA string `json:"last_pushed_sha,omitempty"`
 
 	// MergedProcessed reports whether human post-merge edits for this PR have been processed.
 	MergedProcessed bool `json:"merged_processed,omitempty"`
 
-	// LastReasoning is the agent's summary from the most recent re-engagement,
-	// reused in the next fix prompt and the GitHub thread reply.
+	// LastReasoning is the last re-engagement's agent summary, reused in the next fix prompt and thread reply.
 	LastReasoning string `json:"last_reasoning,omitempty"`
 
-	// LastCIRunURL is the URL of the most recent failing CI check run,
-	// surfaced in the dashboard so operators can deep-link to CI failures.
+	// LastCIRunURL is the last failing CI check-run URL, deep-linked from the dashboard.
 	LastCIRunURL string `json:"last_ci_run_url,omitempty"`
 }
 
-// SweepState is the per-task-per-repo record for autonomous maintenance
-// sweeps (ENG-222). The key is "repo-slug/task-name".
+// SweepState is the per-task-per-repo sweep cooldown record (ENG-222), keyed "repo-slug/task-name".
 type SweepState struct {
 	// LastRunAt is when this task last ran on this repo.
 	LastRunAt time.Time `json:"last_run_at,omitempty"`
 }
 
-// PlanState tracks a ticket that has been planned but not yet approved
-// (ENG-221). Keyed by the source ticket identifier (e.g. "ENG-42").
+// PlanState tracks a planned-but-unapproved ticket (ENG-221), keyed by ticket identifier.
 type PlanState struct {
-	// Source is the ticket source name. Empty means "linear" for records
-	// written before multi-source support.
+	// Source is the ticket source; empty means "linear" (pre-multi-source records).
 	Source string `json:"source,omitempty"`
-	// IssueID is the source issue ID (needed for approval-comment fetching).
+	// IssueID is the source issue ID (for approval-comment fetching).
 	IssueID string `json:"issue_id"`
-	// Plan is the implementation plan the agent produced.
+	// Plan is the agent's implementation plan.
 	Plan string `json:"plan"`
 	// PlannedAt is when the plan was posted.
 	PlannedAt time.Time `json:"planned_at"`
 }
 
-// RunHistory records the outcome of a single Noctra run (ticket, sweep, or
-// iterate). Written at each lifecycle's terminal point so the dashboard's
-// "what happened overnight" panel survives restarts.
+// RunHistory records one run's outcome (ticket/sweep/iterate), written at its terminal point so the dashboard survives restarts.
 type RunHistory struct {
 	Identifier   string
 	TicketID     string
@@ -115,8 +85,7 @@ type RunHistory struct {
 	Iterations   int
 }
 
-// UsageEvent records token consumption from a single agent invocation.
-// Written beside every budget.Record call so cost data survives restarts.
+// UsageEvent records one agent invocation's token consumption, written beside every budget.Record so cost survives restarts.
 type UsageEvent struct {
 	OccurredAt   time.Time
 	Source       string // "ticket" | "iterate" | "sweep" | "plan"
@@ -129,8 +98,7 @@ type UsageEvent struct {
 	CostUSD      float64
 }
 
-// OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236)
-// so a restart does not lose a refresh-token rotation.
+// OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236) so a restart keeps a refresh-token rotation.
 type OAuthState struct {
 	AccessToken  string    `json:"access_token,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
@@ -150,8 +118,7 @@ type Store struct {
 	db   *sql.DB
 }
 
-// Open opens the SQLite state database at path. A missing database is created
-// with the current schema.
+// Open opens the SQLite state database at path, creating it with the current schema if missing.
 func Open(path string) (*Store, error) {
 	s, err := openSQLite(path)
 	if err != nil {
@@ -160,9 +127,7 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
-// OpenMigrating opens the SQLite state database at dbPath and, when the DB did
-// not already exist, migrates records from legacyJSONPath if that file exists.
-// Existing DBs are never clobbered.
+// OpenMigrating opens the DB at dbPath, migrating from legacyJSONPath only when the DB was newly created; existing DBs are never clobbered.
 func OpenMigrating(dbPath, legacyJSONPath string) (*Store, error) {
 	dbExisted := pathExists(dbPath)
 	s, err := openSQLite(dbPath)
@@ -287,8 +252,7 @@ func (s *Store) initSchema() error {
 	return nil
 }
 
-// Get returns a copy of the record for prURL, or a zero-value PRState if the
-// PR is not tracked yet.
+// Get returns a copy of prURL's record, or a zero-value PRState if untracked.
 func (s *Store) Get(prURL string) PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -399,9 +363,7 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 	return out, nil
 }
 
-// Update mutates the record for prURL in place via fn and writes it. A nil fn
-// is a no-op. fn is called while the store is locked; do not call back into the
-// Store from inside fn.
+// Update mutates prURL's record via fn and writes it (nil fn is a no-op). fn runs under the lock — don't call back into the Store from it.
 func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if fn == nil {
 		return nil
@@ -447,8 +409,7 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	return nil
 }
 
-// LoadOAuth returns the persisted access token, expiry, and refresh token (zero
-// values if none). Satisfies linear.TokenStore.
+// LoadOAuth returns the persisted access token, expiry, and refresh token (zero if none). Satisfies linear.TokenStore.
 func (s *Store) LoadOAuth() (access string, expiresAt time.Time, refresh string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -489,14 +450,12 @@ func (s *Store) SaveOAuth(access string, expiresAt time.Time, refresh string) er
 	return nil
 }
 
-// SweepKey builds the state key for a sweep task on a specific repo.
-// Format: "<repo-slug>/<task-name>".
+// SweepKey builds a sweep task's state key, "<repo-slug>/<task-name>".
 func SweepKey(repoSlug, taskName string) string {
 	return repoSlug + "/" + taskName
 }
 
-// GetSweep returns a copy of the sweep state for the given key, or a
-// zero-value SweepState if the task has not run yet.
+// GetSweep returns a copy of key's sweep state, or a zero-value SweepState if the task hasn't run.
 func (s *Store) GetSweep(key string) SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -548,8 +507,7 @@ func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 	return nil
 }
 
-// GetPlan returns the plan state for a ticket, or a zero-value PlanState if
-// no plan has been recorded. (ENG-221)
+// GetPlan returns a ticket's plan state, or a zero-value PlanState if none recorded (ENG-221).
 func (s *Store) GetPlan(identifier string) PlanState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -707,7 +665,7 @@ func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
 	return out, nil
 }
 
-// ListUsageEvents returns usage events at or after since (all if zero).
+// ListUsageEvents returns usage events at or after since (all if zero), oldest first.
 func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -754,8 +712,7 @@ func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
 	return out, nil
 }
 
-// AllSweepStates returns every sweep state record keyed by
-// "<repo-slug>/<task-name>".
+// AllSweepStates returns every sweep state keyed "<repo-slug>/<task-name>".
 func (s *Store) AllSweepStates() map[string]SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()

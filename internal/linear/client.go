@@ -20,21 +20,16 @@ type Client struct {
 	APIKey   string
 	Endpoint string
 	HTTP     *http.Client
-	// Bearer controls how APIKey is sent: personal API keys go in the
-	// Authorization header verbatim, OAuth access tokens are prefixed "Bearer ".
+	// Bearer sends APIKey with a "Bearer " prefix (OAuth) vs verbatim (personal key).
 	Bearer bool
 
-	// TokenFn supplies a fresh bearer token per request (auto-refreshing
-	// actor=app OAuth), taking precedence over APIKey/Bearer.
+	// TokenFn supplies a fresh bearer token per request (auto-refreshing actor=app OAuth); takes precedence over APIKey/Bearer.
 	TokenFn func(ctx context.Context) (string, error)
-	// OnAuthError forces a credential refresh once after an auth failure; the
-	// request is then retried once.
+	// OnAuthError forces one credential refresh after an auth failure, then the request retries once.
 	OnAuthError func(ctx context.Context) error
-	// FallbackAPIKey is the personal key the client degrades to when the OAuth
-	// credential keeps failing auth — so an expired app token can't crash-loop
-	// the service.
+	// FallbackAPIKey is the personal key degraded to when OAuth keeps failing, so an expired app token can't crash-loop.
 	FallbackAPIKey string
-	// OnDegrade fires once when the client first falls back (e.g. to alert).
+	// OnDegrade fires once on first fallback (e.g. to alert).
 	OnDegrade func(cause error)
 
 	degraded atomic.Bool
@@ -49,11 +44,8 @@ func New(apiKey string) *Client {
 	}
 }
 
-// NewOAuth constructs a Client authenticated with an OAuth access token. When
-// that token was issued with `actor=app`, Noctra's comments and state changes
-// are attributed to the application identity rather than the authorizing user.
+// NewOAuth constructs a Client using an OAuth access token; an actor=app token attributes actions to the app identity.
 func NewOAuth(token string) *Client {
-	// Defensively trim whitespace and strip any accidental "Bearer " prefix.
 	token = strings.TrimSpace(token)
 	token = strings.TrimPrefix(token, "Bearer ")
 	c := New(token)
@@ -61,9 +53,7 @@ func NewOAuth(token string) *Client {
 	return c
 }
 
-// Do runs a GraphQL operation, decoding "data" into out (if non-nil). On an
-// auth failure with TokenFn set, it refreshes + retries once (OnAuthError),
-// then degrades to FallbackAPIKey rather than failing every call.
+// Do runs a GraphQL op, decoding "data" into out; on auth failure it refreshes+retries once, then degrades to FallbackAPIKey.
 func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out any) error {
 	if c.FallbackAPIKey != "" && c.degraded.Load() {
 		return c.exec(ctx, c.FallbackAPIKey, query, vars, out)
@@ -71,7 +61,6 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 
 	authz, err := c.authHeader(ctx)
 	if err != nil {
-		// Couldn't obtain a token (refresh failed). Degrade if we can.
 		if c.FallbackAPIKey != "" {
 			c.degradeOnce(err)
 			return c.exec(ctx, c.FallbackAPIKey, query, vars, out)
@@ -86,7 +75,7 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 
 	if c.OnAuthError != nil {
 		if rerr := c.OnAuthError(ctx); rerr != nil {
-			execErr = rerr // surface the real refresh failure as the degrade cause
+			execErr = rerr // surface refresh failure as the degrade cause
 		} else if authz2, aerr := c.authHeader(ctx); aerr != nil {
 			execErr = aerr
 		} else if e2 := c.exec(ctx, authz2, query, vars, out); e2 == nil || !isAuthError(e2) {

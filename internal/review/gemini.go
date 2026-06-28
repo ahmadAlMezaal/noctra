@@ -1,6 +1,4 @@
-// Package review is the optional Gemini-based "second model review" gate.
-// Noctra sends the staged diff and ticket context to Gemini and parses a
-// VERDICT: PASS / VERDICT: FAIL line out of the response.
+// Package review is the optional Gemini second-model review gate: it sends the staged diff + ticket context to Gemini and parses a PASS/FAIL verdict.
 package review
 
 import (
@@ -20,9 +18,7 @@ import (
 
 const defaultMode = "api"
 
-// ErrUnavailable means the selected Gemini backend is not usable on this host
-// (for example: CLI missing or not logged in). Callers should skip the optional
-// review gate instead of treating this like a failed review.
+// ErrUnavailable means the Gemini backend isn't usable on this host (CLI missing, not logged in); callers skip the gate rather than treat it as a failed review.
 var ErrUnavailable = errors.New("gemini review unavailable")
 
 // Finding is one line-anchored review comment.
@@ -36,11 +32,9 @@ type Finding struct {
 // Result is the outcome of a single review pass.
 type Result struct {
 	Passed bool
-	// Skipped reports that the optional gate could not run because its selected
-	// backend is not available on this host.
+	// Skipped reports the gate couldn't run (backend unavailable on this host).
 	Skipped bool
-	// Body is Gemini's review text — surfaced in the PR body if the gate
-	// did not pass.
+	// Body is Gemini's review text, surfaced in the PR body when the gate didn't pass.
 	Body string
 	// Summary is the short overall assessment (structured API mode only).
 	Summary string
@@ -48,8 +42,7 @@ type Result struct {
 	Findings []Finding
 }
 
-// Render flattens a structured result into readable text for the fix prompt and
-// the PR-body fallback.
+// Render flattens a structured result into readable text for the fix prompt and PR-body fallback.
 func (r Result) Render() string {
 	var b strings.Builder
 	if s := strings.TrimSpace(r.Summary); s != "" {

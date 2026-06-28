@@ -26,9 +26,7 @@ func TestDispatchCapReached(t *testing.T) {
 	}
 }
 
-// TestRollDispatchWindow_ResetsAtUTCMidnight locks in the daily-cap semantics
-// (ENG-254): MAX_DISPATCHES counts per UTC day, so the counter and the
-// once-per-day cap alert reset when the day rolls over — and only then.
+// TestRollDispatchWindow_ResetsAtUTCMidnight locks in ENG-254: MAX_DISPATCHES counts per UTC day; counter + cap alert reset only when the day rolls over.
 func TestRollDispatchWindow_ResetsAtUTCMidnight(t *testing.T) {
 	day1 := time.Date(2026, 6, 21, 9, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
