@@ -49,11 +49,11 @@ export function SweepMatrix({ sweeps, history }: Props) {
               <div class="sweep-headrow">
                 <span />
                 {SWEEP_TASKS.map((t) => (
-                  <span class="sweep-task">{t.label}</span>
+                  <span class="sweep-task" key={t.name}>{t.label}</span>
                 ))}
               </div>
               {repoOrder.map((repo) => (
-                <div class="sweep-datarow">
+                <div class="sweep-datarow" key={repo}>
                   <span class="sweep-repo" title={repo}>
                     {clip(repo, 22)}
                   </span>
@@ -64,7 +64,7 @@ export function SweepMatrix({ sweeps, history }: Props) {
                     const dotColor = eligible ? '#6EE7A8' : '#3A4356'
                     const label = eligible ? 'ready' : fmtCooldown(s.cooldown_left_h)
                     return (
-                      <span class="sweep-cell" style={{ color }}>
+                      <span class="sweep-cell" key={t.name} style={{ color }}>
                         <span class="sweep-celldot" style={{ background: dotColor }} />
                         {label}
                       </span>

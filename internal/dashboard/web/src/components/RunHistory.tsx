@@ -37,7 +37,7 @@ export function RunHistory({ history, onLog }: Props) {
         {order.map((repo) => {
           const runs = groups[repo]
           return (
-            <div class="hist-group">
+            <div class="hist-group" key={repo}>
               <div class="hist-grouphead">
                 <span class="hist-repo">{repo}</span>
                 <span class="hist-count">{runs.length + (runs.length === 1 ? ' run' : ' runs')}</span>
@@ -47,7 +47,7 @@ export function RunHistory({ history, onLog }: Props) {
                 const ai = agentInfo(r.agent_backend)
                 const oi = outInfo(r.status)
                 return (
-                  <div class="hist-row">
+                  <div class="hist-row" key={r.identifier}>
                     <span class="hist-id" onClick={() => onLog(r.identifier)}>
                       {r.identifier}
                     </span>

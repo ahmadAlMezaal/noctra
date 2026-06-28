@@ -1,5 +1,5 @@
 import type { CostResponse } from '../types'
-import { niceMax, monoAttr } from '../format'
+import { niceMax, monoAttr, fmtTokens, fmtMoney } from '../format'
 
 interface Props {
   cost: CostResponse
@@ -63,12 +63,12 @@ function Chart({ bks }: { bks: CostResponse['buckets'] }) {
     const lbl =
       val >= 1 ? (val % 1 === 0 ? val + 'M' : val.toFixed(1) + 'M') : (val * 1000).toFixed(0) + 'K'
     grid.push(
-      <>
+      <g key={k}>
         <line x1="38" y1={y} x2="564" y2={y} stroke="#1C2433" stroke-width="1" />
         <text x="30" y={y} text-anchor="end" dominant-baseline="middle" font-family={monoAttr} font-size="9" fill="#5E677D">
           {lbl}
         </text>
-      </>,
+      </g>,
     )
   }
 
@@ -99,6 +99,15 @@ function Chart({ bks }: { bks: CostResponse['buckets'] }) {
       <text x="564" y="202" text-anchor="end" font-family={monoAttr} font-size="9" fill="#5E677D">
         today
       </text>
+      {bks.map((b, i) => {
+        const spacing = n === 1 ? padR - padL : (padR - padL) / (n - 1)
+        const bx = Math.max(0, TX(i) - spacing / 2)
+        return (
+          <rect key={b.date} x={bx.toFixed(1)} y="8" width={spacing.toFixed(1)} height="182" fill="transparent" pointer-events="all">
+            <title>{`${b.date}: ${fmtTokens(b.total_tokens)} tokens · ${fmtMoney(b.cost_usd)}`}</title>
+          </rect>
+        )
+      })}
     </svg>
   )
 }

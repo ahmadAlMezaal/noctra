@@ -46,7 +46,7 @@ export function RepoCards({ history, prs }: Props) {
           order.map((k) => {
             const s = stats[k]
             return (
-              <div class="repo-card">
+              <div class="repo-card" key={k}>
                 <div class="repo-card-head">
                   <span class="dot" style={{ width: '7px', height: '7px', background: 'var(--blue)' }} />
                   <span class="repo-card-name">{k}</span>

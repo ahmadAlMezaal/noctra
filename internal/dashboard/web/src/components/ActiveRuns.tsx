@@ -49,7 +49,7 @@ export function ActiveRuns({ snapshot, adminEnabled, onLog }: Props) {
               ? fmtElapsed((now - new Date(r.started_at).getTime()) / 1000)
               : '—'
             return (
-              <div class="run-card">
+              <div class="run-card" key={r.identifier}>
                 <div class="run-card-top">
                   <span class="run-id" onClick={() => onLog(r.identifier)}>
                     {r.identifier}

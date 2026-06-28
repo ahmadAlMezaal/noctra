@@ -32,7 +32,8 @@ function Chart({ spend }: { spend: SpendEntry[] }) {
         const y = 22 + i * 46
         const w = (a.total_tokens / max) * barMax
         return (
-          <g>
+          <g key={a.agent}>
+            <title>{`${ai.name}: ${fmtTokens(a.total_tokens)} tokens · ${fmtMoney(a.cost_usd)} today (est.)`}</title>
             <text x="0" y={y} dominant-baseline="hanging" font-family={monoAttr} font-size="12" fill="#C7CEDF">
               {ai.name}
             </text>

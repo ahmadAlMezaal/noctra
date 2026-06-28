@@ -24,7 +24,7 @@ export function Queue({ snapshot, adminEnabled, onLog }: Props) {
             <>
               <h4>{'Queued · ' + queued.length}</h4>
               {queued.map((e) => (
-                <div class="queue-row">
+                <div class="queue-row" key={e.identifier}>
                   <span class="queue-id" onClick={() => onLog(e.identifier)}>
                     {e.identifier}
                   </span>
@@ -42,7 +42,7 @@ export function Queue({ snapshot, adminEnabled, onLog }: Props) {
             <>
               <h4>{'Skipped · ' + skipped.length}</h4>
               {skipped.map((id) => (
-                <div class="queue-row">
+                <div class="queue-row" key={id}>
                   <span class="queue-id" onClick={() => onLog(id)}>
                     {id}
                   </span>

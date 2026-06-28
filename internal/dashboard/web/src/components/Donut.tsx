@@ -47,6 +47,7 @@ export function Donut({ history }: Props) {
     const len = Math.max(0, portion - 2.5)
     const arc = (
       <circle
+        key={s.label}
         cx="100"
         cy="100"
         r="70"
@@ -55,7 +56,9 @@ export function Donut({ history }: Props) {
         stroke-width="22"
         stroke-dasharray={len.toFixed(2) + ' ' + (C - len).toFixed(2)}
         stroke-dashoffset={(-acc).toFixed(2)}
-      />
+      >
+        <title>{`${s.label}: ${s.value} (${Math.round((s.value / total) * 100)}%)`}</title>
+      </circle>
     )
     acc += portion
     return arc
@@ -78,7 +81,7 @@ export function Donut({ history }: Props) {
         </svg>
         <div class="donut-legend">
           {segs.map((s) => (
-            <div class="legend-row">
+            <div class="legend-row" key={s.label}>
               <span class="legend-sw" style={{ background: s.color }} />
               <span class="legend-label">{s.label}</span>
               <span class="legend-pct">{Math.round((s.value / total) * 100) + '%'}</span>

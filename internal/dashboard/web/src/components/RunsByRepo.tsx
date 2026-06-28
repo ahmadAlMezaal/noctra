@@ -49,7 +49,8 @@ function Chart({ order, counts }: { order: string[]; counts: Record<string, numb
         const y = 20 + i * 40
         const w = (counts[k] / max) * barMax
         return (
-          <g>
+          <g key={k}>
+            <title>{`${k}: ${counts[k]} ${counts[k] === 1 ? 'run' : 'runs'} · 14 days`}</title>
             <text x="0" y={y} dominant-baseline="hanging" font-family={monoAttr} font-size="11.5" fill="#C7CEDF">
               {clip(k, 20)}
             </text>

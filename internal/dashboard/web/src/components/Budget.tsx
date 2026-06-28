@@ -42,8 +42,11 @@ export function Budget({ snapshot }: Props) {
           const pct = hasCap ? Math.min(100, Math.round((r.val / r.capN) * 100)) : 0
           const color = pct >= 80 ? 'var(--lamp)' : 'var(--blue)'
           const capTxt = hasCap ? '/ ' + (r.money ? fmtMoney(r.capN) : fmtTokens(r.capN)) : '/ no cap'
+          const tip = hasCap
+            ? `${r.scope} · ${r.metric}: ${r.used} of ${r.money ? fmtMoney(r.capN) : fmtTokens(r.capN)} (${pct}%)`
+            : `${r.scope} · ${r.metric}: ${r.used} (no cap)`
           return (
-            <div class="budget-row">
+            <div class="budget-row" key={r.scope + r.metric} title={tip}>
               <div class="budget-head">
                 <span class="budget-label">{r.scope + ' · ' + r.metric}</span>
                 <span class="budget-used">{r.used}</span>

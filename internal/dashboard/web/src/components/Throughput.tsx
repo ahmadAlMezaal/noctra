@@ -39,7 +39,8 @@ export function Throughput({ history }: Props) {
             const x = 38 + i * 53
             const y = base - h
             return (
-              <g>
+              <g key={d.key}>
+                <title>{`${d.key}: ${v} ${v === 1 ? 'PR' : 'PRs'} opened`}</title>
                 <rect x={x} y={y.toFixed(1)} width="30" height={Math.max(0, h).toFixed(1)} rx="4" fill="#6EE7A8" fill-opacity="0.85" />
                 <text x={x + 15} y={(y - 6).toFixed(1)} text-anchor="middle" font-family={monoAttr} font-size="11" fill="#8B93A8">
                   {v}

@@ -65,7 +65,7 @@ export function Kpis({ snapshot, history, cost }: Props) {
   return (
     <section class="kpis">
       {kpis.map((k) => (
-        <div class="kpi">
+        <div class="kpi" key={k.label}>
           <span class="kpi-label">{k.label}</span>
           <span class="kpi-value" style={{ color: k.accent }}>
             {k.value}
