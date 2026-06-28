@@ -334,10 +334,10 @@ The frontend is a **Preact + TypeScript** app in `internal/dashboard/web/`, bund
 
 ```bash
 cd internal/dashboard/web
-npm ci          # first time
-npm run build   # regenerates internal/dashboard/static/index.html (+ fonts/)
+yarn install    # first time
+yarn build      # regenerates internal/dashboard/static/index.html (+ fonts/)
 # then commit the regenerated internal/dashboard/static/
-# (npm run watch rebuilds on change while you run the binary)
+# (yarn watch rebuilds on change while you run the binary)
 ```
 
 Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. See `CLAUDE.md` → "Dashboard frontend" for the rationale.

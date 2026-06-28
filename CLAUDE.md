@@ -172,12 +172,12 @@ The operations dashboard lives in `internal/dashboard`. The UI is a **Preact + T
 
 ```bash
 cd internal/dashboard/web
-npm ci          # first time / after dependency changes
-npm run build   # type-checks, then writes internal/dashboard/static/index.html (+ fonts/)
+yarn install --frozen-lockfile   # first time / after dependency changes
+yarn build                       # type-checks, then writes internal/dashboard/static/index.html (+ fonts/)
 # commit the regenerated internal/dashboard/static/
 ```
 
-For active development, `npm run watch` rebuilds `static/` on every change — run the Go binary (`DASHBOARD_ADDR=…`) and refresh, so requests always go through the real backend (there is no separate dev server with its own `/api` to drift from). `web/node_modules/` is gitignored; the committed `static/index.html` is the build artifact and is marked `linguist-generated` in `.gitattributes` so its minified diff is collapsed. Keep the port faithful — the live `index.html` in git history is the source of truth for exact visuals/derivations.
+For active development, `yarn watch` rebuilds `static/` on every change — run the Go binary (`DASHBOARD_ADDR=…`) and refresh, so requests always go through the real backend (there is no separate dev server with its own `/api` to drift from). `web/node_modules/` is gitignored; the committed `static/index.html` is the build artifact and is marked `linguist-generated` in `.gitattributes` so its minified diff is collapsed. Keep the port faithful — the live `index.html` in git history is the source of truth for exact visuals/derivations.
 
 ## Running tests
 
