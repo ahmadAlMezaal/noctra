@@ -34,8 +34,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)}
 # them. The node base supplies the agent runtime; git + gh on top.
 # Node 22+ is required: @github/copilot lists Node.js 22 as its prerequisite but
 # declares no `engines` field, so an older base installs cleanly yet fails at
-# runtime — claude/codex are happy on 22 too.
-FROM node:22-bookworm-slim AS runtime
+# runtime. We pin Node 24 (current LTS), comfortably above that floor; claude/codex
+# are happy on it too.
+FROM node:24-bookworm-slim AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git gnupg \
