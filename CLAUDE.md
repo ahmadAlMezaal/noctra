@@ -177,7 +177,7 @@ yarn build                       # type-checks, then writes internal/dashboard/s
 # commit the regenerated internal/dashboard/static/
 ```
 
-For active development, `yarn watch` rebuilds `static/` on every change — run the Go binary (`DASHBOARD_ADDR=…`) and refresh, so requests always go through the real backend (there is no separate dev server with its own `/api` to drift from). `web/node_modules/` is gitignored; the committed `static/index.html` is the build artifact and is marked `linguist-generated` in `.gitattributes` so its minified diff is collapsed. Keep the port faithful — the live `index.html` in git history is the source of truth for exact visuals/derivations.
+For a quick local preview, `yarn dev` (`web/devserver.mjs`) runs a zero-config dev server — esbuild in watch mode plus a mock `/api` (sample data + SSE) — at `http://localhost:8080/?token=dev&admin_token=dev`, with no Go rebuild or `.env` needed. It builds to a gitignored `web/.dev/`, so it never dirties the committed `static/`. To test against the **real** backend instead, use `yarn watch` (rebuilds `static/` on change) and rebuild the Go binary — `//go:embed` bakes `static/` in at compile time, so an already-built binary won't reflect UI edits until you `go build` again. `web/node_modules/` is gitignored; the committed `static/index.html` is the build artifact and is marked `linguist-generated` in `.gitattributes` so its minified diff is collapsed. Keep the port faithful — the live `index.html` in git history is the source of truth for exact visuals/derivations.
 
 ## Running tests
 

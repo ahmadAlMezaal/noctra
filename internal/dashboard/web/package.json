@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
     "watch": "node build.mjs --watch",
+    "dev": "node devserver.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

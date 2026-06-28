@@ -337,8 +337,9 @@ cd internal/dashboard/web
 yarn install    # first time
 yarn build      # regenerates internal/dashboard/static/index.html (+ fonts/)
 # then commit the regenerated internal/dashboard/static/
-# (yarn watch rebuilds on change while you run the binary)
 ```
+
+For a quick local preview with no backend or `.env`, run `yarn dev` — a zero-config dev server (esbuild watch + a mock API with sample data) at `http://localhost:8080/?token=dev&admin_token=dev`.
 
 Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. See `CLAUDE.md` → "Dashboard frontend" for the rationale.
 

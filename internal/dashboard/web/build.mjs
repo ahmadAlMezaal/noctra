@@ -1,15 +1,13 @@
 import esbuild from 'esbuild'
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = dirname(fileURLToPath(import.meta.url))
-const outDir = join(root, '..', 'static')
-const watch = process.argv.includes('--watch')
-
+export const defaultOutDir = join(root, '..', 'static')
 const template = readFileSync(join(root, 'index.html'), 'utf8')
 
-function assemble(result) {
+function assemble(result, outDir) {
   let js = ''
   let css = ''
   for (const f of result.outputFiles) {
@@ -27,40 +25,35 @@ function assemble(result) {
   mkdirSync(fontsOut, { recursive: true })
   for (const f of readdirSync(fontsSrc)) copyFileSync(join(fontsSrc, f), join(fontsOut, f))
 
-  console.log(`built ${join('static', 'index.html')} — ${(Buffer.byteLength(html) / 1024).toFixed(1)} kB`)
+  console.log(`built ${join(outDir, 'index.html')} — ${(Buffer.byteLength(html) / 1024).toFixed(1)} kB`)
 }
 
-const opts = {
-  entryPoints: [join(root, 'src', 'main.tsx')],
-  bundle: true,
-  format: 'iife',
-  jsx: 'automatic',
-  jsxImportSource: 'preact',
-  target: ['es2020'],
-  minify: !watch,
-  sourcemap: watch ? 'inline' : false,
-  external: ['/fonts/*'],
-  outdir: outDir,
-  write: false,
-  logLevel: 'info',
-}
-
-if (watch) {
+export async function bundle({ watch = false, outDir = defaultOutDir } = {}) {
+  const opts = {
+    entryPoints: [join(root, 'src', 'main.tsx')],
+    bundle: true,
+    format: 'iife',
+    jsx: 'automatic',
+    jsxImportSource: 'preact',
+    target: ['es2020'],
+    minify: !watch,
+    sourcemap: watch ? 'inline' : false,
+    external: ['/fonts/*'],
+    outdir: outDir,
+    write: false,
+    logLevel: 'info',
+  }
+  if (!watch) return assemble(await esbuild.build(opts), outDir)
   const ctx = await esbuild.context({
     ...opts,
-    plugins: [
-      {
-        name: 'assemble',
-        setup(b) {
-          b.onEnd((r) => {
-            if (!r.errors.length) assemble(r)
-          })
-        },
-      },
-    ],
+    plugins: [{ name: 'assemble', setup: (b) => b.onEnd((r) => r.errors.length || assemble(r, outDir)) }],
   })
   await ctx.watch()
-  console.log('watching src/ — run the Go binary (DASHBOARD_ADDR=…) and refresh on rebuild')
-} else {
-  assemble(await esbuild.build(opts))
+  return ctx
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const watch = process.argv.includes('--watch')
+  await bundle({ watch })
+  if (watch) console.log('watching src/ — run the Go binary (DASHBOARD_ADDR=…) and refresh on rebuild')
 }
