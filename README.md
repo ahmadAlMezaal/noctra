@@ -341,7 +341,7 @@ yarn build      # regenerates internal/dashboard/static/index.html (+ fonts/)
 
 For a quick local preview with no backend or `.env`, run `yarn dev` — a zero-config dev server (esbuild watch + a mock API with sample data) at `http://localhost:8080/?token=dev&admin_token=dev`.
 
-Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. See `CLAUDE.md` → "Dashboard frontend" for the rationale.
+Built output is committed (not generated in CI) so the release pipeline and Docker image remain pure-Go with no Node build step. A CI job rebuilds the bundle and fails the PR if the committed `static/` is stale, so a forgotten `yarn build` can't slip through. See `CLAUDE.md` → "Dashboard frontend" for the rationale.
 
 ---
 
