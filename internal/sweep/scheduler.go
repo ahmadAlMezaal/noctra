@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
@@ -32,6 +33,13 @@ type Scheduler struct {
 	lastRef       time.Time
 	nextScheduled time.Time
 	repoRotation  int
+
+	directiveBranch func(context.Context, string) string
+}
+
+// SetDirectiveBranchResolver installs the Linear "Branch:" directive base-branch fallback.
+func (s *Scheduler) SetDirectiveBranchResolver(fn func(context.Context, string) string) {
+	s.directiveBranch = fn
 }
 
 func NewScheduler(store *state.Store, resolver RepoResolver, tasks []Task, interval time.Duration, maxTasks int, schedule *CronSchedule, sweepRepos []string) *Scheduler {
@@ -94,15 +102,34 @@ func (s *Scheduler) MarkSwept() {
 	s.lastSweep = s.now()
 }
 
-// repoPaths returns the explicit SWEEP_REPOS list (resolved/cloned on demand) when set, else every cloned repo.
-func (s *Scheduler) repoPaths(ctx context.Context) []string {
+type repoTarget struct {
+	path   string
+	branch string
+}
+
+func (s *Scheduler) repoTargets(ctx context.Context) []repoTarget {
 	if len(s.sweepRepos) == 0 {
-		return s.resolver.AllRepoPaths()
+		paths := s.resolver.AllRepoPaths()
+		targets := make([]repoTarget, 0, len(paths))
+		for _, p := range paths {
+			branch := ""
+			if s.directiveBranch != nil {
+				if remote := repo.OriginRemoteOf(ctx, p); remote != "" {
+					branch = s.directiveBranch(ctx, remote)
+				}
+			}
+			targets = append(targets, repoTarget{path: p, branch: branch})
+		}
+		return targets
 	}
-	var paths []string
+	var targets []repoTarget
 	seen := make(map[string]bool)
-	for _, ref := range s.sweepRepos {
-		res, err := s.resolver.ResolveDirect(ctx, ref, "")
+	for _, entry := range s.sweepRepos {
+		ref, branch := parseSweepRepoRef(entry)
+		if branch == "" && s.directiveBranch != nil {
+			branch = s.directiveBranch(ctx, ref)
+		}
+		res, err := s.resolver.ResolveDirect(ctx, ref, branch)
 		if err != nil {
 			slog.Warn("sweep: skipping repo it could not resolve", "repo", ref, "err", err)
 			continue
@@ -111,25 +138,44 @@ func (s *Scheduler) repoPaths(ctx context.Context) []string {
 			continue
 		}
 		seen[res.Path] = true
-		paths = append(paths, res.Path)
+		targets = append(targets, repoTarget{path: res.Path, branch: res.MainBranch})
 	}
-	return paths
+	return targets
+}
+
+func parseSweepRepoRef(entry string) (ref, branch string) {
+	entry = strings.TrimSpace(entry)
+	start := 0
+	if i := strings.Index(entry, "://"); i >= 0 {
+		if slash := strings.Index(entry[i+3:], "/"); slash >= 0 {
+			start = i + 3 + slash
+		} else {
+			start = len(entry)
+		}
+	} else if colon := strings.Index(entry, ":"); colon >= 0 && strings.Contains(entry[:colon], "@") {
+		start = colon
+	}
+	if at := strings.LastIndex(entry[start:], "@"); at >= 0 {
+		idx := start + at
+		return entry[:idx], entry[idx+1:]
+	}
+	return entry, ""
 }
 
 // Plan returns eligible (repo, task) jobs (≤ maxTasks); a task is eligible once its per-repo cooldown has expired.
 func (s *Scheduler) Plan(ctx context.Context) []Job {
-	repoPaths := s.repoPaths(ctx)
-	if len(repoPaths) == 0 {
+	targets := s.repoTargets(ctx)
+	if len(targets) == 0 {
 		slog.Debug("sweep: no repos to sweep")
 		return nil
 	}
 
 	var groups [][]Job
-	for _, rp := range repoPaths {
+	for _, t := range targets {
 		if ctx.Err() != nil {
 			break
 		}
-		slug := repo.SlugFromPath(rp)
+		slug := repo.SlugFromPath(t.path)
 		if slug == "" {
 			continue
 		}
@@ -149,10 +195,13 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		if len(eligible) == 0 {
 			continue
 		}
-		mainBranch := repo.DefaultBranchOf(ctx, rp)
+		mainBranch := t.branch
+		if mainBranch == "" {
+			mainBranch = repo.DefaultBranchOf(ctx, t.path)
+		}
 		repoJobs := make([]Job, len(eligible))
 		for i, task := range eligible {
-			repoJobs[i] = Job{Task: task, RepoPath: rp, RepoSlug: slug, MainBranch: mainBranch}
+			repoJobs[i] = Job{Task: task, RepoPath: t.path, RepoSlug: slug, MainBranch: mainBranch}
 		}
 		groups = append(groups, repoJobs)
 	}
@@ -165,7 +214,7 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 
 	jobs := roundRobin(groups, s.maxTasks)
 	slog.Info("sweep plan",
-		"repos", len(repoPaths),
+		"repos", len(targets),
 		"tasks", len(s.tasks),
 		"eligible", len(jobs),
 		"max", s.maxTasks)

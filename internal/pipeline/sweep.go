@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,6 +71,28 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 		p.sweepOnce(ctx, wg)
 		p.sweeper.MarkSwept()
 	}
+}
+
+func (p *Pipeline) branchFromLinearDirective(ctx context.Context, ref string) string {
+	want, err := github.ExtractOwnerRepo(ref)
+	if err != nil {
+		return ""
+	}
+	projects, err := p.linear.ListProjects(ctx)
+	if err != nil {
+		slog.Warn("sweep: could not list Linear projects for branch directive", "err", err)
+		return ""
+	}
+	for i := range projects {
+		r, b := projects[i].RepoDirective()
+		if r == "" || b == "" {
+			continue
+		}
+		if got, err := github.ExtractOwnerRepo(r); err == nil && strings.EqualFold(got, want) {
+			return b
+		}
+	}
+	return ""
 }
 
 // sweepOnce runs one sweep cycle: plan eligible jobs and dispatch them.

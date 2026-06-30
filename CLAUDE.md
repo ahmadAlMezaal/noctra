@@ -58,6 +58,7 @@ sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) →
 - Each task type has a per-repo **cooldown** persisted in the state file (`state.SweepState`), so the same task doesn't re-run before its cooldown expires (e.g. lint-cleanup has a 7-day cooldown).
 - Sweep branches use the `noctra/sweep-<suffix>` prefix (e.g. `noctra/sweep-lint-cleanup`), distinct from ticket-driven `noctra/<identifier>`. Auto-iterate picks them up because sweep PR bodies carry the same hidden `NoctraPRBodyMarker` as ticket PRs (they match the `noctra/*` prefix and `IsNoctraAuthoredBody`). Before the marker fix they were silently skipped — the watcher matched a footer string sweep PRs didn't share.
 - Sweep PRs get a `maintenance` label so humans can identify and bulk-close them.
+- **Base branch** a sweep PR targets (and the worktree branches from) is resolved with precedence: (1) an `@branch` suffix on the `SWEEP_REPOS` entry (`scheduler.parseSweepRepoRef`); (2) the matching Linear project's `Branch:` directive (`linear.ListProjects` → `Project.RepoDirective`, matched by `github.ExtractOwnerRepo`; applies to both `SWEEP_REPOS` entries and discovery-path repos, the latter keyed off their `origin` remote via `repo.OriginRemoteOf`); (3) the repo's GitHub default branch (`origin/HEAD`); (4) `MAIN_BRANCH`. Resolved in `scheduler.repoTargets`/`Plan` into `Job.MainBranch`, which feeds the worktree base, `branchAhead` compare, and `gh pr create` base together. Before this, sweeps discarded the resolved branch and always targeted `origin/HEAD`.
 - Sweep identifiers follow the `SWEEP-<repo-slug>-<task-suffix>` pattern for worktree directories and active-set dedup.
 - Task catalog lives in `internal/sweep/task_*.go` — each file registers a task at init time. Current tasks: `lint-cleanup` (weekly), `dead-code` (biweekly), `deps-update` (weekly), `test-coverage` (biweekly), `doc-drift` (biweekly), `modernize` (biweekly), and `bug-scan` (biweekly — scoped to high-confidence defects only). Scope sweeps with `SWEEP_TASKS`.
 
@@ -70,7 +71,7 @@ sweep loop → scheduler.DueIn (cron SWEEP_SCHEDULE or fixed SWEEP_INTERVAL) →
 | `SWEEP_INTERVAL` | `86400` (24h) | Seconds between sweep cycles (fallback when no cron). Interval mode fires immediately on startup; cron mode waits for the next matching time |
 | `SWEEP_MAX_TASKS` | `5` | Max tasks per sweep run |
 | `SWEEP_TASKS` | (all) | Comma-separated task names to enable (e.g. `lint-cleanup,dead-code`) |
-| `SWEEP_REPOS` | (all cloned) | Comma-separated `owner/name` or git URLs to sweep, resolved via `repo.ResolveDirect` (clone-on-demand). When set, **replaces** the `AllRepoPaths()` discovery; unresolvable entries warn and are skipped. Empty = every cloned repo |
+| `SWEEP_REPOS` | (all cloned) | Comma-separated `owner/name` or git URLs to sweep, resolved via `repo.ResolveDirect` (clone-on-demand). When set, **replaces** the `AllRepoPaths()` discovery; unresolvable entries warn and are skipped. Empty = every cloned repo. Each entry may pin a base branch with an `@branch` suffix (e.g. `owner/name@staging`, also on full URLs / scp `git@host:owner/name@staging`) — see the base-branch precedence under the sweep loop |
 
 ## Multi-repo
 
