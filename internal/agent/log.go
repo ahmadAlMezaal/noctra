@@ -44,6 +44,35 @@ func ReadAfter(logFile string, offset int64) string {
 	return string(b)
 }
 
+var secretRe = regexp.MustCompile(`(?i)(sk-ant-[a-z0-9-]+|sk-[a-z0-9]{20,}|gh[opsur]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]+|bearer\s+[A-Za-z0-9._~+/-]+=*)`)
+
+// FailureDetail returns a short, credential-redacted reason for a failed run: the last
+// meaningful line of the output tail (skipping the attempt header + DEBUG lines), else the process error.
+func FailureDetail(output string, runErr error) string {
+	detail := lastMeaningfulLine(output)
+	if detail == "" && runErr != nil {
+		detail = runErr.Error()
+	}
+	detail = strings.TrimSpace(secretRe.ReplaceAllString(detail, "[redacted]"))
+	const max = 300
+	if r := []rune(detail); len(r) > max {
+		detail = string(r[:max]) + "…"
+	}
+	return detail
+}
+
+func lastMeaningfulLine(output string) string {
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(lines[i])
+		if s == "" || strings.HasPrefix(s, "DEBUG:") || strings.HasPrefix(s, "--- Attempt") {
+			continue
+		}
+		return s
+	}
+	return ""
+}
+
 // blockedRe matches the "BLOCKED: <reason>" line every backend's prompt asks for — backend-agnostic, unlike rate-limit detection (see HasRateLimit).
 var blockedRe = regexp.MustCompile(`(?im)^BLOCKED:\s*(.*)$`)
 

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,5 +192,38 @@ func TestReleaseLabel(t *testing.T) {
 				t.Errorf("ReleaseLabel(%q, %q) = %q, want %q", tt.bump, tt.defaultBump, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFailureDetail(t *testing.T) {
+	authErr := "--- Attempt 2026-07-01T01:10:31+01:00 ---\n" +
+		"DEBUG: pwd = /home/x/.noctra-worktrees/ENG-313\n" +
+		"DEBUG: branch = noctra/eng-313\n" +
+		`Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"Invalid authentication credentials"}}` + "\n"
+
+	if got := FailureDetail(authErr, errors.New("exit status 1")); !strings.HasPrefix(got, "Failed to authenticate. API Error: 401") {
+		t.Errorf("expected the 401 line, got %q", got)
+	}
+
+	// Only header/DEBUG lines → fall back to the process error.
+	onlyNoise := "--- Attempt 2026-07-01T01:10:31+01:00 ---\nDEBUG: pwd = /x\nDEBUG: branch = y\n"
+	if got := FailureDetail(onlyNoise, errors.New("exit status 1")); got != "exit status 1" {
+		t.Errorf("expected fallback to runErr, got %q", got)
+	}
+
+	// Empty output and nil error → empty.
+	if got := FailureDetail("", nil); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+
+	// Credential-shaped tokens are redacted.
+	if got := FailureDetail("auth failed with key sk-ant-abc123def456ghi789 rejected", nil); strings.Contains(got, "sk-ant-abc123") {
+		t.Errorf("expected redaction, got %q", got)
+	}
+
+	// Long lines are capped.
+	long := strings.Repeat("x", 500)
+	if got := FailureDetail(long, nil); len([]rune(got)) > 301 {
+		t.Errorf("expected cap ~300, got len %d", len([]rune(got)))
 	}
 }
