@@ -76,6 +76,13 @@ release:
     name: noctra
   draft: false
   prerelease: auto
+  header: |
+    **Noctra {{ .Tag }}** — autonomous Linear → PR agent.
+
+    What changed in this release is grouped below; open each linked PR for the full detail. Upgrade with `noctra update`, `make update` (systemd host), or by pulling the new Docker image.
+  footer: |
+    ---
+    **Full changelog:** https://github.com/ahmadAlMezaal/noctra/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 homebrew_casks:
   - name: noctra

@@ -123,6 +123,8 @@ func realMain() error {
 			}
 		}
 		return runLogs(scriptDir, follow)
+	case "tail":
+		return runLogs(scriptDir, true)
 	case "install-service":
 		force, start := false, false
 		for _, a := range os.Args[2:] {
@@ -258,6 +260,7 @@ func printUsage() {
 	fmt.Println("  install-service  Install the systemd --user unit (--start to enable+start, --force to overwrite)")
 	fmt.Println("  uninstall  Remove the service + binary (--purge also deletes ~/.noctra* state, --force to skip the prompt)")
 	fmt.Println("  logs      Tail the service logs (-f / --follow to stream)")
+	fmt.Println("  tail      Stream the service logs live (alias for `logs -f`)")
 	fmt.Println("  start     Start the systemd --user service")
 	fmt.Println("  stop      Stop the systemd --user service")
 	fmt.Println("  restart   Restart the systemd --user service")
@@ -377,7 +380,7 @@ func runService(verb string) error {
 
 // subcommands is the completion list, kept in one place so help, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "dashboard", "config", "update", "install-service", "uninstall", "logs", "start", "stop", "restart",
+	"run", "setup", "dashboard", "config", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 
