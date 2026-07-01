@@ -285,6 +285,7 @@ noctra update --restart  # …and restart noctra.service afterwards (systemd --u
 ```bash
 noctra logs       # tail the service logs (journalctl --user-unit=noctra.service)
 noctra logs -f    # …and follow
+noctra tail       # alias for `noctra logs -f` — stream live
 ```
 
 `noctra logs` is the binary's built-in equivalent of `make logs`. Off a systemd host (macOS dev box, Docker) it prints where the per-ticket agent transcripts live and reminds you to use `docker logs` in a container.
@@ -314,7 +315,7 @@ noctra completion bash > /etc/bash_completion.d/noctra
 noctra completion zsh > "${fpath[1]}/_noctra"
 ```
 
-The script completes the subcommand list (`run`, `setup`, `config`, `update`, `install-service`, `logs`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
+The script completes the subcommand list (`run`, `setup`, `config`, `update`, `install-service`, `logs`, `tail`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
 
 ### Machine-readable doctor
 
