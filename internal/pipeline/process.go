@@ -248,13 +248,14 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 	if runErr != nil {
 		attempts := p.bumpFailed(id)
+		detail := agent.FailureDetail(output, runErr)
 		logger.Warn("agent exited with error",
-			"err", runErr, "attempt", attempts, "max", p.cfg.MaxRetries)
+			"err", runErr, "detail", detail, "attempt", attempts, "max", p.cfg.MaxRetries)
 		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
-			"❌ **Noctra: Agent failed** (attempt %d/%d)\n\nThe agent exited with an error. Will retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
-			attempts, p.cfg.MaxRetries, p.cfg.MaxRetries, p.cfg.TriggerState))
-		p.notifier.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)",
-			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries))
+			"❌ **Noctra: Agent failed** (attempt %d/%d)\n\nThe agent exited with an error:\n\n```\n%s\n```\n\nWill retry on next poll cycle (up to %d attempts).\n\nTicket moved back to **%s**.",
+			attempts, p.cfg.MaxRetries, detail, p.cfg.MaxRetries, p.cfg.TriggerState))
+		p.notifier.Send(ctx, fmt.Sprintf("❌ *%s* — %s\nFailed (attempt %d/%d)\n%s",
+			id, notify.EscapeMarkdown(issue.Title), attempts, p.cfg.MaxRetries, notify.EscapeMarkdown(detail)))
 		p.recordRun(state.RunHistory{
 			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
 			AgentBackend: backend.Name(), RunType: "ticket",
