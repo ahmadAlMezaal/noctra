@@ -20,9 +20,12 @@ type fakeResolver struct {
 
 func (f fakeResolver) AllRepoPaths() []string { return f.all }
 
-func (f fakeResolver) ResolveDirect(_ context.Context, ref, _ string) (repo.Resolved, error) {
+func (f fakeResolver) ResolveDirect(_ context.Context, ref, branch string) (repo.Resolved, error) {
 	if p, ok := f.direct[ref]; ok {
-		return repo.Resolved{Path: p, MainBranch: "main"}, nil
+		if branch == "" {
+			branch = "main"
+		}
+		return repo.Resolved{Path: p, MainBranch: branch}, nil
 	}
 	return repo.Resolved{}, fmt.Errorf("unknown repo %q", ref)
 }
@@ -397,5 +400,91 @@ func TestDueIn_CronCachesNextComputation(t *testing.T) {
 	_ = s.DueIn()
 	if !s.nextScheduled.Equal(first) {
 		t.Error("nextScheduled changed without the reference changing (not cached)")
+	}
+}
+
+func TestParseSweepRepoRef(t *testing.T) {
+	cases := []struct {
+		entry, ref, branch string
+	}{
+		{"acme/wanted", "acme/wanted", ""},
+		{"acme/wanted@staging", "acme/wanted", "staging"},
+		{" acme/wanted@staging ", "acme/wanted", "staging"},
+		{"https://github.com/acme/wanted", "https://github.com/acme/wanted", ""},
+		{"https://github.com/acme/wanted@staging", "https://github.com/acme/wanted", "staging"},
+		{"git@github.com:acme/wanted.git", "git@github.com:acme/wanted.git", ""},
+		{"git@github.com:acme/wanted.git@staging", "git@github.com:acme/wanted.git", "staging"},
+		{"ssh://git@github.com/acme/wanted", "ssh://git@github.com/acme/wanted", ""},
+		{"ssh://git@github.com/acme/wanted@staging", "ssh://git@github.com/acme/wanted", "staging"},
+		{"acme/wanted@release/1.2", "acme/wanted", "release/1.2"},
+	}
+	for _, c := range cases {
+		ref, branch := parseSweepRepoRef(c.entry)
+		if ref != c.ref || branch != c.branch {
+			t.Errorf("parseSweepRepoRef(%q) = (%q, %q), want (%q, %q)", c.entry, ref, branch, c.ref, c.branch)
+		}
+	}
+}
+
+func TestPlan_BranchPrecedence(t *testing.T) {
+	wanted := initTestRepo(t, t.TempDir(), "wanted-repo")
+	mkScheduler := func(sweepRepos []string, directive func(context.Context, string) string) *Scheduler {
+		store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+		res := fakeResolver{direct: map[string]string{"acme/wanted": wanted}}
+		s := NewScheduler(store, res, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, sweepRepos)
+		if directive != nil {
+			s.SetDirectiveBranchResolver(directive)
+		}
+		return s
+	}
+	planBranch := func(s *Scheduler) string {
+		jobs := s.Plan(context.Background())
+		if len(jobs) != 1 {
+			t.Fatalf("expected 1 job, got %d", len(jobs))
+		}
+		return jobs[0].MainBranch
+	}
+
+	if got := planBranch(mkScheduler([]string{"acme/wanted@override"}, func(context.Context, string) string { return "directive" })); got != "override" {
+		t.Errorf("@branch override: got %q, want %q", got, "override")
+	}
+	if got := planBranch(mkScheduler([]string{"acme/wanted"}, func(context.Context, string) string { return "staging" })); got != "staging" {
+		t.Errorf("directive fallback: got %q, want %q", got, "staging")
+	}
+	if got := planBranch(mkScheduler([]string{"acme/wanted"}, nil)); got != "main" {
+		t.Errorf("default fallback: got %q, want %q", got, "main")
+	}
+}
+
+func TestPlan_DiscoveryDirectiveBranch(t *testing.T) {
+	reposBase := t.TempDir()
+	dir := initTestRepo(t, reposBase, "wanted-repo")
+	addOrigin(t, dir, "https://github.com/acme/wanted")
+
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+	resolver := &repo.Resolver{ReposBase: reposBase}
+	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, nil)
+	s.SetDirectiveBranchResolver(func(_ context.Context, ref string) string {
+		if ref == "https://github.com/acme/wanted" {
+			return "staging"
+		}
+		return ""
+	})
+
+	jobs := s.Plan(context.Background())
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].MainBranch != "staging" {
+		t.Errorf("discovery directive branch: got %q, want %q", jobs[0].MainBranch, "staging")
+	}
+}
+
+func addOrigin(t *testing.T, dir, url string) {
+	t.Helper()
+	cmd := exec.Command("git", "remote", "add", "origin", url)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %s: %v", out, err)
 	}
 }

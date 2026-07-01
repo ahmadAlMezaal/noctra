@@ -215,6 +215,15 @@ func (r *Resolver) AllRepoPaths() []string {
 	return out
 }
 
+// OriginRemoteOf returns a clone's `origin` URL, or "" if it can't be read.
+func OriginRemoteOf(ctx context.Context, repoPath string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // AllRepoRemotes returns the `origin` URL of every AllRepoPaths repo, so the PR watcher knows which repos to scan (derived from on-disk clones, since routing is registry-free). Reads run concurrently under ctx — a hung `git` mustn't block the poll loop or outlive its timeout; fixed indices keep order stable without a lock.
 func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
 	paths := r.AllRepoPaths()
@@ -228,10 +237,7 @@ func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
 		wg.Add(1)
 		go func(idx int, path string) {
 			defer wg.Done()
-			out, err := exec.CommandContext(ctx, "git", "-C", path, "remote", "get-url", "origin").Output()
-			if err == nil {
-				urls[idx] = strings.TrimSpace(string(out))
-			}
+			urls[idx] = OriginRemoteOf(ctx, path)
 		}(i, p)
 	}
 	wg.Wait()

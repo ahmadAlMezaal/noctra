@@ -147,7 +147,11 @@ func New(cfg *config.Config) *Pipeline {
 					schedule = parsed
 				}
 			}
-			p.sweeper = sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks, schedule, cfg.SweepRepos)
+			sched := sweep.NewScheduler(store, p.resolver, tasks, cfg.SweepInterval, cfg.SweepMaxTasks, schedule, cfg.SweepRepos)
+			if p.linear != nil {
+				sched.SetDirectiveBranchResolver(p.branchFromLinearDirective)
+			}
+			p.sweeper = sched
 		}
 	}
 

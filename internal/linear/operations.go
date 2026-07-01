@@ -348,6 +348,43 @@ func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Is
 	return resp.Issues.Nodes, nil
 }
 
+// ListProjects returns every visible project with its description/content.
+func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
+	query := `query($after: String) {
+	  projects(first: 250, after: $after) {
+	    nodes { name description content }
+	    pageInfo { hasNextPage endCursor }
+	  }
+	}`
+
+	var out []Project
+	after := ""
+	for {
+		var resp struct {
+			Projects struct {
+				Nodes    []Project `json:"nodes"`
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"projects"`
+		}
+		vars := map[string]any{}
+		if after != "" {
+			vars["after"] = after
+		}
+		if err := c.Do(ctx, query, vars, &resp); err != nil {
+			return nil, err
+		}
+		out = append(out, resp.Projects.Nodes...)
+		if !resp.Projects.PageInfo.HasNextPage || resp.Projects.PageInfo.EndCursor == "" {
+			break
+		}
+		after = resp.Projects.PageInfo.EndCursor
+	}
+	return out, nil
+}
+
 // FetchLabeledIssues returns every issue carrying the named label across all visible teams (label-mode counterpart of FetchTriggerIssues).
 func (c *Client) FetchLabeledIssues(ctx context.Context, labelName string) ([]Issue, error) {
 	query := `query($label: String!) {
