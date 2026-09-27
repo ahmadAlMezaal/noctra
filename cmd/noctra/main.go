@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -346,7 +347,17 @@ func runService(verb string) error {
 		fmt.Println("noctra", version)
 		return nil
 	}
+	if unitNotFound(runErr) {
+		return errors.New(serviceNotInstalledHint)
+	}
 	return runErr
+}
+
+const serviceNotInstalledHint = "noctra.service is not installed — run `noctra install-service --start` first (`noctra setup` writes the config only)"
+
+func unitNotFound(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == 5
 }
 
 var subcommands = []string{
