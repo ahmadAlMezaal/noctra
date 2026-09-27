@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -113,4 +116,28 @@ func TestParseUninstallArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnitNotFound(t *testing.T) {
+	if unitNotFound(nil) {
+		t.Fatal("nil error must not be reported as a missing unit")
+	}
+	if unitNotFound(errors.New("boom")) {
+		t.Fatal("non-exit error must not be reported as a missing unit")
+	}
+	if got := unitNotFound(exitErrorWithCode(t, 5)); !got {
+		t.Fatal("exit status 5 must be reported as a missing unit")
+	}
+	if got := unitNotFound(exitErrorWithCode(t, 3)); got {
+		t.Fatal("exit status 3 must not be reported as a missing unit")
+	}
+}
+
+func exitErrorWithCode(t *testing.T, code int) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	if err == nil {
+		t.Fatalf("expected a non-zero exit for code %d", code)
+	}
+	return err
 }
