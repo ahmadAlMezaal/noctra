@@ -461,7 +461,7 @@ func (c *Client) RemoveLabel(ctx context.Context, issueID, labelID string) error
 		return fmt.Errorf("issue %s not found", issueID)
 	}
 
-	var remaining []string
+	remaining := make([]string, 0, len(fetchResp.Issue.Labels.Nodes))
 	for _, l := range fetchResp.Issue.Labels.Nodes {
 		if l.ID != labelID {
 			remaining = append(remaining, l.ID)
