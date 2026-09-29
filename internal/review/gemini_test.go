@@ -328,3 +328,19 @@ func writeFakeGemini(t *testing.T, dir, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLessonsPromptRejectsFeatureDescriptions(t *testing.T) {
+	got := lessonsPrompt("- Existing lesson", "diff --git a/x b/x")
+
+	for _, want := range []string{
+		"- Existing lesson",
+		"diff --git a/x b/x",
+		"future, unrelated changes",
+		"Do NOT record what a feature does",
+		"Drop any existing item that describes a specific feature",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lessons prompt missing %q", want)
+		}
+	}
+}
