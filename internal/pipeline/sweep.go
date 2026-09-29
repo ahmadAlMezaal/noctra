@@ -261,7 +261,7 @@ func (p *Pipeline) salvageAbortedWork(ctx context.Context, a sweepAbort) string 
 		}
 	}
 
-	if err := runIn(ctx, a.worktree.Path, "git", "push", "-u", "origin", a.worktree.Branch); err != nil {
+	if err := pushSweepBranch(ctx, a.worktree.Path, a.worktree.Branch); err != nil {
 		a.logger.Warn("could not push salvaged work", "err", err)
 		return ""
 	}
@@ -368,6 +368,16 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	branch := sweep.SweepBranchName(job.RepoSlug, job.Task.BranchSuffix)
+	openPR, err := ghOpenPRForBranch(ctx, job.RepoPath, branch)
+	if err != nil {
+		logger.Warn("could not check for an open sweep PR, skipping", "branch", branch, "err", err)
+		return
+	}
+	if openPR != "" {
+		logger.Info("previous sweep PR still open, skipping", "url", openPR)
+		return
+	}
+
 	wt, err := repo.CreateWorktreeWithBranch(ctx, p.cfg.WorktreeBase, identifier, job.RepoPath, job.MainBranch, branch)
 	if err != nil {
 		logger.Error("worktree creation failed", "err", err)
@@ -532,7 +542,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			return
 		}
 	}
-	if err := runIn(ctx, wt.Path, "git", "push", "-u", "origin", wt.Branch); err != nil {
+	if err := pushSweepBranch(ctx, wt.Path, wt.Branch); err != nil {
 		logger.Error("git push failed", "err", err)
 		return
 	}
