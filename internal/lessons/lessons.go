@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/ahmadAlMezaal/noctra/internal/github"
@@ -86,16 +87,12 @@ func processMergedPR(ctx context.Context, store *state.Store, resolver *repo.Res
 		return fmt.Errorf("no LastPushedSHA recorded for this PR; cannot compute human edits")
 	}
 
-	diffCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "diff", cursor.LastPushedSHA, "FETCH_HEAD")
-	var diffOut bytes.Buffer
-	diffCmd.Stdout = &diffOut
-	if err := diffCmd.Run(); err != nil {
-		return fmt.Errorf("git diff %s..FETCH_HEAD: %w", cursor.LastPushedSHA, err)
+	diffStr, err := humanEditsDiff(ctx, repoDir, cursor.LastPushedSHA, "FETCH_HEAD")
+	if err != nil {
+		return err
 	}
-
-	diffStr := diffOut.String()
 	if strings.TrimSpace(diffStr) == "" {
-		slog.Info("lessons: no human edits detected (empty diff)", "pr", prURL)
+		slog.Info("lessons: no human edits detected", "pr", prURL)
 		return nil
 	}
 
@@ -120,6 +117,51 @@ func processMergedPR(ctx context.Context, store *state.Store, resolver *repo.Res
 
 	slog.Info("lessons: successfully consolidated repo lessons", "repo", repoSlug, "lessons_len", len(newLessons))
 	return nil
+}
+
+const (
+	commitFieldSep  = "\x1f"
+	commitRecordSep = "\x1e"
+)
+
+var noctraCommitRe = regexp.MustCompile(`(?m)^(Implemented by Noctra|Follow-up commit by Noctra|Autonomous maintenance by Noctra)\b`)
+
+func humanEditsDiff(ctx context.Context, repoDir, base, head string) (string, error) {
+	logCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "log", "--first-parent", "--no-merges", "--reverse",
+		"--format=%H"+commitFieldSep+"%an"+commitFieldSep+"%B"+commitRecordSep, base+".."+head)
+	var logOut bytes.Buffer
+	logCmd.Stdout = &logOut
+	if err := logCmd.Run(); err != nil {
+		return "", fmt.Errorf("git log %s..%s: %w", base, head, err)
+	}
+
+	var diff strings.Builder
+	for _, sha := range humanCommits(logOut.String()) {
+		showCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "show", "--format=", "--patch", sha)
+		var showOut bytes.Buffer
+		showCmd.Stdout = &showOut
+		if err := showCmd.Run(); err != nil {
+			return "", fmt.Errorf("git show %s: %w", sha, err)
+		}
+		diff.Write(showOut.Bytes())
+	}
+	return diff.String(), nil
+}
+
+func humanCommits(gitLog string) []string {
+	var shas []string
+	for _, record := range strings.Split(gitLog, commitRecordSep) {
+		fields := strings.SplitN(strings.TrimLeft(record, "\n"), commitFieldSep, 3)
+		if len(fields) != 3 || fields[0] == "" {
+			continue
+		}
+		sha, author, body := fields[0], fields[1], fields[2]
+		if strings.HasSuffix(author, "[bot]") || noctraCommitRe.MatchString(body) {
+			continue
+		}
+		shas = append(shas, sha)
+	}
+	return shas
 }
 
 func extractOwnerRepoFromPRURL(prURL string) (string, error) {

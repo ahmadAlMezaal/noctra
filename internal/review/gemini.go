@@ -382,6 +382,29 @@ func reviewVerdict(text string) string {
 	return ""
 }
 
+func lessonsPrompt(existingLessons, diff string) string {
+	return fmt.Sprintf(`You are updating a compact, durable list of lessons and conventions for a repository based on human edits to AI-generated code.
+
+Existing lessons/conventions for this repository:
+%s
+
+New human edits (only the commits a human made on top of the AI's version; merges, bots and the AI's own commits are excluded):
+%s
+
+Incorporate any new correction patterns, missing conventions, or style guidelines from the new edits into the existing list.
+Follow these rules:
+1. Keep the final list extremely concise and action-oriented.
+2. Keep the final list under 10 bullet points / 300 words total (size-bounded).
+3. Directly focus on what the AI got wrong and how to avoid/fix it in the future.
+4. Only keep conventions that would apply to future, unrelated changes in this repository (style, structure, tooling, testing, error handling).
+5. Do NOT record what a feature does, which features or integrations exist, or product requirements. A human adding new functionality is not a correction. Drop any existing item that describes a specific feature rather than a reusable convention.
+6. If the new edits contain no reusable convention, return the existing list unchanged.
+7. Output ONLY the updated, consolidated list of lessons/conventions. Do not include any conversational filler, markdown headers like "Here is the updated list", or wrappers.
+
+Updated lessons list:`,
+		existingLessons, diff)
+}
+
 func (g *Gate) SummarizeLessons(ctx context.Context, existingLessons, diff string) (string, error) {
 	if !g.Enabled() {
 		return "", errors.New("gemini not enabled")
@@ -392,23 +415,7 @@ func (g *Gate) SummarizeLessons(ctx context.Context, existingLessons, diff strin
 		diff = diff[:capBytes] + "\n\n[Diff truncated...]"
 	}
 
-	prompt := fmt.Sprintf(`You are updating a compact, durable list of lessons and conventions for a repository based on human post-merge edits to AI-generated code.
-
-Existing lessons/conventions for this repository:
-%s
-
-New human edits (diff of changes made by human on top of the AI's version):
-%s
-
-Incorporate any new correction patterns, missing conventions, or style guidelines from the new edits into the existing list.
-Follow these rules:
-1. Keep the final list extremely concise and action-oriented.
-2. Keep the final list under 10 bullet points / 300 words total (size-bounded).
-3. Directly focus on what the AI got wrong and how to avoid/fix it in the future.
-4. Output ONLY the updated, consolidated list of lessons/conventions. Do not include any conversational filler, markdown headers like "Here is the updated list", or wrappers.
-
-Updated lessons list:`,
-		existingLessons, diff)
+	prompt := lessonsPrompt(existingLessons, diff)
 
 	var result Result
 	var err error
