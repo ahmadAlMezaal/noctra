@@ -36,7 +36,7 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 	defer lockRepo(repoPath)()
 
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
-	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
+	clearWorktreePath(ctx, repoPath, wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
 
 	if err := runIn(ctx, repoPath, "git", "worktree", "add", "-b", branch, wt, "origin/"+mainBranch); err != nil {
@@ -55,7 +55,7 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 		return Worktree{}, fmt.Errorf("git fetch origin %s: %w", branch, err)
 	}
 
-	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
+	clearWorktreePath(ctx, repoPath, wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
 
 	if err := runIn(ctx, repoPath, "git", "worktree", "add", "-b", branch, wt, "origin/"+branch); err != nil {
@@ -70,7 +70,7 @@ func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, m
 	defer lockRepo(repoPath)()
 
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
-	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
+	clearWorktreePath(ctx, repoPath, wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
 
 	if err := runIn(ctx, repoPath, "git", "worktree", "add", "-b", branch, wt, "origin/"+mainBranch); err != nil {
@@ -107,6 +107,16 @@ func CleanupWorktree(ctx context.Context, repoPath, base, identifier string) {
 	if err := runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt); err != nil {
 		_ = os.RemoveAll(wt)
 	}
+}
+
+func clearWorktreePath(ctx context.Context, repoPath, wt string) {
+	if err := runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt); err == nil {
+		return
+	}
+	if err := os.RemoveAll(wt); err != nil {
+		slog.Warn("repo: could not remove leftover worktree directory", "path", wt, "err", err)
+	}
+	_ = runIn(ctx, repoPath, "git", "worktree", "prune")
 }
 
 func runIn(ctx context.Context, dir, name string, args ...string) error {

@@ -397,3 +397,29 @@ func TestRemoteBranchExists(t *testing.T) {
 		t.Error("an unpushed branch must not report as existing")
 	}
 }
+
+func TestCreateWorktreeWithBranch_OverUnregisteredLeftoverDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := newFixtureRepo(t)
+	base := t.TempDir()
+	ctx := context.Background()
+
+	leftover := filepath.Join(base, "SWEEP-FIXTURE-BUG-SCAN")
+	if err := os.MkdirAll(filepath.Join(leftover, "node_modules", "react-native", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt, err := CreateWorktreeWithBranch(ctx, base, "SWEEP-FIXTURE-BUG-SCAN", repoDir, "main", "noctra/sweep-fixture-bug-scan")
+	if err != nil {
+		t.Fatalf("CreateWorktreeWithBranch over a leftover directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt.Path, "README.md")); err != nil {
+		t.Errorf("worktree was not checked out: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt.Path, "node_modules")); !os.IsNotExist(err) {
+		t.Errorf("leftover contents survived: %v", err)
+	}
+}
