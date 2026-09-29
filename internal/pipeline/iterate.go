@@ -276,13 +276,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		}
 	}
 
-	var repoLessons string
-	if p.store != nil {
-		repoSlug := repo.Slug(filepath.Base(resolved.Path))
-		if l, err := p.store.GetLessons(repoSlug); err == nil {
-			repoLessons = l
-		}
-	}
+	repoLessons := p.repoLessons(repo.Slug(filepath.Base(resolved.Path)))
 
 	var priorReasoning string
 	if p.store != nil {

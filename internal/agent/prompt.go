@@ -15,6 +15,13 @@ type BuildPromptInput struct {
 	RepoLessons      string
 }
 
+func RepoLessonsSection(lessons string) string {
+	if strings.TrimSpace(lessons) == "" {
+		return ""
+	}
+	return "\n\n## Repository Lessons & Conventions (from post-merge human edits to previous PRs):\n" + lessons
+}
+
 func BuildPrompt(in BuildPromptInput) string {
 	desc := in.Description
 	if desc == "" {
@@ -27,11 +34,7 @@ func BuildPrompt(in BuildPromptInput) string {
 			strings.Join(in.Comments, "\n\n")
 	}
 
-	lessonsSection := ""
-	if in.RepoLessons != "" {
-		lessonsSection = "\n\n## Repository Lessons & Conventions (from post-merge human edits to previous PRs):\n" +
-			in.RepoLessons
-	}
+	lessonsSection := RepoLessonsSection(in.RepoLessons)
 
 	releaseInstruction := ""
 	if in.AutoReleaseLabel {

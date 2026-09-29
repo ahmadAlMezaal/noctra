@@ -75,8 +75,7 @@ func BuildFixPrompt(in FixPromptInput) string {
 
 	lessonsSection := ""
 	if in.RepoLessons != "" {
-		lessonsSection = "\n\n## Repository Lessons & Conventions (from post-merge human edits to previous PRs):\n" +
-			in.RepoLessons + "\n"
+		lessonsSection = RepoLessonsSection(in.RepoLessons) + "\n"
 	}
 
 	priorSection := ""
