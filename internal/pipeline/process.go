@@ -120,13 +120,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 	logger.Info("worktree", "path", wt.Path, "branch", wt.Branch, "resumed", resumed)
 
-	var repoLessons string
-	if p.store != nil {
-		repoSlug := repo.Slug(filepath.Base(resolved.Path))
-		if l, err := p.store.GetLessons(repoSlug); err == nil {
-			repoLessons = l
-		}
-	}
+	repoLessons := p.repoLessons(repo.Slug(filepath.Base(resolved.Path)))
 
 	promptInput := agent.BuildPromptInput{
 		Identifier:       id,

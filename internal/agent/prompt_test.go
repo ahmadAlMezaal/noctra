@@ -104,3 +104,15 @@ func TestBuildPrompt_IncludesLessons(t *testing.T) {
 		t.Errorf("expected lesson content in prompt:\n%s", out)
 	}
 }
+
+func TestRepoLessonsSection(t *testing.T) {
+	for _, empty := range []string{"", "  \n\t"} {
+		if got := RepoLessonsSection(empty); got != "" {
+			t.Errorf("RepoLessonsSection(%q) = %q, want empty", empty, got)
+		}
+	}
+	got := RepoLessonsSection("- Use semicolons")
+	if !strings.Contains(got, "## Repository Lessons & Conventions") || !strings.HasSuffix(got, "- Use semicolons") {
+		t.Errorf("RepoLessonsSection = %q, want the heading followed by the lessons", got)
+	}
+}

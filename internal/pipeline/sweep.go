@@ -283,16 +283,36 @@ func (p *Pipeline) salvageAbortedWork(ctx context.Context, a sweepAbort) string 
 	}
 
 	a.logger.Info("salvaged aborted sweep work into a draft PR", "url", prURL)
-
-	if p.store != nil {
-		if err := p.store.Update(prURL, func(r *state.PRState) {
-			r.TicketID = a.identifier
-			r.AgentBackend = a.backend.Name()
-		}); err != nil {
-			a.logger.Warn("could not persist salvaged PR in state", "err", err)
-		}
-	}
+	p.recordSweepPR(ctx, prURL, a.identifier, a.backend, a.worktree.Path, a.logger)
 	return prURL
+}
+
+func (p *Pipeline) recordSweepPR(ctx context.Context, prURL, identifier string, backend agent.Backend, workdir string, logger *slog.Logger) {
+	if p.store == nil {
+		return
+	}
+	headSHA := gitHead(ctx, workdir)
+	if err := p.store.Update(prURL, func(r *state.PRState) {
+		r.TicketID = identifier
+		r.AgentBackend = backend.Name()
+		if headSHA != "" {
+			r.LastPushedSHA = headSHA
+		}
+	}); err != nil {
+		logger.Warn("could not persist sweep PR in state", "err", err)
+	}
+}
+
+func (p *Pipeline) repoLessons(repoSlug string) string {
+	if p.store == nil {
+		return ""
+	}
+	lessons, err := p.store.GetLessons(repoSlug)
+	if err != nil {
+		slog.Warn("could not load repo lessons", "repo", repoSlug, "err", err)
+		return ""
+	}
+	return lessons
 }
 
 func salvagedPRTitle(commitPrefix, description string) string {
@@ -391,7 +411,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		logger.Warn("could not write attempt header", "err", err)
 	}
 
-	prompt := job.Task.Prompt(wt.Path)
+	prompt := job.Task.Prompt(wt.Path) + agent.RepoLessonsSection(p.repoLessons(job.RepoSlug))
 	offset := agent.OffsetBefore(logFile)
 
 	sweepMaxTokens := p.cfg.AgentMaxTokens
@@ -712,6 +732,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	logger.Info("✅ sweep PR created", "url", prURL)
+	p.recordSweepPR(ctx, prURL, identifier, backend, wt.Path, logger)
 
 	if reviewComment != "" {
 		if err := p.gh.PostComment(ctx, prURL, reviewComment); err != nil {
