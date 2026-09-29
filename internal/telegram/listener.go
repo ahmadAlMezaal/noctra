@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ahmadAlMezaal/noctra/internal/notify"
 )
 
 type Listener struct {
@@ -126,7 +128,7 @@ func (l *Listener) sendReply(ctx context.Context, text string) {
 
 	resp, err := l.http.Do(req)
 	if err != nil {
-		slog.Warn("failed to send reply", "err", err)
+		slog.Warn("failed to send reply", "err", notify.RedactURLError(err, l.botToken))
 		return
 	}
 	defer resp.Body.Close()
@@ -158,7 +160,7 @@ func (l *Listener) fetchUpdates(ctx context.Context, endpoint string) ([]Update,
 
 	resp, err := l.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, notify.RedactURLError(err, l.botToken)
 	}
 	defer resp.Body.Close()
 

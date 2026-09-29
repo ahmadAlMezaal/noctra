@@ -74,7 +74,7 @@ func (t *Telegram) post(ctx context.Context, message string) error {
 
 	resp, err := t.HTTP.Do(req)
 	if err != nil {
-		return err
+		return RedactURLError(err, t.BotToken)
 	}
 	defer resp.Body.Close()
 
@@ -83,4 +83,16 @@ func (t *Telegram) post(ctx context.Context, message string) error {
 		return fmt.Errorf("telegram returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+func RedactURLError(err error, secret string) error {
+	urlErr, ok := err.(*url.Error)
+	if !ok || secret == "" {
+		return err
+	}
+	return &url.Error{
+		Op:  urlErr.Op,
+		URL: strings.ReplaceAll(urlErr.URL, secret, "<redacted>"),
+		Err: urlErr.Err,
+	}
 }
