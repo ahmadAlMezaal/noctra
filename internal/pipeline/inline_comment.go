@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ahmadAlMezaal/noctra/internal/review"
+	"github.com/onelastcommit/noctra/internal/review"
 )
 
 func inlineCommentBody(f review.Finding, model, mode string) string {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/review"
+	"github.com/onelastcommit/noctra/internal/review"
 )
 
 func TestInlineCommentBody(t *testing.T) {

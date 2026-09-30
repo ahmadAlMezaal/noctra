@@ -14,7 +14,7 @@ app = "noctra"
 primary_region = "iad"
 
 [build]
-  image = "ghcr.io/ahmadalmezaal/noctra:latest"
+  image = "ghcr.io/onelastcommit/noctra:latest"
 
 # Persists the repos cache, worktrees, logs, and PR cursor across restarts.
 [[mounts]]

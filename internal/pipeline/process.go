@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/review"
-	"github.com/ahmadAlMezaal/noctra/internal/source"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/review"
+	"github.com/onelastcommit/noctra/internal/source"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 const maxReviewDiffBytes = 60000
@@ -540,7 +540,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	}
 
 	prBody := fmt.Sprintf(
-		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n\n---\n\n*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		"## %s: %s\n\n**Ticket:** %s\n\n## What was implemented\n\n%s\n\n---\n\n*Implemented by [Noctra](https://github.com/onelastcommit/noctra) 🌙 using %s*\n%s",
 		id, issue.Title, issue.URL, summary, backend.Label(), github.NoctraPRBodyMarker)
 
 	prURL, err := ghCreatePR(ctx, resolved.Path,

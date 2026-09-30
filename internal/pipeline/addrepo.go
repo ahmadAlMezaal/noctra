@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/repoadd"
-	"github.com/ahmadAlMezaal/noctra/internal/telegram"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/repoadd"
+	"github.com/onelastcommit/noctra/internal/telegram"
 )
 
 const addRepoTimeout = 15 * time.Minute

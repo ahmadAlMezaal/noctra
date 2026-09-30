@@ -1,4 +1,4 @@
-module github.com/ahmadAlMezaal/noctra
+module github.com/onelastcommit/noctra
 
 go 1.23.0
 

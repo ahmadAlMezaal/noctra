@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	ghwrap "github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	ghwrap "github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/repo"
 )
 
 type GitHubIssuesConfig struct {

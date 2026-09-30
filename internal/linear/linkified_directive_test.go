@@ -3,7 +3,7 @@ package linear
 import (
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/github"
 )
 
 func TestRepoDirectiveSurvivesLinearAutoLinkification(t *testing.T) {

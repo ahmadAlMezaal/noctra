@@ -3,7 +3,7 @@ package pipeline
 import (
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/budget"
+	"github.com/onelastcommit/noctra/internal/budget"
 )
 
 type activeRunMeta struct {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/notify"
 )
 
 type Listener struct {

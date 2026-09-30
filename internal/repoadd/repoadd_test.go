@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/repo"
 )
 
 type fakeCloner struct {

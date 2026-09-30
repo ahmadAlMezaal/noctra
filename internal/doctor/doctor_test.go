@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/config"
 )
 
 func TestCheckCLI_Found(t *testing.T) {

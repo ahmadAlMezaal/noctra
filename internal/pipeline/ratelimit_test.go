@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/agent"
 )
 
 func TestRateLimited_OnlyOnFailure(t *testing.T) {

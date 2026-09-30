@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 func newTestWatcher(t *testing.T, trusted []string) *Watcher {

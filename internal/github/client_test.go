@@ -36,10 +36,10 @@ func TestListNoctraPRsRequiresBodyMarker(t *testing.T) {
 	if err := os.WriteFile(gh, []byte(`#!/bin/sh
 cat <<'JSON'
 [
-  {"url":"https://github.com/me/repo/pull/1","number":1,"title":"owned","headRefName":"noctra/eng-1","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra) using Claude Code*"},
+  {"url":"https://github.com/me/repo/pull/1","number":1,"title":"owned","headRefName":"noctra/eng-1","body":"*Implemented by [Noctra](https://github.com/onelastcommit/noctra) using Claude Code*"},
   {"url":"https://github.com/me/repo/pull/2","number":2,"title":"manual","headRefName":"noctra/eng-2","body":"manual PR"},
-  {"url":"https://github.com/me/repo/pull/3","number":3,"title":"other","headRefName":"feat/eng-3","body":"*Implemented by [Noctra](https://github.com/ahmadAlMezaal/noctra)*"},
-  {"url":"https://github.com/me/repo/pull/4","number":4,"title":"sweep-legacy","headRefName":"noctra/sweep-deps-update","body":"*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) using Claude Code*"},
+  {"url":"https://github.com/me/repo/pull/3","number":3,"title":"other","headRefName":"feat/eng-3","body":"*Implemented by [Noctra](https://github.com/onelastcommit/noctra)*"},
+  {"url":"https://github.com/me/repo/pull/4","number":4,"title":"sweep-legacy","headRefName":"noctra/sweep-deps-update","body":"*Autonomous maintenance by [Noctra](https://github.com/onelastcommit/noctra) using Claude Code*"},
   {"url":"https://github.com/me/repo/pull/5","number":5,"title":"hidden-marker","headRefName":"noctra/sweep-lint-cleanup","body":"## cleanup\n<!-- noctra-authored -->"}
 ]
 JSON

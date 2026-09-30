@@ -12,7 +12,7 @@ services:
     name: noctra
     runtime: image
     image:
-      url: ghcr.io/ahmadalmezaal/noctra:latest
+      url: ghcr.io/onelastcommit/noctra:latest
     plan: starter
     disk:
       name: noctra-data
