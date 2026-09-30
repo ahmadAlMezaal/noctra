@@ -9,7 +9,7 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 Requires **Go 1.23+**. The `Makefile` wraps the common commands (`make help` lists them):
 
 ```bash
-git clone https://github.com/ahmadAlMezaal/noctra.git
+git clone https://github.com/onelastcommit/noctra.git
 cd noctra
 make build      # go build -o noctra ./cmd/noctra
 make test       # go test ./...

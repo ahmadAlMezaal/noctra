@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/config"
 )
 
 const dashboardUsage = `Usage: noctra dashboard [flags]

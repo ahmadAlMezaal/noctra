@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 func Run(scriptDir string) error {

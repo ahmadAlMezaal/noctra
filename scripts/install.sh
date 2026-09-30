@@ -1,7 +1,7 @@
 #!/bin/sh
 # Noctra installer — turnkey one-liner install of the latest release binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/noctra/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/onelastcommit/noctra/main/scripts/install.sh | sh
 #
 # (This same script is intended to be served at https://getnoctra.dev/install.sh later.)
 #
@@ -11,7 +11,7 @@
 # specific release with VERSION=v1.2.3.
 set -e
 
-REPO="ahmadAlMezaal/noctra"
+REPO="onelastcommit/noctra"
 INSTALL_DIR="${NOCTRA_BIN:-$HOME/.local/bin}"
 
 err() { echo "error: $*" >&2; exit 1; }

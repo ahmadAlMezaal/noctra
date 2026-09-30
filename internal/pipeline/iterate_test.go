@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
-	"github.com/ahmadAlMezaal/noctra/internal/watch"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/watch"
 )
 
 func TestHasConversationComment(t *testing.T) {

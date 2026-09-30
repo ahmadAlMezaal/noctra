@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/linear"
 )
 
 type check struct {

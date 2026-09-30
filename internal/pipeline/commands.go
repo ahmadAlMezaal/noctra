@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/budget"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
-	"github.com/ahmadAlMezaal/noctra/internal/telegram"
+	"github.com/onelastcommit/noctra/internal/budget"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/telegram"
 )
 
 func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {

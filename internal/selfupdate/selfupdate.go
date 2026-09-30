@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-const repo = "ahmadAlMezaal/noctra"
+const repo = "onelastcommit/noctra"
 
 func Latest(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "release", "view",

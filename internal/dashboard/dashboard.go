@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 //go:embed static

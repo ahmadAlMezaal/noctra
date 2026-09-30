@@ -3,9 +3,9 @@ package linearclient
 import (
 	"log/slog"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 func New(cfg *config.Config, store *state.Store) *linear.Client {

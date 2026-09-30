@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/linear"
 )
 
 type LinearConfig struct {

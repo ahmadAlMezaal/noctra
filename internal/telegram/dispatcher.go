@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/notify"
 )
 
 const sessionTTL = 5 * time.Minute

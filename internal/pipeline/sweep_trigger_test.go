@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 func newTriggerPipeline() *Pipeline {

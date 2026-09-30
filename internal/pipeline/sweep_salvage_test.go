@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 func salvageJob() sweep.Job {

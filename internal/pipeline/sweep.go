@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/budget"
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/review"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/budget"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/review"
+	"github.com/onelastcommit/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
@@ -343,7 +343,7 @@ or close it, before merging.
 
 ---
 
-*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*
+*Autonomous maintenance by [Noctra](https://github.com/onelastcommit/noctra) 🌙 using %s*
 %s`, job.Task.Name, detail, job.Task.Description, job.RepoSlug, stat, backendLabel,
 		github.NoctraPRBodyMarker)
 }
@@ -714,7 +714,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	prBody := fmt.Sprintf(
-		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*\n%s",
+		"## 🧹 Maintenance: %s\n\n**Task:** %s\n**Repo:** %s\n\n## What was done\n\n%s\n\n---\n\n*Autonomous maintenance by [Noctra](https://github.com/onelastcommit/noctra) 🌙 using %s*\n%s",
 		job.Task.Name, job.Task.Description, job.RepoSlug, summary, backend.Label(), github.NoctraPRBodyMarker)
 
 	prTitle := fmt.Sprintf("%s: %s", job.Task.CommitPrefix, job.Task.Description)

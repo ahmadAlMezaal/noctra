@@ -27,9 +27,9 @@ runcmd:
       -e ANTHROPIC_API_KEY="REPLACE_ME" \
       -e GH_TOKEN="REPLACE_ME" \
       -v /opt/noctra/data:/data \
-      ghcr.io/ahmadalmezaal/noctra:latest
+      ghcr.io/onelastcommit/noctra:latest
   # Repos are declared per-project in Linear (a `Repo: owner/name` line in the
   # project description) — nothing to pass here.
   # Logs:    docker logs -f noctra
-  # Upgrade: docker pull ghcr.io/ahmadalmezaal/noctra:latest && \
+  # Upgrade: docker pull ghcr.io/onelastcommit/noctra:latest && \
   #          docker rm -f noctra && <re-run the docker run above>

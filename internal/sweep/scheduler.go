@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 type RepoResolver interface {

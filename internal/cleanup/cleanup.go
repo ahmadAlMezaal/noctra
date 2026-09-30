@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/repo"
 )
 
 func Run(ctx context.Context, cfg *config.Config, force bool) error {

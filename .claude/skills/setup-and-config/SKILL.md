@@ -10,7 +10,7 @@ Use this playbook when installing Noctra, generating config, editing `.env`, or 
 ## Fast Local Setup
 
 ```bash
-go install github.com/ahmadAlMezaal/noctra/cmd/noctra@latest
+go install github.com/onelastcommit/noctra/cmd/noctra@latest
 claude            # or: codex login
 gh auth login
 noctra setup

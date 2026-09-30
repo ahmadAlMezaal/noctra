@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 func openTestStore(t *testing.T) *state.Store {

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/source"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/source"
 )
 
 func TestSkipPermanently_AddToSetAndRefundsDispatch(t *testing.T) {

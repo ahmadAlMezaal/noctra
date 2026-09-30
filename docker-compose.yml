@@ -8,7 +8,7 @@
 # Pull the published image, or uncomment `build: .` to build from this checkout.
 services:
   noctra:
-    image: ghcr.io/ahmadalmezaal/noctra:latest
+    image: ghcr.io/onelastcommit/noctra:latest
     # build: .
     env_file: .env
     volumes:

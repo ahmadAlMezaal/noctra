@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/budget"
-	"github.com/ahmadAlMezaal/noctra/internal/config"
-	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/onelastcommit/noctra/internal/budget"
+	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/linear"
 )
 
 func TestNormalizeIdentifier(t *testing.T) {

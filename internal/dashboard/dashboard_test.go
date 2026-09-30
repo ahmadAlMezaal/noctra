@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/state"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/sweep"
 )
 
 type testSnapshot struct {

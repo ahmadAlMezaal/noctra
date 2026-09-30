@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 type EventType string

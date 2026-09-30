@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/config"
 )
 
 func Run(scriptDir string, args []string) error {

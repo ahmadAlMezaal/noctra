@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/review"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/review"
+	"github.com/onelastcommit/noctra/internal/state"
 )
 
 func TestProcessMergedPRs(t *testing.T) {

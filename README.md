@@ -2,9 +2,9 @@
 
 > Move tickets to Next. Go to sleep. Wake up to PRs.
 
-[![CI](https://github.com/ahmadAlMezaal/noctra/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmadAlMezaal/noctra/actions/workflows/ci.yml)
-[![Docker](https://github.com/ahmadAlMezaal/noctra/actions/workflows/docker.yml/badge.svg)](https://github.com/ahmadAlMezaal/noctra/actions/workflows/docker.yml)
-[![Release](https://img.shields.io/github/v/release/ahmadAlMezaal/noctra?sort=semver)](https://github.com/ahmadAlMezaal/noctra/releases)
+[![CI](https://github.com/onelastcommit/noctra/actions/workflows/ci.yml/badge.svg)](https://github.com/onelastcommit/noctra/actions/workflows/ci.yml)
+[![Docker](https://github.com/onelastcommit/noctra/actions/workflows/docker.yml/badge.svg)](https://github.com/onelastcommit/noctra/actions/workflows/docker.yml)
+[![Release](https://img.shields.io/github/v/release/onelastcommit/noctra?sort=semver)](https://github.com/onelastcommit/noctra/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
 [![Website](https://img.shields.io/badge/website-getnoctra.dev-7C3AED.svg)](https://getnoctra.dev)
@@ -58,7 +58,7 @@ The fastest path — local, ~5 minutes:
 
 ```bash
 # One-liner install of the latest release binary (no Go toolchain needed):
-curl -fsSL https://raw.githubusercontent.com/ahmadAlMezaal/noctra/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/onelastcommit/noctra/main/scripts/install.sh | sh
 # (soon also available at: curl -fsSL https://getnoctra.dev/install.sh | sh)
 
 claude            # or: codex login / gh auth login / agy — authenticate your agent once
@@ -69,7 +69,7 @@ noctra        # start polling — or run it as a service (see below)
 
 > **`noctra: command not found`?** The installer drops the binary in `~/.local/bin`; if that's not on your `PATH`, add it (the installer prints the exact line for your shell — `~/.bashrc`/`~/.zshrc`) or just open a new shell. This is normal for any user-local install (`go install`, `pip --user`, rustup, …) — not Noctra-specific.
 
-Prefer the Go toolchain? `go install github.com/ahmadAlMezaal/noctra/cmd/noctra@latest` works too.
+Prefer the Go toolchain? `go install github.com/onelastcommit/noctra/cmd/noctra@latest` works too.
 
 Tell each Linear **project** which repo it maps to by adding one line to the project's description:
 
@@ -120,19 +120,19 @@ Noctra is a single static binary — pick whichever you prefer:
 
 ```bash
 # A. Homebrew (macOS — installs the cask)
-brew install ahmadAlMezaal/tap/noctra
+brew install onelastcommit/tap/noctra
 
 # B. Go toolchain (installs the latest tagged release to $GOPATH/bin)
-go install github.com/ahmadAlMezaal/noctra/cmd/noctra@latest
+go install github.com/onelastcommit/noctra/cmd/noctra@latest
 
 # C. Prebuilt binary — no Go required
 #    Grab the archive for your OS/arch from the Releases page:
-#    https://github.com/ahmadAlMezaal/noctra/releases
+#    https://github.com/onelastcommit/noctra/releases
 #    (linux amd64/arm64/armv7, macOS amd64/arm64), then:
 tar -xzf noctra_*_linux_arm64.tar.gz && sudo mv noctra /usr/local/bin/
 
 # D. Build from source
-git clone https://github.com/ahmadAlMezaal/noctra.git
+git clone https://github.com/onelastcommit/noctra.git
 cd noctra && go build -o noctra ./cmd/noctra
 ```
 
@@ -168,7 +168,7 @@ mkdir -p data                   # /data holds the repos cache, worktrees, logs, 
 
 # 2. Run
 docker run -d --name noctra --env-file .env -v "$PWD/data:/data" \
-  ghcr.io/ahmadalmezaal/noctra:latest
+  ghcr.io/onelastcommit/noctra:latest
 docker logs -f noctra       # watch it pick up tickets
 ```
 
@@ -203,7 +203,7 @@ All four persist `/data` (Fly volume / Render disk / Railway volume / droplet di
 
 ### Raspberry Pi
 
-Easiest: download the prebuilt **`linux_arm64`** (Pi 4 / 5, 64-bit OS) or **`linux_armv7`** (Pi 3 / 32-bit OS) archive from the [Releases page](https://github.com/ahmadAlMezaal/noctra/releases) — no Go toolchain on the Pi needed.
+Easiest: download the prebuilt **`linux_arm64`** (Pi 4 / 5, 64-bit OS) or **`linux_armv7`** (Pi 3 / 32-bit OS) archive from the [Releases page](https://github.com/onelastcommit/noctra/releases) — no Go toolchain on the Pi needed.
 
 Prefer to cross-compile yourself:
 

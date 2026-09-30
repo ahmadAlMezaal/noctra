@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmadAlMezaal/noctra/internal/agent"
-	"github.com/ahmadAlMezaal/noctra/internal/github"
-	"github.com/ahmadAlMezaal/noctra/internal/lessons"
-	"github.com/ahmadAlMezaal/noctra/internal/notify"
-	"github.com/ahmadAlMezaal/noctra/internal/repo"
-	"github.com/ahmadAlMezaal/noctra/internal/state"
-	"github.com/ahmadAlMezaal/noctra/internal/sweep"
-	"github.com/ahmadAlMezaal/noctra/internal/watch"
+	"github.com/onelastcommit/noctra/internal/agent"
+	"github.com/onelastcommit/noctra/internal/github"
+	"github.com/onelastcommit/noctra/internal/lessons"
+	"github.com/onelastcommit/noctra/internal/notify"
+	"github.com/onelastcommit/noctra/internal/repo"
+	"github.com/onelastcommit/noctra/internal/state"
+	"github.com/onelastcommit/noctra/internal/sweep"
+	"github.com/onelastcommit/noctra/internal/watch"
 )
 
 func (p *Pipeline) runWatcher(ctx context.Context, wg *sync.WaitGroup) {
