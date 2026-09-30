@@ -9,6 +9,8 @@
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8.svg)](go.mod)
 [![Website](https://img.shields.io/badge/website-getnoctra.dev-7C3AED.svg)](https://getnoctra.dev)
 
+Part of [One Last Commit](https://github.com/onelastcommit): small ideas, taken further than strictly necessary.
+
 Noctra picks up your Linear tickets, implements them with your coding agent of choice — **Claude Code, OpenAI Codex, GitHub Copilot, or Google Antigravity** — and creates PRs, all while you sleep. Iterate on review feedback and CI failures, and drive the whole thing from Telegram.
 
 <!-- TODO(maintainer): drop a ~20s demo GIF here — drag a ticket to "Next" → PR appears — e.g. ![demo](docs/demo.gif) -->
@@ -315,7 +317,7 @@ noctra completion bash > /etc/bash_completion.d/noctra
 noctra completion zsh > "${fpath[1]}/_noctra"
 ```
 
-The script completes the subcommand list (`run`, `setup`, `config`, `update`, `install-service`, `logs`, `tail`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
+The script completes the subcommand list (`run`, `setup`, `dashboard`, `config`, `repos`, `sweep`, `update`, `install-service`, `uninstall`, `logs`, `tail`, `start`, `stop`, `restart`, `status`, `doctor`, `cleanup`, `completion`, `version`, `help`). An unsupported shell argument prints usage and exits non-zero.
 
 ### Machine-readable doctor
 
