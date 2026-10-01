@@ -70,7 +70,8 @@ ENV REPOS_BASE=/data/repos \
     WORKTREE_BASE=/data/worktrees \
     LOG_DIR=/data/logs \
     STATE_DB=/data/state.db \
-    STATE_FILE=/data/state.json
+    STATE_FILE=/data/state.json \
+    GITHUB_AUTH_DIR=/data/github
 WORKDIR /data
 VOLUME /data
 
