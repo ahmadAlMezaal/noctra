@@ -66,6 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/onelastcommit/noctra/main/scripts/i
 claude            # or: codex login / gh auth login / agy — authenticate your agent once
 gh auth login     # GitHub access for PRs (also authenticates Copilot backend)
 noctra setup  # interactive: backend, Linear key, repos → writes .env
+noctra github login   # optional: act on GitHub as noctra-agent[bot] (see below)
 noctra        # start polling — or run it as a service (see below)
 ```
 
@@ -405,8 +406,61 @@ At dispatch — Noctra uses the first that matches:
 2. `REPO_PATH` from `.env` (single-repo `.env`-only fallback) if set.
 3. Otherwise the ticket is skipped with a Linear comment.
 
-- **Auth:** the host running Noctra needs git access to each repo — an SSH key, or `gh auth login` (HTTPS) / `GH_TOKEN` for GitHub. Noctra checks access (`git ls-remote`) before cloning.
+- **Auth:** the host running Noctra needs git access to each repo — an SSH key, or `gh auth login` (HTTPS) / `GH_TOKEN` for GitHub. Noctra checks access (`git ls-remote`) before cloning. Once the host is linked to the [GitHub App](#github-identity-noctra-agentbot), GitHub clones use app tokens instead.
 - Single-repo `.env`-only setups (`REPO_PATH`) keep working unchanged.
+
+---
+
+## GitHub identity (`noctra-agent[bot]`)
+
+By default Noctra pushes branches, opens PRs and replies to reviews as whoever is logged into `gh` on the host. Give it its own identity instead with the public [**noctra-agent** GitHub App](https://github.com/apps/noctra-agent):
+
+1. **Install the app** on the accounts and repositories Noctra should work on: <https://github.com/apps/noctra-agent>. You can pick individual repositories, and change the selection later.
+2. **Link the host** on the machine that runs Noctra:
+   ```bash
+   noctra github login     # shows a code to enter at github.com/login/device
+   noctra restart          # or restart however you run Noctra
+   ```
+3. **Check it:** `noctra doctor` shows `github app ✓`, the startup banner shows `GitHub as: noctra-agent[bot]`, and `noctra github status --repo owner/name` mints a test token for one repository.
+
+From then on PRs, commits, labels and review replies come from `noctra-agent[bot]`, with commits authored as `noctra-agent[bot] <336615789+noctra-agent[bot]@users.noreply.github.com>`.
+
+### How it works
+
+The app's private key never reaches your machine. It lives only in a small token service, [`onelastcommit/noctra-auth`](https://github.com/onelastcommit/noctra-auth), running at `https://auth.getnoctra.dev`. `noctra github login` uses GitHub's device flow to prove who you are, generates an Ed25519 key pair in `~/.noctra/github` (folder `0700`, files `0600`) and registers the public half. After that, Noctra asks the service for a short-lived token whenever it needs one, signing each request with that key.
+
+- **One repository per token.** Every token covers a single repository and expires within an hour.
+- **Least privilege per job.** Pushes and fetches use a contents-only token, PR and review work uses a write token, and the coding agent gets a **read-only** token: Noctra does all pushing and PR work itself, so an agent cannot push or open PRs on its own.
+- **Fresh tokens for git.** Git asks Noctra's credential helper (`noctra git-credential`) for a new token on every operation, so long runs never hit an expired one. Your `~/.gitconfig` is not changed.
+- **No silent fallback.** If a token can't be minted (for example, the app is not installed on that repository), the operation fails with a message saying so. Noctra never quietly falls back to your personal login.
+- **Live permission check.** The service only mints a token if the GitHub account that linked the host can still push to that repository, checked with GitHub on every request.
+
+The app cannot change workflow files (it has no Workflows permission, so pushes touching `.github/workflows/` are rejected), cannot touch repositories where it is not installed, and has no access to organisation or account settings.
+
+### What the token service stores
+
+Only what it needs to recognise a linked host: your **GitHub user ID**, the **installation IDs** you can access, and each host's **public key** (plus a random instance ID and the link time). It does not store your GitHub user token, the installation tokens it mints, your login name, email address, repository names or any code. Short-lived replay and rate-limit counters are deleted within the hour. Uninstalling the app from an account drops that installation from every linked host; revoking the app under GitHub **Settings → Applications → Authorized GitHub Apps**, or running `noctra github logout`, deletes the host's record entirely. The full list is in the [`noctra-auth` README](https://github.com/onelastcommit/noctra-auth#what-this-service-stores).
+
+### Moving from personal credentials
+
+Existing setups keep working unchanged until you run `noctra github login`. After you link and restart:
+
+- New PRs are opened by `noctra-agent[bot]`. The PR watcher now only follows the app's PRs, so PRs Noctra opened under your account earlier are no longer iterated on; finish or close them by hand.
+- If a repository uses branch protection that limits who can push, allow `noctra-agent`.
+- Keep `gh` logged in on the host: `noctra update` and the Copilot backend still use it. Copilot needs your own token for model access, which Noctra passes as `COPILOT_GITHUB_TOKEN`.
+- To go back, set `GITHUB_AUTH_MODE=token` in `.env` and restart, or run `noctra github logout`.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `GITHUB_AUTH_MODE` | `auto` | `auto` uses the app once the host is linked, `app` refuses to start unless it is, `token` always uses personal credentials |
+| `NOCTRA_AUTH_URL` | `https://auth.getnoctra.dev` | Token service to link with; point it at your own deployment if you self-host |
+| `GITHUB_AUTH_DIR` | `~/.noctra/github` (`/data/github` in Docker) | Where the instance ID and private key are kept |
+
+In Docker, run `docker exec -it <container> noctra github login` once; the key lands on the `/data` volume and survives restarts.
+
+### Self-hosting
+
+You can run the whole thing with your own GitHub App and token service: create the app from [`deploy/github-app/manifest.json`](deploy/github-app/manifest.json) (step-by-step guide in [`deploy/github-app/`](deploy/github-app/)), deploy [`noctra-auth`](https://github.com/onelastcommit/noctra-auth#self-hosting-with-your-own-app) to your Cloudflare account, and set `NOCTRA_AUTH_URL` before running `noctra github login`.
 
 ---
 
@@ -535,6 +589,10 @@ Noctra runs the agent CLI in full-autonomy mode — `claude --dangerously-skip-p
 - ✅ Dedicated feature branches on team repos (with PR review before merge)
 - ❌ Repos with secrets or credentials checked in
 - ❌ Repos connected to production infrastructure with write access
+
+### GitHub credentials
+
+In personal-credential mode Noctra and the agent use whatever `gh` and git are logged in as, which usually means write access to every repository that account can reach. Linking the host to the [GitHub App](#github-identity-noctra-agentbot) narrows that to single-repository tokens and gives the agent read-only access. That stops accidental pushes, but it is not a sandbox: the agent runs as the same OS user, so it can read files in your home directory, including a personal `gh` login if one is present.
 
 ### Running in a container
 
