@@ -11,7 +11,7 @@ Noctra acts on GitHub as `noctra[bot]`, a public GitHub App owned by the `onelas
 | Name | `noctra` |
 | Owner | `onelastcommit` (organisation) |
 | Homepage URL | `https://getnoctra.dev` |
-| Callback URL | `https://auth.getnoctra.dev/installed` |
+| Redirect URI (older UI: Callback URL) | `https://auth.getnoctra.dev/installed` |
 | Expire user authorization tokens | On |
 | Request user authorization (OAuth) during installation | On |
 | Enable Device Flow | On |
@@ -49,7 +49,7 @@ Open the file in an editor when you need to paste the value. You will paste it i
 3. **Description**: copy `description` from `manifest.json`.
 4. **Homepage URL**: `https://getnoctra.dev`.
 5. **Identifying and authorizing users**:
-   - **Callback URL**: `https://auth.getnoctra.dev/installed`
+   - **Redirect URI** (labelled *Callback URL* in older versions of the page): `https://auth.getnoctra.dev/installed`, with **Allow wildcard matching** unticked
    - **Expire user authorization tokens**: ticked
    - **Request user authorization (OAuth) during installation**: ticked
    - **Enable Device Flow**: ticked
