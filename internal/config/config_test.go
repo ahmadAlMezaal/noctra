@@ -9,6 +9,7 @@ import (
 )
 
 var noctraEnvKeys = []string{
+	"GITHUB_AUTH_MODE", "NOCTRA_AUTH_URL", "GITHUB_AUTH_DIR",
 	"TICKET_SOURCE", "TICKET_SOURCES", "GITHUB_ISSUES_REPOS", "GITHUB_TRIGGER_LABEL",
 	"LINEAR_API_KEY", "LINEAR_OAUTH_TOKEN", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
 	"TRIGGER_LABEL", "IN_REVIEW_STATE",
@@ -887,5 +888,35 @@ SWEEP_TASKS="lint-cleanup,dead-code"
 		if cfg.SweepTasks[i] != w {
 			t.Errorf("SweepTasks[%d]: got %q, want %q", i, cfg.SweepTasks[i], w)
 		}
+	}
+}
+
+func TestLoad_GitHubAuthSettings(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), "LINEAR_API_KEY=\"lin_xyz\"\n")
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHubAuthMode != "auto" || cfg.AuthServiceURL != DefaultAuthServiceURL {
+		t.Errorf("defaults: mode=%q url=%q", cfg.GitHubAuthMode, cfg.AuthServiceURL)
+	}
+	if cfg.GitHubAuthDir != filepath.Join(DefaultConfigDir(), "github") {
+		t.Errorf("auth dir default: %q", cfg.GitHubAuthDir)
+	}
+
+	writeFile(t, filepath.Join(dir, ".env"), "LINEAR_API_KEY=\"lin_xyz\"\nGITHUB_AUTH_MODE=\"Token\"\nNOCTRA_AUTH_URL=\"https://auth.example.test/\"\n")
+	cfg, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHubAuthMode != "token" || cfg.AuthServiceURL != "https://auth.example.test" {
+		t.Errorf("overrides: mode=%q url=%q", cfg.GitHubAuthMode, cfg.AuthServiceURL)
+	}
+
+	cfg.GitHubAuthMode = "sometimes"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "GITHUB_AUTH_MODE") {
+		t.Errorf("invalid mode should fail validation, got %v", err)
 	}
 }

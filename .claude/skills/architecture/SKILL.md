@@ -20,6 +20,7 @@ Use this playbook before changing Noctra's core code. The invariants below are e
 | `internal/notify` | Optional Telegram notifier (fire-and-forget) |
 | `internal/telegram` | Inbound Telegram listener (long-polling, command dispatch) |
 | `internal/github` | Thin `gh` CLI wrapper (`ListNoctraPRs`, `GetPR`, `CheckLogs`) |
+| `internal/ghauth` / `internal/ghauthcmd` | GitHub App mode: instance key, signed token-service client, device flow, git credential helper, `github login/logout/status` |
 | `internal/state` | File-backed PR cursor store (`~/.noctra-state.json`) |
 | `internal/watch` | Side-effect-free PR classifier (diffs feedback + CI against cursor) |
 | `internal/pipeline` | Poll loop, worker pool, per-ticket lifecycle (`process.go`), PR-watch + iterate (`iterate.go`), Telegram commands (`commands.go`) |
@@ -125,6 +126,10 @@ The non-obvious facts that previously lived in comments, kept here so removing t
 | `selfupdate` | Dev/snapshot builds never advertise an update — they can't be compared to a release tag. |
 | `config/config.go` | `MigrateLegacyPaths` renames `~/.nightshift*` → `~/.noctra*` only when the old exists and the new doesn't; best-effort, never clobbers. |
 | `cmd/noctra` | `uninstall --help` must never trigger the destructive action, and an unrecognized flag errors rather than falling through. |
+| `ghauthcmd/credential.go` | `git-credential` never fails git outright: when it cannot help (not linked, not installed, non-GitHub host) it prints the reason to stderr and returns no credentials, so public repositories still clone anonymously and private ones fail with git's own auth error. It reads `--dir` instead of resolving the config dir, because git runs helpers with the worktree as cwd and the cwd-checkout override would pick the wrong directory. |
+| `ghauth/session.go` | Noctra's own `gh` calls reuse a cached `write` token until 10 minutes before expiry; the git helper and agent runs always mint fresh (`FreshToken`), so a long run never inherits a token that is about to lapse. An agent's `GH_TOKEN` is fixed at spawn and lives an hour, which is why `Activate` warns when `AGENT_TIMEOUT_MINUTES` exceeds 50. |
+| `ghauth/sign.go` | `CanonicalString` is a wire format shared with `noctra-auth` (`src/signing.ts`); `TestCanonicalString_MatchesTokenServiceFormat` pins a vector checked against the TypeScript implementation. Change both sides together or every signed request is refused. |
+| `agent/backend.go` | `RunOptions.Env` is merged over the backend's own env (or `os.Environ()`) by key, so the agent's `GH_TOKEN` and `GIT_CONFIG_*` replace the process-wide app-mode values rather than appearing twice. |
 
 ## Quality gates
 

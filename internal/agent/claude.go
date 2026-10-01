@@ -141,7 +141,7 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 
 	cmd := exec.CommandContext(runCtx, b.CLI(), claudeStreamArgs(opts)...)
 	cmd.Dir = opts.Workdir
-	if env != nil {
+	if env := childEnv(env, opts); env != nil {
 		cmd.Env = env
 	}
 	var stderr bytes.Buffer

@@ -207,16 +207,24 @@ func TestAntigravityArgs_PromptIsValueOfPrintFlag(t *testing.T) {
 	}
 }
 
-func TestCopilotEnv_SkipsWhenTokenAlreadySet(t *testing.T) {
-	t.Setenv("COPILOT_GITHUB_TOKEN", "")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "already-here")
+func TestCopilotEnv_SkipsWhenCopilotTokenAlreadySet(t *testing.T) {
+	t.Setenv("COPILOT_GITHUB_TOKEN", "already-here")
 	if env := copilotEnv(context.Background()); env != nil {
-		t.Errorf("expected nil (inherit os.Environ) when a token env is set, got %v", env)
+		t.Errorf("expected nil (inherit os.Environ) when COPILOT_GITHUB_TOKEN is set, got %v", env)
 	}
 }
 
-func TestCopilotEnv_InjectsGhTokenWhenNoneSet(t *testing.T) {
+func TestCopilotEnv_PinsAmbientUserTokenForCopilot(t *testing.T) {
+	t.Setenv("COPILOT_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "gho_usertoken")
+	env := copilotEnv(context.Background())
+	if !slices.Contains(env, "COPILOT_GITHUB_TOKEN=gho_usertoken") {
+		t.Errorf("expected the user token pinned as COPILOT_GITHUB_TOKEN, got %v", env)
+	}
+}
+
+func TestCopilotEnv_InjectsGhAuthTokenWhenNoneSet(t *testing.T) {
 	t.Setenv("COPILOT_GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
@@ -230,10 +238,10 @@ func TestCopilotEnv_InjectsGhTokenWhenNoneSet(t *testing.T) {
 
 	env := copilotEnv(context.Background())
 	if env == nil {
-		t.Fatal("expected env with injected GH_TOKEN, got nil")
+		t.Fatal("expected env with injected COPILOT_GITHUB_TOKEN, got nil")
 	}
-	if !slices.Contains(env, "GH_TOKEN=faketoken123") {
-		t.Errorf("expected GH_TOKEN=faketoken123 in env, got %v", env)
+	if !slices.Contains(env, "COPILOT_GITHUB_TOKEN=faketoken123") {
+		t.Errorf("expected COPILOT_GITHUB_TOKEN=faketoken123 in env, got %v", env)
 	}
 }
 
@@ -332,5 +340,20 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		if !antigravity.HasRateLimit(in) {
 			t.Errorf("antigravity.HasRateLimit(%q) = false, want true", in)
 		}
+	}
+}
+
+func TestChildEnv_MergesRunEnvOverParent(t *testing.T) {
+	t.Setenv("GH_TOKEN", "personal")
+	if got := childEnv(nil, RunOptions{}); got != nil {
+		t.Fatalf("no extra env should keep inheriting, got %d vars", len(got))
+	}
+	got := childEnv(nil, RunOptions{Env: []string{"GH_TOKEN=scoped"}})
+	if slices.Contains(got, "GH_TOKEN=personal") || !slices.Contains(got, "GH_TOKEN=scoped") {
+		t.Fatal("run env must replace the parent's GH_TOKEN")
+	}
+	got = childEnv([]string{"A=1", "GH_TOKEN=x"}, RunOptions{Env: []string{"GH_TOKEN=scoped"}})
+	if !slices.Equal(got, []string{"A=1", "GH_TOKEN=scoped"}) {
+		t.Fatalf("backend env must be kept and overridden, got %v", got)
 	}
 }

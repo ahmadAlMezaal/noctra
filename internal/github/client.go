@@ -16,9 +16,18 @@ import (
 
 var ErrNotActionsRun = errors.New("not a GitHub Actions run")
 
-type Client struct{}
+type Client struct {
+	Author string
+}
 
-func New() *Client { return &Client{} }
+func New() *Client { return &Client{Author: "@me"} }
+
+func (c *Client) author() string {
+	if c.Author == "" {
+		return "@me"
+	}
+	return c.Author
+}
 
 const NoctraPRBodyMarker = "<!-- noctra-authored -->"
 
@@ -45,12 +54,16 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 		}
 
 		var stderr strings.Builder
-		cmd := exec.CommandContext(ctx, "gh", "pr", "list",
+		cmd, err := Command(ctx, ownerRepo, "pr", "list",
 			"--repo", ownerRepo,
-			"--author", "@me",
+			"--author", c.author(),
 			"--state", "open",
 			"--json", "url,number,title,headRefName,body",
 		)
+		if err != nil {
+			slog.Warn("github: skipping repo", "repo", ownerRepo, "err", err)
+			continue
+		}
 		cmd.Stderr = &stderr
 		stdout, err := cmd.Output()
 		if err != nil {
@@ -81,10 +94,17 @@ func (c *Client) ListNoctraPRs(ctx context.Context, repoURLs []string) ([]PR, er
 }
 
 func (c *Client) GetPR(ctx context.Context, prURL string) (*Details, error) {
+	ownerRepo, err := OwnerRepoOfPR(prURL)
+	if err != nil {
+		return nil, err
+	}
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL,
+	cmd, err := Command(ctx, ownerRepo, "pr", "view", prURL,
 		"--json", "url,number,state,headRefOid,comments,reviews,statusCheckRollup",
 	)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
@@ -154,7 +174,10 @@ func (c *Client) collectBotAuthors(ctx context.Context, owner, repo string, numb
 			args = append(args, "-f", "cursor="+cursor)
 		}
 		var stderr strings.Builder
-		cmd := exec.CommandContext(ctx, "gh", args...)
+		cmd, err := Command(ctx, owner+"/"+repo, args...)
+		if err != nil {
+			return err
+		}
 		cmd.Stderr = &stderr
 		stdout, err := cmd.Output()
 		if err != nil {
@@ -213,8 +236,15 @@ func (c *Client) listReviewComments(ctx context.Context, prURL string) ([]Review
 	if err != nil {
 		return nil, err
 	}
+	ownerRepo, err := OwnerRepoOfPR(prURL)
+	if err != nil {
+		return nil, err
+	}
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", apiPath)
+	cmd, err := Command(ctx, ownerRepo, "api", "--paginate", apiPath)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
@@ -248,8 +278,11 @@ func (c *Client) CheckLogs(ctx context.Context, ch Check) (string, error) {
 		return "", fmt.Errorf("%q: %w", ch.URL(), ErrNotActionsRun)
 	}
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "run", "view", runID,
+	cmd, err := Command(ctx, owner+"/"+repo, "run", "view", runID,
 		"--repo", owner+"/"+repo, "--log-failed")
+	if err != nil {
+		return "", err
+	}
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
@@ -353,8 +386,15 @@ type reviewThread struct {
 
 func (c *Client) PostComment(ctx context.Context, prURL, body string) error {
 	body += "\n\n" + NoctraReplyMarker
+	ownerRepo, err := OwnerRepoOfPR(prURL)
+	if err != nil {
+		return err
+	}
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prURL, "--body", body)
+	cmd, err := Command(ctx, ownerRepo, "pr", "comment", prURL, "--body", body)
+	if err != nil {
+		return err
+	}
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
 		return fmt.Errorf("gh pr comment %s: %w (%s)", prURL, err, strings.TrimSpace(stderr.String()))
@@ -395,7 +435,7 @@ func (c *Client) ReplyToThreadsByComment(ctx context.Context, prURL string, repl
 		}
 		replied++
 		if r.Resolve {
-			if err := c.resolveThread(ctx, t.ID); err != nil {
+			if err := c.resolveThread(ctx, owner+"/"+repo, t.ID); err != nil {
 				slog.Warn("github: resolve review thread failed", "thread", t.ID, "err", err)
 			} else {
 				resolved++
@@ -426,12 +466,15 @@ func (c *Client) fetchUnresolvedThreads(ctx context.Context, owner, repo string,
 }`
 
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+	cmd, err := Command(ctx, owner+"/"+repo, "api", "graphql",
 		"-f", "query="+query,
 		"-f", "owner="+owner,
 		"-f", "repo="+repo,
 		"-F", fmt.Sprintf("number=%d", number),
 	)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
@@ -501,13 +544,17 @@ func (c *Client) PostInlineComments(ctx context.Context, prURL, commitSHA string
 			continue
 		}
 		var stderr strings.Builder
-		cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath,
+		cmd, err := Command(ctx, owner+"/"+repo, "api", "--method", "POST", apiPath,
 			"-f", "body="+ic.Body+"\n\n"+NoctraReplyMarker,
 			"-f", "commit_id="+commitSHA,
 			"-f", "path="+ic.Path,
 			"-F", fmt.Sprintf("line=%d", ic.Line),
 			"-f", "side=RIGHT",
 		)
+		if err != nil {
+			slog.Warn("github: post inline comment skipped", "path", ic.Path, "err", err)
+			continue
+		}
 		cmd.Stderr = &stderr
 		if _, err := cmd.Output(); err != nil {
 			slog.Warn("github: post inline comment failed (likely out-of-diff line)",
@@ -541,16 +588,26 @@ func (c *Client) AddEyesReaction(ctx context.Context, prURL, commentID string, i
 	if strings.TrimSpace(commentID) == "" {
 		return nil
 	}
+	ownerRepo, err := OwnerRepoOfPR(prURL)
+	if err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	if inline {
 		apiPath, err := pullCommentReactionAPIPath(prURL, commentID)
 		if err != nil {
 			return err
 		}
-		cmd = exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath, "-f", "content=eyes")
+		cmd, err = Command(ctx, ownerRepo, "api", "--method", "POST", apiPath, "-f", "content=eyes")
+		if err != nil {
+			return err
+		}
 	} else {
 		const q = `mutation($id:ID!){addReaction(input:{subjectId:$id,content:EYES}){reaction{content}}}`
-		cmd = exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+q, "-f", "id="+commentID)
+		cmd, err = Command(ctx, ownerRepo, "api", "graphql", "-f", "query="+q, "-f", "id="+commentID)
+		if err != nil {
+			return err
+		}
 	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -563,9 +620,12 @@ func (c *Client) AddEyesReaction(ctx context.Context, prURL, commentID string, i
 func (c *Client) replyToThread(ctx context.Context, owner, repo string, prNumber int, commentID int64, body string) error {
 	apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments/%d/replies", owner, repo, prNumber, commentID)
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath,
+	cmd, err := Command(ctx, owner+"/"+repo, "api", "--method", "POST", apiPath,
 		"-f", "body="+body,
 	)
+	if err != nil {
+		return err
+	}
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
 		return fmt.Errorf("gh api POST %s: %w (%s)", apiPath, err, strings.TrimSpace(stderr.String()))
@@ -573,7 +633,7 @@ func (c *Client) replyToThread(ctx context.Context, owner, repo string, prNumber
 	return nil
 }
 
-func (c *Client) resolveThread(ctx context.Context, threadID string) error {
+func (c *Client) resolveThread(ctx context.Context, ownerRepo, threadID string) error {
 	mutation := `mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
     thread { isResolved }
@@ -581,10 +641,13 @@ func (c *Client) resolveThread(ctx context.Context, threadID string) error {
 }`
 
 	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+	cmd, err := Command(ctx, ownerRepo, "api", "graphql",
 		"-f", "query="+mutation,
 		"-f", "threadId="+threadID,
 	)
+	if err != nil {
+		return err
+	}
 	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
 		return fmt.Errorf("gh api graphql resolveReviewThread: %w (%s)", err, strings.TrimSpace(stderr.String()))

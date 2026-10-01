@@ -15,6 +15,7 @@ import (
 	"github.com/onelastcommit/noctra/internal/budget"
 	"github.com/onelastcommit/noctra/internal/config"
 	"github.com/onelastcommit/noctra/internal/dashboard"
+	"github.com/onelastcommit/noctra/internal/ghauth"
 	"github.com/onelastcommit/noctra/internal/github"
 	"github.com/onelastcommit/noctra/internal/linear"
 	"github.com/onelastcommit/noctra/internal/linearclient"
@@ -129,6 +130,9 @@ func New(cfg *config.Config) *Pipeline {
 
 	if cfg.AutoIteratePRs && store != nil {
 		p.gh = github.New()
+		if sess := ghauth.Active(); sess != nil {
+			p.gh.Author = "app/" + sess.Instance.AppSlug
+		}
 
 		p.watcher = watch.New(p.gh, store, p.resolver.AllRepoRemotes, cfg.TrustedReviewers)
 	}
@@ -749,6 +753,7 @@ func (p *Pipeline) banner() {
 		linearIdentity = "Noctra app (OAuth actor=app, static token)"
 	}
 	fmt.Printf("   Linear as:      %s\n", linearIdentity)
+	fmt.Printf("   GitHub as:      %s\n", githubIdentity())
 	if p.cfg.TriggerMode == "label" {
 		fmt.Printf("   Watching:       label %q\n", p.cfg.TriggerLabel)
 	} else {
@@ -868,4 +873,24 @@ func (p *Pipeline) startupCleanup(ctx context.Context) {
 		_ = runIn(ctx, rp, "git", "worktree", "prune")
 	}
 	slog.Info("startup cleanup done")
+}
+
+func (p *Pipeline) agentEnv(ctx context.Context, workdir string) []string {
+	sess := ghauth.Active()
+	if sess == nil {
+		return nil
+	}
+	ownerRepo, err := github.OwnerRepoOfDir(ctx, workdir)
+	if err != nil {
+		slog.Warn("github app: cannot tell which repository the agent is working on", "dir", workdir, "err", err)
+	}
+	return sess.AgentEnv(ctx, ownerRepo)
+}
+
+func githubIdentity() string {
+	sess := ghauth.Active()
+	if sess == nil {
+		return "personal credentials (gh / git on this host)"
+	}
+	return fmt.Sprintf("%s via GitHub App (linked by %s, %s)", sess.Instance.BotLogin, sess.Instance.GitHubLogin, sess.Instance.ServiceURL)
 }

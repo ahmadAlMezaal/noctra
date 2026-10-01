@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/onelastcommit/noctra/internal/github"
 )
 
 func ghOpenPRForBranch(ctx context.Context, repoPath, branch string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list",
+	cmd, err := github.CommandInDir(ctx, repoPath, "pr", "list",
 		"--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url // \"\"")
-	cmd.Dir = repoPath
+	if err != nil {
+		return "", err
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("gh pr list --head %s: %w (%s)", branch, err, strings.TrimSpace(string(out)))

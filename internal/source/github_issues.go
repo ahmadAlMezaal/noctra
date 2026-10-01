@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -111,7 +110,7 @@ func (s *GitHubIssuesSource) MarkReady(ctx context.Context, ticket Ticket, info 
 	if err != nil {
 		return err
 	}
-	firstErr := runGH(ctx, "issue", "edit", strconv.Itoa(meta.Number),
+	firstErr := runGH(ctx, meta.OwnerRepo, "issue", "edit", strconv.Itoa(meta.Number),
 		"--repo", meta.OwnerRepo,
 		"--remove-label", s.cfg.TriggerLabel)
 	body := fmt.Sprintf(
@@ -128,13 +127,13 @@ func (s *GitHubIssuesSource) Comment(ctx context.Context, ticket Ticket, body st
 	if err != nil {
 		return err
 	}
-	return runGH(ctx, "issue", "comment", strconv.Itoa(meta.Number),
+	return runGH(ctx, meta.OwnerRepo, "issue", "comment", strconv.Itoa(meta.Number),
 		"--repo", meta.OwnerRepo,
 		"--body", body)
 }
 
 func (s *GitHubIssuesSource) listIssues(ctx context.Context, ownerRepo string) ([]githubIssue, error) {
-	stdout, err := ghOutput(ctx, "issue", "list",
+	stdout, err := ghOutput(ctx, ownerRepo, "issue", "list",
 		"--repo", ownerRepo,
 		"--state", "open",
 		"--label", s.cfg.TriggerLabel,
@@ -151,7 +150,7 @@ func (s *GitHubIssuesSource) listIssues(ctx context.Context, ownerRepo string) (
 }
 
 func (s *GitHubIssuesSource) viewIssue(ctx context.Context, ownerRepo string, number int) (githubIssue, error) {
-	stdout, err := ghOutput(ctx, "issue", "view", strconv.Itoa(number),
+	stdout, err := ghOutput(ctx, ownerRepo, "issue", "view", strconv.Itoa(number),
 		"--repo", ownerRepo,
 		"--json", "number,title,body,url,labels,comments")
 	if err != nil {
@@ -246,9 +245,12 @@ func commentsFromGitHub(comments []githubComment) []Comment {
 	return out
 }
 
-func ghOutput(ctx context.Context, args ...string) ([]byte, error) {
+func ghOutput(ctx context.Context, ownerRepo string, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd, err := ghwrap.Command(ctx, ownerRepo, args...)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
@@ -257,7 +259,7 @@ func ghOutput(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout, nil
 }
 
-func runGH(ctx context.Context, args ...string) error {
-	_, err := ghOutput(ctx, args...)
+func runGH(ctx context.Context, ownerRepo string, args ...string) error {
+	_, err := ghOutput(ctx, ownerRepo, args...)
 	return err
 }
