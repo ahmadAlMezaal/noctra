@@ -1,5 +1,5 @@
 {
-  "name": "noctra",
+  "name": "noctra-agent",
   "url": "https://getnoctra.dev",
   "description": "Autonomous ticket-to-PR agent. Pushes branches, opens pull requests and responds to review feedback on the repositories you choose.",
   "public": true,

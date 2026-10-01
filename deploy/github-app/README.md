@@ -1,6 +1,6 @@
-# The `noctra` GitHub App
+# The `noctra-agent` GitHub App
 
-Noctra acts on GitHub as `noctra[bot]`, a public GitHub App owned by the `onelastcommit` organisation. Users install the app on the repositories Noctra may touch, then run `noctra github login`. The app's private key never leaves the token service at `https://auth.getnoctra.dev`, which mints short-lived, single-repository installation tokens for linked Noctra instances.
+Noctra acts on GitHub as `noctra-agent[bot]`, a public GitHub App owned by the `onelastcommit` organisation. Users install the app on the repositories Noctra may touch, then run `noctra github login`. The app's private key never leaves the token service at `https://auth.getnoctra.dev`, which mints short-lived, single-repository installation tokens for linked Noctra instances.
 
 `manifest.json` in this directory is the source of truth for the app's settings. Self-hosters can use it to create their own copy of the app (change `name`, the URLs and the owner).
 
@@ -8,7 +8,7 @@ Noctra acts on GitHub as `noctra[bot]`, a public GitHub App owned by the `onelas
 
 | Setting | Value |
 |---|---|
-| Name | `noctra` |
+| Name | `noctra-agent` (`noctra` is reserved by an existing account) |
 | Owner | `onelastcommit` (organisation) |
 | Homepage URL | `https://getnoctra.dev` |
 | Redirect URI (older UI: Callback URL) | `https://auth.getnoctra.dev/installed` |
@@ -45,7 +45,7 @@ Open the file in an editor when you need to paste the value. You will paste it i
 ### 2. Create the app
 
 1. Go to `https://github.com/organizations/onelastcommit/settings/apps/new` (you must be an organisation owner).
-2. **GitHub App name**: `noctra`. App names are unique across all of GitHub. If `noctra` is taken, stop and tell me which name you chose instead, because the slug is used by the watcher (`app/<slug>`) and in the bot's commit identity.
+2. **GitHub App name**: `noctra-agent`. App names are unique across all of GitHub and cannot match an existing account, which rules out `noctra`. The slug is used by the watcher (`app/noctra-agent`) and in the bot's commit identity, so a self-hoster using a different name must set it in their token service config.
 3. **Description**: copy `description` from `manifest.json`.
 4. **Homepage URL**: `https://getnoctra.dev`.
 5. **Identifying and authorizing users**:
@@ -78,13 +78,13 @@ On the app's *General* page note the **App ID** and the **Client ID**. Neither i
 
 ### 4. Generate and convert the private key
 
-1. On the app's *General* page, under *Private keys*, click **Generate a private key**. GitHub downloads `noctra.<date>.private-key.pem`.
+1. On the app's *General* page, under *Private keys*, click **Generate a private key**. GitHub downloads `noctra-agent.<date>.private-key.pem`.
 2. Convert it to PKCS#8, which is the format the Workers runtime's WebCrypto can import:
 
    ```bash
    umask 077
    openssl pkcs8 -topk8 -nocrypt \
-     -in ~/Downloads/noctra.*.private-key.pem \
+     -in ~/Downloads/noctra-agent.*.private-key.pem \
      -out ~/noctra-app-key.pkcs8.pem
    ```
 
@@ -98,16 +98,16 @@ Never commit either file, paste it into an issue or chat, or copy it to the Pi. 
 
 ## The bot's commit identity
 
-Commits are authored as `noctra[bot]` using GitHub's no-reply address, which needs the bot user's numeric ID (different from the App ID). Once the app exists:
+Commits are authored as `noctra-agent[bot]` using GitHub's no-reply address, which needs the bot user's numeric ID (different from the App ID). Once the app exists:
 
 ```bash
-gh api "users/noctra[bot]" --jq .id
+gh api "users/noctra-agent[bot]" --jq .id
 ```
 
 The commit identity is then:
 
 ```
-noctra[bot] <ID+noctra[bot]@users.noreply.github.com>
+noctra-agent[bot] <ID+noctra-agent[bot]@users.noreply.github.com>
 ```
 
 The token service publishes this ID from `GET /config`, so Noctra clients pick it up without configuration.
