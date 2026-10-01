@@ -96,6 +96,17 @@ Never commit either file, paste it into an issue or chat, or copy it to the Pi. 
 
 *General* page, *Display information*. Purely cosmetic.
 
+## The hosted app
+
+| | |
+|---|---|
+| Settings | `https://github.com/organizations/onelastcommit/settings/apps/noctra-agent` |
+| Public install page | `https://github.com/apps/noctra-agent` |
+| App ID | `5151968` |
+| Client ID | `Iv23liJy9hhGftn73gKf` |
+
+Both identifiers are public. The private key and webhook secret are not, and live only in the token service's secrets.
+
 ## The bot's commit identity
 
 Commits are authored as `noctra-agent[bot]` using GitHub's no-reply address, which needs the bot user's numeric ID (different from the App ID). Once the app exists:
