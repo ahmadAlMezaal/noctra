@@ -104,6 +104,8 @@ Never commit either file, paste it into an issue or chat, or copy it to the Pi. 
 | Public install page | `https://github.com/apps/noctra-agent` |
 | App ID | `5151968` |
 | Client ID | `Iv23liJy9hhGftn73gKf` |
+| Bot user | `noctra-agent[bot]`, ID `336615789` |
+| Commit identity | `noctra-agent[bot] <336615789+noctra-agent[bot]@users.noreply.github.com>` |
 
 Both identifiers are public. The private key and webhook secret are not, and live only in the token service's secrets.
 
