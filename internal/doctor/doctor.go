@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/onelastcommit/noctra/internal/config"
+	"github.com/onelastcommit/noctra/internal/ghauth"
 	"github.com/onelastcommit/noctra/internal/linear"
 )
 
@@ -67,7 +68,20 @@ func gather(scriptDir string) []check {
 		}
 	}
 
-	checks = append(checks, checkGHAuth())
+	appMode := false
+	if loadErr == nil {
+		var c check
+		c, appMode = checkGitHubApp(cfg)
+		checks = append(checks, c)
+	}
+	if gh := checkGHAuth(); gh.ok || !appMode {
+		checks = append(checks, gh)
+	} else {
+		gh.ok = true
+		gh.detail = "not authenticated (fine in GitHub App mode; still needed for the Copilot backend and `noctra update`)"
+		gh.hint = ""
+		checks = append(checks, gh)
+	}
 
 	if loadErr != nil {
 		checks = append(checks, check{
@@ -289,4 +303,33 @@ func checkRepos(cfg *config.Config) check {
 		ok:     true,
 		detail: "routed via Linear project `Repo:` directives",
 	}
+}
+
+func checkGitHubApp(cfg *config.Config) (check, bool) {
+	linked := ghauth.IsLinked(cfg.GitHubAuthDir)
+	mode, err := ghauth.ResolveMode(cfg.GitHubAuthMode, linked)
+	if err != nil {
+		return check{name: "github app", detail: err.Error(), hint: "Run `noctra github login`, or set GITHUB_AUTH_MODE=token."}, false
+	}
+	if mode == ghauth.ModeToken {
+		detail := "personal credentials (not linked)"
+		if linked {
+			detail = "personal credentials (GITHUB_AUTH_MODE=token overrides the link)"
+		}
+		return check{name: "github app", ok: true, detail: detail}, false
+	}
+	inst, _, err := ghauth.Load(cfg.GitHubAuthDir)
+	if err != nil {
+		return check{name: "github app", detail: err.Error(), hint: "Run `noctra github login --force`."}, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := ghauth.NewService(inst.ServiceURL).Health(ctx); err != nil {
+		return check{
+			name:   "github app",
+			detail: fmt.Sprintf("linked as %s but %s is unreachable: %v", inst.GitHubLogin, inst.ServiceURL, err),
+			hint:   "Check network access to the token service (NOCTRA_AUTH_URL).",
+		}, true
+	}
+	return check{name: "github app", ok: true, detail: fmt.Sprintf("%s, linked by %s", inst.BotLogin, inst.GitHubLogin)}, true
 }

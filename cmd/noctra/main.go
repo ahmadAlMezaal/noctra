@@ -18,6 +18,7 @@ import (
 	"github.com/onelastcommit/noctra/internal/config"
 	"github.com/onelastcommit/noctra/internal/configcmd"
 	"github.com/onelastcommit/noctra/internal/doctor"
+	"github.com/onelastcommit/noctra/internal/ghauthcmd"
 	"github.com/onelastcommit/noctra/internal/pipeline"
 	"github.com/onelastcommit/noctra/internal/reposcmd"
 	"github.com/onelastcommit/noctra/internal/selfupdate"
@@ -73,6 +74,10 @@ func realMain() error {
 		return reposcmd.Run(scriptDir, os.Args[2:])
 	case "sweep":
 		return sweepcmd.Run(scriptDir, os.Args[2:])
+	case "github":
+		return ghauthcmd.Run(scriptDir, os.Args[2:])
+	case "git-credential":
+		return ghauthcmd.GitCredential(os.Args[2:], os.Stdin, os.Stdout, os.Stderr)
 	case "cleanup":
 		force := len(os.Args) > 2 && os.Args[2] == "--force"
 		return runCleanup(scriptDir, force)
@@ -232,6 +237,7 @@ func printUsage() {
 	fmt.Println("  config    Read or edit .env settings (path, edit, get, set)")
 	fmt.Println("  repos     Add a repository or list the cloned ones (add, list)")
 	fmt.Println("  sweep     Run a maintenance sweep now (--task, --repo, --force)")
+	fmt.Println("  github    Link this machine to the noctra-agent GitHub App (login, logout, status)")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
 	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
@@ -269,6 +275,9 @@ func runPoll(scriptDir string) error {
 		return err
 	}
 	if err := requireCLIs(cfg); err != nil {
+		return err
+	}
+	if _, err := ghauthcmd.Activate(cfg); err != nil {
 		return err
 	}
 
@@ -361,7 +370,7 @@ func unitNotFound(err error) bool {
 }
 
 var subcommands = []string{
-	"run", "setup", "dashboard", "config", "repos", "sweep", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
+	"run", "setup", "dashboard", "config", "repos", "sweep", "github", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 

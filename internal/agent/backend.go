@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/onelastcommit/noctra/internal/ghauth"
 )
 
 var ErrTimedOut = errors.New("agent timed out")
@@ -23,6 +25,17 @@ type RunOptions struct {
 	Timeout       time.Duration
 	UseAgentTeams bool
 	MaxTokens     int64
+	Env           []string
+}
+
+func childEnv(env []string, opts RunOptions) []string {
+	if len(opts.Env) == 0 {
+		return env
+	}
+	if env == nil {
+		env = os.Environ()
+	}
+	return ghauth.MergeEnv(env, opts.Env)
 }
 
 type Backend interface {
@@ -70,7 +83,7 @@ func runCLI(ctx context.Context, bin string, args, env []string, opts RunOptions
 	cmd.Dir = opts.Workdir
 	cmd.Stdout = io.MultiWriter(logF, &buf)
 	cmd.Stderr = io.MultiWriter(logF, &buf)
-	if env != nil {
+	if env := childEnv(env, opts); env != nil {
 		cmd.Env = env
 	}
 
@@ -95,7 +108,7 @@ func runCLICapture(ctx context.Context, bin string, args, env []string, opts Run
 	cmd.Dir = opts.Workdir
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
-	if env != nil {
+	if env := childEnv(env, opts); env != nil {
 		cmd.Env = env
 	}
 

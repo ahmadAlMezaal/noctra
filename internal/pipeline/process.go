@@ -152,6 +152,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
+		Env:           p.agentEnv(ctx, wt.Path),
 		Prompt:        prompt,
 		LogFile:       logFile,
 		Timeout:       p.cfg.AgentTimeout,
@@ -389,6 +390,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 				fixOffset := agent.OffsetBefore(logFile)
 				fixUsage, fixErr := backend.Run(ctx, agent.RunOptions{
 					Workdir:       wt.Path,
+					Env:           p.agentEnv(ctx, wt.Path),
 					Prompt:        fixPrompt,
 					LogFile:       logFile,
 					Timeout:       p.cfg.AgentTimeout,
@@ -818,8 +820,10 @@ func ghPRCreate(ctx context.Context, repoPath, title, body, base, head string, d
 	if draft {
 		args = append(args, "--draft")
 	}
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	cmd.Dir = repoPath
+	cmd, err := github.CommandInDir(ctx, repoPath, args...)
+	if err != nil {
+		return "", err
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -832,7 +836,14 @@ func ghAddLabel(ctx context.Context, repoPath, prURL, label string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", apiPath, "-f", "labels[]="+label)
+	ownerRepo, err := github.OwnerRepoOfPR(prURL)
+	if err != nil {
+		return err
+	}
+	cmd, err := github.Command(ctx, ownerRepo, "api", "--method", "POST", apiPath, "-f", "labels[]="+label)
+	if err != nil {
+		return err
+	}
 	cmd.Dir = repoPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -222,6 +222,7 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:   wt.Path,
+		Env:       p.agentEnv(ctx, wt.Path),
 		Prompt:    prompt,
 		LogFile:   logFile,
 		Timeout:   p.cfg.AgentTimeout,

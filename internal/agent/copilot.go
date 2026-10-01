@@ -24,16 +24,20 @@ func (b copilotBackend) Run(ctx context.Context, opts RunOptions) (Usage, error)
 }
 
 func copilotEnv(ctx context.Context) []string {
-	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
-		if os.Getenv(k) != "" {
-			return nil
-		}
-	}
-	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
-	if err != nil {
+	if os.Getenv("COPILOT_GITHUB_TOKEN") != "" {
 		return nil
 	}
-	token := strings.TrimSpace(string(out))
+	token := os.Getenv("GH_TOKEN")
+	if token == "" {
+		token = os.Getenv("GITHUB_TOKEN")
+	}
+	if token == "" {
+		out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+		if err != nil {
+			return nil
+		}
+		token = strings.TrimSpace(string(out))
+	}
 	if token == "" {
 		return nil
 	}
@@ -43,7 +47,7 @@ func copilotEnv(ctx context.Context) []string {
 			"fine-grained PAT, or run `copilot /login`.")
 		return nil
 	}
-	return append(os.Environ(), "GH_TOKEN="+token)
+	return append(os.Environ(), "COPILOT_GITHUB_TOKEN="+token)
 }
 
 func copilotArgs(opts RunOptions) []string {

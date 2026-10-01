@@ -305,6 +305,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
 		Workdir:       wt.Path,
+		Env:           p.agentEnv(ctx, wt.Path),
 		Prompt:        prompt,
 		LogFile:       logFile,
 		Timeout:       p.cfg.AgentTimeout,

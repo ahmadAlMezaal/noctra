@@ -68,6 +68,7 @@ const (
 	DefaultMaxDispatches    = 40
 	DefaultMaxRetries       = 3
 	DefaultAgentTimeout     = 45 * time.Minute
+	DefaultAuthServiceURL   = "https://auth.getnoctra.dev"
 	DefaultGeminiMode       = "api"
 	DefaultGeminiModel      = "gemini-2.5-pro"
 	DefaultMaxReviewRetries = 1
@@ -176,6 +177,10 @@ type Config struct {
 	DashboardToken      string
 	DashboardAdminToken string
 	DashboardSSH        string
+
+	GitHubAuthMode string
+	AuthServiceURL string
+	GitHubAuthDir  string
 
 	ScriptDir    string
 	EnvFile      string
@@ -299,6 +304,10 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.DashboardAdminToken = getenv(fileEnv, "DASHBOARD_ADMIN_TOKEN", "")
 	cfg.DashboardSSH = getenv(fileEnv, "DASHBOARD_SSH", "")
 
+	cfg.GitHubAuthMode = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "GITHUB_AUTH_MODE", "auto")))
+	cfg.AuthServiceURL = strings.TrimRight(getenv(fileEnv, "NOCTRA_AUTH_URL", DefaultAuthServiceURL), "/")
+	cfg.GitHubAuthDir = getenv(fileEnv, "GITHUB_AUTH_DIR", filepath.Join(DefaultConfigDir(), "github"))
+
 	return cfg, nil
 }
 
@@ -307,6 +316,12 @@ func (c *Config) Validate() error {
 	sources := c.TicketSources
 	if len(sources) == 0 {
 		sources = []string{"linear"}
+	}
+
+	switch c.GitHubAuthMode {
+	case "", "auto", "app", "token":
+	default:
+		errs = append(errs, fmt.Sprintf("GITHUB_AUTH_MODE must be auto, app or token (got %q)", c.GitHubAuthMode))
 	}
 
 	if usesSource(sources, "linear") && c.LinearAPIKey == "" && c.LinearOAuthToken == "" && !c.ActorAppConfigured() {
